@@ -261,7 +261,7 @@ async fn fetch_reddit_html(
     // Prefer using cookies-from-browser (persisted Chromium profile) since that's the most
     // reliable way to mimic a real logged-in browser.
     if cookies.browser_profile.is_some() {
-        match fetch_html_with_chromium_profile(url, cookies).await {
+        match fetch_html_with_chromium_profile(url, work_dir, cookies).await {
             Ok(html) => {
                 debug!("Fetched Reddit HTML via Chromium profile");
                 return finalize_reddit_html(url, work_dir, html).await;
@@ -277,7 +277,7 @@ async fn fetch_reddit_html(
     if cookie_header.is_none() {
         anyhow::bail!(
             "Reddit HTML fetch requires authenticated cookies (datacenter IPs are often blocked). \
-Configure either COOKIES_BROWSER_PROFILE (recommended) or COOKIES_FILE for reddit.com."
+Configure either YT_DLP_COOKIES_FROM_BROWSER (recommended) or COOKIES_FILE_PATH for reddit.com."
         );
     }
 
@@ -351,12 +351,24 @@ fn extract_canonical_url_from_html(doc: &Html) -> Option<String> {
     }
 }
 
-async fn fetch_html_with_chromium_profile(url: &str, cookies: &CookieOptions<'_>) -> Result<String> {
+async fn fetch_html_with_chromium_profile(
+    url: &str,
+    work_dir: &Path,
+    cookies: &CookieOptions<'_>,
+) -> Result<String> {
     let spec = cookies
         .browser_profile
         .context("No browser_profile configured")?;
 
-    let (user_data_dir, profile_dir) = chromium_user_data_and_profile_from_spec(spec);
+    let (source_user_data_dir, profile_dir) = chromium_user_data_and_profile_from_spec(spec);
+
+    // Chromium will refuse to start if the same user-data-dir is in use (e.g. the cookie-browser
+    // container is running and has the profile open). To avoid lock contention, copy the
+    // user-data-dir to a per-archive temp directory and run Chromium against the copy.
+    let user_data_dir = clone_chromium_user_data_dir(work_dir, &source_user_data_dir)
+        .await
+        .context("Failed to clone Chromium user-data-dir for Reddit HTML fetch")?;
+
     let chrome_path =
         std::env::var("SCREENSHOT_CHROME_PATH").unwrap_or_else(|_| "chromium".to_string());
 
@@ -396,6 +408,39 @@ async fn fetch_html_with_chromium_profile(url: &str, cookies: &CookieOptions<'_>
         anyhow::bail!("Chromium dump-dom returned empty output");
     }
     Ok(html.to_string())
+}
+
+async fn clone_chromium_user_data_dir(work_dir: &Path, source: &std::path::Path) -> Result<std::path::PathBuf> {
+    let dest = work_dir.join("chromium-user-data");
+
+    // Clean up any previous attempt (best-effort). Work dirs are per-archive, but retries can
+    // happen when re-archiving.
+    let _ = tokio::fs::remove_dir_all(&dest).await;
+    tokio::fs::create_dir_all(&dest)
+        .await
+        .context("Failed to create chromium-user-data dir")?;
+
+    // Use `cp -a` to preserve Chromium's expected directory layout and permissions.
+    // Copying from a read-only mount is fine; the destination must be writable.
+    let status = Command::new("cp")
+        .arg("-a")
+        .arg(format!("{}/.", source.display()))
+        .arg(&dest)
+        .status()
+        .await
+        .context("Failed to execute cp -a for Chromium profile copy")?;
+
+    if !status.success() {
+        anyhow::bail!("cp -a failed with status: {status}");
+    }
+
+    // Remove singleton lock/socket artifacts so Chromium doesn't think the copied profile is
+    // already in-use.
+    for name in ["SingletonLock", "SingletonCookie", "SingletonSocket"] {
+        let _ = tokio::fs::remove_file(dest.join(name)).await;
+    }
+
+    Ok(dest)
 }
 
 fn chromium_user_data_and_profile_from_spec(spec: &str) -> (std::path::PathBuf, Option<String>) {
