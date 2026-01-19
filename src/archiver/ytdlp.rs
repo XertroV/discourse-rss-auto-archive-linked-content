@@ -1,12 +1,155 @@
 use std::path::Path;
 use std::process::Stdio;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
+use serde::Deserialize;
 use tokio::process::Command;
 use tracing::{debug, info, warn};
 
 use super::CookieOptions;
+use crate::config::Config;
 use crate::handlers::ArchiveResult;
+
+/// Video metadata from yt-dlp --dump-json
+#[derive(Debug, Deserialize)]
+struct VideoMetadata {
+    #[serde(default)]
+    duration: Option<f64>,
+    #[serde(default)]
+    filesize: Option<u64>,
+    #[serde(default)]
+    filesize_approx: Option<u64>,
+    #[serde(default)]
+    width: Option<u32>,
+    #[serde(default)]
+    height: Option<u32>,
+}
+
+/// Determine the appropriate quality/format string based on video characteristics.
+fn select_format_string(metadata: Option<&VideoMetadata>) -> String {
+    // Default format if no metadata available
+    const DEFAULT_FORMAT: &str = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best";
+
+    let Some(meta) = metadata else {
+        debug!("No metadata available, using default 1080p format");
+        return DEFAULT_FORMAT.to_string();
+    };
+
+    let duration_secs = meta.duration.unwrap_or(0.0);
+    let is_short_video = duration_secs < 600.0; // Less than 10 minutes
+
+    // Estimate file size and bitrate
+    let estimated_size = meta.filesize.or(meta.filesize_approx).unwrap_or(0);
+
+    // Calculate approximate bitrate (bytes per second) to detect highly compressed videos
+    // Highly compressed videos (e.g., static screen recordings, slideshows) have low bitrate
+    let bitrate_bps = if duration_secs > 0.0 {
+        (estimated_size as f64) / duration_secs
+    } else {
+        0.0
+    };
+
+    // Heuristic: videos with bitrate < 500 KB/s are considered "highly compressed"
+    // These can be downloaded at higher resolution even if long
+    let is_highly_compressed = estimated_size > 0 && bitrate_bps < 500_000.0;
+
+    let width = meta.width.unwrap_or(0);
+    let height = meta.height.unwrap_or(0);
+    let total_pixels = width * height;
+    let is_native_acceptable = total_pixels <= 1920 * 1080;
+
+    // Decision logic:
+    // 1. Short videos (<10 min):
+    //    - If native resolution ≤ 1920x1080: use native
+    //    - Otherwise: cap at 1080p
+    // 2. Long videos BUT highly compressed (low bitrate):
+    //    - Use 1080p (well-compressed, so file size won't be huge)
+    // 3. Long videos with normal/high bitrate:
+    //    - Cap at 720p for size efficiency
+
+    if is_short_video {
+        if is_native_acceptable && width > 0 && height > 0 {
+            debug!(
+                duration_secs,
+                width, height, "Short video with acceptable native resolution, using best quality"
+            );
+            "bestvideo+bestaudio/best".to_string()
+        } else {
+            debug!(
+                duration_secs,
+                width, height, "Short video, capping at 1080p"
+            );
+            DEFAULT_FORMAT.to_string()
+        }
+    } else if is_highly_compressed {
+        debug!(
+            duration_secs,
+            estimated_size,
+            bitrate_mbps = bitrate_bps / 1_000_000.0,
+            "Long but highly compressed video (low bitrate), using 1080p"
+        );
+        DEFAULT_FORMAT.to_string()
+    } else {
+        debug!(
+            duration_secs,
+            estimated_size,
+            bitrate_mbps = bitrate_bps / 1_000_000.0,
+            "Long video with normal/high bitrate, capping at 720p for size efficiency"
+        );
+        "bestvideo[height<=720]+bestaudio/best[height<=720]/best".to_string()
+    }
+}
+
+/// Get video metadata without downloading (pre-flight check).
+///
+/// # Errors
+///
+/// Returns an error if yt-dlp fails to retrieve metadata.
+async fn get_video_metadata(url: &str, cookies: &CookieOptions<'_>) -> Result<VideoMetadata> {
+    let mut args = vec![
+        "--dump-json".to_string(),
+        "--no-playlist".to_string(),
+        "--no-warnings".to_string(),
+        "--quiet".to_string(),
+    ];
+
+    // Add cookie options
+    if let Some(spec) = cookies.browser_profile {
+        let spec = maybe_adjust_chromium_user_data_dir_spec(spec);
+        args.push("--cookies-from-browser".to_string());
+        args.push(spec);
+    } else if let Some(cookies_path) = cookies.cookies_file {
+        if cookies_path.exists() && !cookies_path.is_dir() {
+            args.push("--cookies".to_string());
+            args.push(cookies_path.to_string_lossy().to_string());
+        }
+    }
+
+    args.push(url.to_string());
+
+    debug!(url = %url, "Fetching video metadata");
+
+    let output = Command::new("yt-dlp")
+        .args(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("Failed to spawn yt-dlp for metadata")?
+        .wait_with_output()
+        .await
+        .context("Failed to wait for yt-dlp metadata")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("yt-dlp metadata fetch failed: {stderr}");
+    }
+
+    let metadata: VideoMetadata =
+        serde_json::from_slice(&output.stdout).context("Failed to parse yt-dlp metadata JSON")?;
+
+    Ok(metadata)
+}
 
 /// Download content using yt-dlp.
 ///
@@ -20,7 +163,36 @@ pub async fn download(
     url: &str,
     work_dir: &Path,
     cookies: &CookieOptions<'_>,
+    config: &Config,
 ) -> Result<ArchiveResult> {
+    // Pre-flight check: get video metadata to check duration limits and select quality
+    let mut format_string = select_format_string(None); // Default
+
+    match get_video_metadata(url, cookies).await {
+        Ok(metadata) => {
+            // Check duration limit
+            if let Some(max_duration) = config.youtube_max_duration_seconds {
+                if let Some(duration) = metadata.duration {
+                    let duration_secs = duration as u32;
+                    if duration_secs > max_duration {
+                        anyhow::bail!(
+                            "Video duration ({duration_secs}s) exceeds maximum allowed duration ({max_duration}s). \
+                            Configure YOUTUBE_MAX_DURATION_SECONDS to increase or remove the limit."
+                        );
+                    }
+                    debug!(duration_secs, max_duration, "Video duration check passed");
+                }
+            }
+
+            // Select format based on metadata
+            format_string = select_format_string(Some(&metadata));
+        }
+        Err(e) => {
+            // Log warning but continue - metadata fetch can fail for some videos
+            warn!("Failed to fetch video metadata for pre-flight checks: {e}");
+        }
+    }
+
     let output_template = work_dir.join("%(title)s.%(ext)s");
 
     let mut args = vec![
@@ -35,9 +207,9 @@ pub async fn download(
         output_template.to_string_lossy().to_string(),
         "--no-progress".to_string(),
         "--quiet".to_string(),
-        // Format selection: prefer reasonable quality
+        // Format selection: adaptive based on video characteristics
         "--format".to_string(),
-        "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best".to_string(),
+        format_string,
         // Enable JavaScript challenge solving for YouTube bot detection
         "--remote-components".to_string(),
         "ejs:github".to_string(),
@@ -75,16 +247,27 @@ pub async fn download(
 
     debug!(url = %url, "Running yt-dlp");
 
-    let output = Command::new("yt-dlp")
-        .args(&args)
-        .current_dir(work_dir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("Failed to spawn yt-dlp")?
-        .wait_with_output()
+    // Wrap download with timeout
+    let timeout_duration = Duration::from_secs(config.youtube_download_timeout_seconds);
+    let download_future = async {
+        Command::new("yt-dlp")
+            .args(&args)
+            .current_dir(work_dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("Failed to spawn yt-dlp")?
+            .wait_with_output()
+            .await
+            .context("Failed to wait for yt-dlp")
+    };
+
+    let output = tokio::time::timeout(timeout_duration, download_future)
         .await
-        .context("Failed to wait for yt-dlp")?;
+        .context(format!(
+            "yt-dlp download timed out after {} seconds",
+            config.youtube_download_timeout_seconds
+        ))??;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

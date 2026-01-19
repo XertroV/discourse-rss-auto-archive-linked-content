@@ -210,7 +210,8 @@ impl ScreenshotService {
         let mut user_data_dir_guard = self.chromium_user_data_dir.lock().await;
         if user_data_dir_guard.is_none() {
             if let Some(spec) = self.config.cookies_from_browser.as_deref() {
-                let (source_user_data_dir, profile_dir) = chromium_user_data_and_profile_from_spec(spec);
+                let (source_user_data_dir, profile_dir) =
+                    chromium_user_data_and_profile_from_spec(spec);
                 let cloned = clone_chromium_user_data_dir_for_service(
                     &self.config.work_dir,
                     &source_user_data_dir,

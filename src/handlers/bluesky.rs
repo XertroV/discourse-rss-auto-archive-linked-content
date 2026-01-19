@@ -264,6 +264,7 @@ impl SiteHandler for BlueskyHandler {
         url: &str,
         work_dir: &Path,
         _cookies: &CookieOptions<'_>,
+        _config: &crate::config::Config,
     ) -> Result<ArchiveResult> {
         // Parse URL to get handle and post ID
         let (handle, post_id) = Self::parse_url(url).context("Invalid Bluesky URL format")?;

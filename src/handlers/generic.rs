@@ -50,6 +50,7 @@ impl SiteHandler for GenericHandler {
         url: &str,
         work_dir: &Path,
         _cookies: &CookieOptions<'_>,
+        _config: &crate::config::Config,
     ) -> Result<ArchiveResult> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))

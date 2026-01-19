@@ -62,8 +62,9 @@ impl SiteHandler for TwitterHandler {
         url: &str,
         work_dir: &Path,
         cookies: &CookieOptions<'_>,
+        config: &crate::config::Config,
     ) -> Result<ArchiveResult> {
-        ytdlp::download(url, work_dir, cookies).await
+        ytdlp::download(url, work_dir, cookies, config).await
     }
 }
 

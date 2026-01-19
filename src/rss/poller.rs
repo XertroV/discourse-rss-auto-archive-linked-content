@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
-use tracing::{debug, error, info, warn, trace};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::config::Config;
 use crate::constants::ARCHIVER_HONEST_USER_AGENT;

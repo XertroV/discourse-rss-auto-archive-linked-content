@@ -53,8 +53,9 @@ impl SiteHandler for YouTubeHandler {
         url: &str,
         work_dir: &Path,
         cookies: &CookieOptions<'_>,
+        config: &crate::config::Config,
     ) -> Result<ArchiveResult> {
-        let mut result = ytdlp::download(url, work_dir, cookies).await?;
+        let mut result = ytdlp::download(url, work_dir, cookies, config).await?;
 
         // Store video_id in metadata for predictable S3 path
         if let Some(video_id) = extract_video_id(url) {

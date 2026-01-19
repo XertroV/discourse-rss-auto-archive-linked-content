@@ -12,13 +12,19 @@ pub async fn copy_dir_best_effort(src: &Path, dst: &Path, purpose: &str) -> Resu
     let mut stack = vec![(src.to_path_buf(), dst.to_path_buf())];
 
     while let Some((src_dir, dst_dir)) = stack.pop() {
-        tokio::fs::create_dir_all(&dst_dir)
-            .await
-            .with_context(|| format!("Failed to create destination directory ({purpose}): {}", dst_dir.display()))?;
+        tokio::fs::create_dir_all(&dst_dir).await.with_context(|| {
+            format!(
+                "Failed to create destination directory ({purpose}): {}",
+                dst_dir.display()
+            )
+        })?;
 
-        let mut entries = tokio::fs::read_dir(&src_dir)
-            .await
-            .with_context(|| format!("Failed to read directory ({purpose}): {}", src_dir.display()))?;
+        let mut entries = tokio::fs::read_dir(&src_dir).await.with_context(|| {
+            format!(
+                "Failed to read directory ({purpose}): {}",
+                src_dir.display()
+            )
+        })?;
 
         while let Some(entry) = entries.next_entry().await? {
             let src_path = entry.path();

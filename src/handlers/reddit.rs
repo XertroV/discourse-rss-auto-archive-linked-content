@@ -149,6 +149,7 @@ impl SiteHandler for RedditHandler {
         url: &str,
         work_dir: &Path,
         cookies: &CookieOptions<'_>,
+        config: &crate::config::Config,
     ) -> Result<ArchiveResult> {
         // Resolve redd.it shortlinks first
         let resolved_url = if is_shortlink(url) {
@@ -175,11 +176,9 @@ impl SiteHandler for RedditHandler {
 
         // Extract media URLs and final URL from HTML if successful
         let (html_content, media, final_url) = match &html_result {
-            Ok((html, media, final_url)) => (
-                Some(html.clone()),
-                Some(media.clone()),
-                final_url.clone(),
-            ),
+            Ok((html, media, final_url)) => {
+                (Some(html.clone()), Some(media.clone()), final_url.clone())
+            }
             Err(e) => {
                 warn!("Failed to fetch Reddit HTML: {e}");
                 (None, None, None)
@@ -198,7 +197,7 @@ impl SiteHandler for RedditHandler {
             .map(|m| m.video_url.is_some())
             .unwrap_or(false);
         let ytdlp_result = if has_video {
-            match ytdlp::download(archive_url, work_dir, cookies).await {
+            match ytdlp::download(archive_url, work_dir, cookies, config).await {
                 Ok(result) => Some(result),
                 Err(e) => {
                     debug!("yt-dlp failed for Reddit video: {e}");
@@ -207,7 +206,7 @@ impl SiteHandler for RedditHandler {
             }
         } else {
             // Try yt-dlp anyway in case there's embedded media we didn't detect
-            match ytdlp::download(archive_url, work_dir, cookies).await {
+            match ytdlp::download(archive_url, work_dir, cookies, config).await {
                 Ok(result) => Some(result),
                 Err(e) => {
                     debug!("yt-dlp found no media: {e}");
@@ -427,8 +426,8 @@ async fn fetch_html_with_chromium_profile(
     // user-data-dir to a per-archive temp directory and run Chromium against the copy.
     let user_data_dir =
         clone_chromium_user_data_dir(work_dir, &source_user_data_dir, profile_dir.as_deref())
-        .await
-        .context("Failed to clone Chromium user-data-dir for Reddit HTML fetch")?;
+            .await
+            .context("Failed to clone Chromium user-data-dir for Reddit HTML fetch")?;
 
     let chrome_path =
         std::env::var("SCREENSHOT_CHROME_PATH").unwrap_or_else(|_| "chromium".to_string());
@@ -778,7 +777,10 @@ fn is_nsfw_subreddit(url: &str) -> bool {
         if let Some(subreddit) = caps.get(1) {
             let subreddit_lower = subreddit.as_str().to_lowercase();
 
-            if NSFW_SUBREDDIT_EXEMPTIONS.iter().any(|s| s == &subreddit_lower) {
+            if NSFW_SUBREDDIT_EXEMPTIONS
+                .iter()
+                .any(|s| s == &subreddit_lower)
+            {
                 return false;
             }
 

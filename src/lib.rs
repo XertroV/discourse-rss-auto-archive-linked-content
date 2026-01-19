@@ -31,9 +31,9 @@
 pub mod archive_today;
 pub mod archiver;
 pub mod backup;
+pub mod chromium_profile;
 pub mod config;
 pub mod constants;
-pub mod chromium_profile;
 pub mod db;
 pub mod dedup;
 pub mod fs_utils;

@@ -211,6 +211,27 @@ impl S3Client {
         }
     }
 
+    /// Copy an object within S3 (server-side copy).
+    ///
+    /// TODO: rust-s3 0.35 doesn't expose put_object_copy. For now we download+re-upload.
+    /// In Stage 2, implement proper server-side copy using aws-sdk-s3 or HTTP API.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the copy fails.
+    pub async fn copy_object(&self, source_key: &str, dest_key: &str) -> Result<()> {
+        debug!(source = %source_key, dest = %dest_key, "Copying S3 object (via download+re-upload)");
+
+        // Download from source
+        let (data, content_type) = self.download_file(source_key).await?;
+
+        // Re-upload to destination
+        self.upload_bytes(&data, dest_key, &content_type).await?;
+
+        debug!(source = %source_key, dest = %dest_key, "Successfully copied S3 object");
+        Ok(())
+    }
+
     /// Check if the S3 bucket is public (AWS S3, R2) or private (MinIO).
     ///
     /// Returns `true` if using AWS S3 (no custom endpoint) or R2 (Cloudflare),

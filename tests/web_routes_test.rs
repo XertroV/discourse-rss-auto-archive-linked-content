@@ -177,11 +177,7 @@ async fn rearchive(
     }
 
     if let Err(_) = reset_archive_for_rearchive(state.db.pool(), id).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to reset archive",
-        )
-            .into_response();
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to reset archive").into_response();
     }
 
     axum::response::Redirect::to(&format!("/archive/{id}")).into_response()
@@ -235,7 +231,9 @@ async fn test_rearchive_failed_archive_with_no_artifacts() {
     };
     let link_id = insert_link(db.pool(), &new_link).await.unwrap();
     let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
-    set_archive_failed(db.pool(), archive_id, "boom").await.unwrap();
+    set_archive_failed(db.pool(), archive_id, "boom")
+        .await
+        .unwrap();
 
     let app = create_test_app(db.clone());
 
@@ -326,11 +324,15 @@ async fn test_rearchive_clears_duplicate_references_before_deleting_artifacts() 
         .unwrap();
 
     // A artifacts are gone.
-    let a_artifacts = get_artifacts_for_archive(db.pool(), archive_a_id).await.unwrap();
+    let a_artifacts = get_artifacts_for_archive(db.pool(), archive_a_id)
+        .await
+        .unwrap();
     assert!(a_artifacts.is_empty());
 
     // B artifact remains but no longer points at A.
-    let b_artifacts = get_artifacts_for_archive(db.pool(), archive_b_id).await.unwrap();
+    let b_artifacts = get_artifacts_for_archive(db.pool(), archive_b_id)
+        .await
+        .unwrap();
     assert_eq!(b_artifacts.len(), 1);
     assert!(b_artifacts[0].duplicate_of_artifact_id.is_none());
 }

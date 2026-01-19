@@ -57,6 +57,10 @@ pub struct Config {
     pub cookies_file_path: Option<PathBuf>,
     pub yt_dlp_cookies_from_browser: Option<String>,
 
+    // YouTube-specific limits
+    pub youtube_max_duration_seconds: Option<u32>,
+    pub youtube_download_timeout_seconds: u64,
+
     // Archive Policy
     pub archive_mode: ArchiveMode,
     pub archive_quote_only_links: bool,
@@ -199,6 +203,8 @@ pub struct WorkersConfig {
     pub gallery_dl_path: Option<String>,
     pub cookies_file_path: Option<String>,
     pub yt_dlp_cookies_from_browser: Option<String>,
+    pub youtube_max_duration_seconds: Option<u32>,
+    pub youtube_download_timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -458,6 +464,17 @@ impl Config {
                 .map(PathBuf::from),
             yt_dlp_cookies_from_browser: optional_env("YT_DLP_COOKIES_FROM_BROWSER")
                 .or(fc.workers.yt_dlp_cookies_from_browser),
+
+            // YouTube-specific limits
+            youtube_max_duration_seconds: optional_env("YOUTUBE_MAX_DURATION_SECONDS")
+                .map(|s| s.parse().ok())
+                .flatten()
+                .or(fc.workers.youtube_max_duration_seconds)
+                .or(Some(3600)), // Default: 60 minutes
+            youtube_download_timeout_seconds: parse_env_u64(
+                "YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS",
+                fc.workers.youtube_download_timeout_seconds.unwrap_or(7200), // Default: 2 hours
+            )?,
 
             // Archive Policy
             archive_mode: parse_archive_mode(&get_string(

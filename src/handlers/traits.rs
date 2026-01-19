@@ -85,6 +85,7 @@ pub trait SiteHandler: Send + Sync {
     /// * `url` - The URL to archive
     /// * `work_dir` - Temporary directory for downloads
     /// * `cookies` - Cookie options for authenticated downloads
+    /// * `config` - Application configuration
     ///
     /// # Errors
     ///
@@ -94,5 +95,6 @@ pub trait SiteHandler: Send + Sync {
         url: &str,
         work_dir: &Path,
         cookies: &CookieOptions<'_>,
+        config: &crate::config::Config,
     ) -> Result<ArchiveResult>;
 }
