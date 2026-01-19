@@ -92,20 +92,6 @@ pub async fn create_complete_html(
         cmd.arg("-j");
     }
 
-    // Exclude archive sites from asset fetching to avoid recursive archive references
-    // Web Archive domains
-    cmd.arg("-B").arg("web.archive.org");
-    cmd.arg("-B").arg("archive.org");
-
-    // Archive.today and its many aliases/mirrors
-    cmd.arg("-B").arg("archive.today");
-    cmd.arg("-B").arg("archive.is");
-    cmd.arg("-B").arg("archive.ph");
-    cmd.arg("-B").arg("archive.fo");
-    cmd.arg("-B").arg("archive.li");
-    cmd.arg("-B").arg("archive.md");
-    cmd.arg("-B").arg("archive.vn");
-
     // Set a reasonable timeout for network requests (in seconds)
     cmd.arg("-t").arg("30");
 
