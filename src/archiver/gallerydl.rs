@@ -144,6 +144,59 @@ async fn find_and_parse_files(work_dir: &Path) -> Result<ArchiveResult> {
         }
     }
 
+    // Sanitize and rename primary file if found
+    if let Some(ref orig_name) = primary_file {
+        let sanitized = crate::archiver::sanitize_filename(orig_name);
+        if sanitized != *orig_name {
+            let orig_path = work_dir.join(orig_name);
+            let new_path = work_dir.join(&sanitized);
+            if let Err(e) = tokio::fs::rename(&orig_path, &new_path).await {
+                warn!(
+                    original = %orig_name,
+                    sanitized = %sanitized,
+                    error = %e,
+                    "Failed to rename primary file to sanitized name, keeping original"
+                );
+            } else {
+                debug!(
+                    original = %orig_name,
+                    sanitized = %sanitized,
+                    "Renamed primary file to sanitized name"
+                );
+                primary_file = Some(sanitized);
+            }
+        }
+    }
+
+    // Sanitize and rename extra files
+    let mut sanitized_extra_files = Vec::new();
+    for orig_name in extra_files {
+        let sanitized = crate::archiver::sanitize_filename(&orig_name);
+        if sanitized != orig_name {
+            let orig_path = work_dir.join(&orig_name);
+            let new_path = work_dir.join(&sanitized);
+            if let Err(e) = tokio::fs::rename(&orig_path, &new_path).await {
+                warn!(
+                    original = %orig_name,
+                    sanitized = %sanitized,
+                    error = %e,
+                    "Failed to rename extra file to sanitized name, keeping original"
+                );
+                sanitized_extra_files.push(orig_name);
+            } else {
+                debug!(
+                    original = %orig_name,
+                    sanitized = %sanitized,
+                    "Renamed extra file to sanitized name"
+                );
+                sanitized_extra_files.push(sanitized);
+            }
+        } else {
+            sanitized_extra_files.push(orig_name);
+        }
+    }
+    let extra_files = sanitized_extra_files;
+
     // Determine content type based on file count
     if extra_files.len() > 1 {
         content_type = "gallery".to_string();
