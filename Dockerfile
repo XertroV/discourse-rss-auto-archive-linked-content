@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 # Build stage
 FROM rust:1.85-bookworm AS builder
 
@@ -9,37 +10,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy manifests first for better caching
+# Copy all source files - no dummy file tricks
 COPY Cargo.toml Cargo.lock ./
-
-# Create dummy source files to build dependencies
-# The dummy lib.rs must declare the same modules as the real lib.rs
-# to ensure dependencies are compiled correctly
-RUN mkdir -p src && \
-    echo 'fn main() {}' > src/main.rs && \
-    echo 'pub mod archive_today {} pub mod archiver {} pub mod backup {} pub mod config {} pub mod db {} pub mod handlers {} pub mod ipfs {} pub mod rss {} pub mod s3 {} pub mod tls {} pub mod wayback {} pub mod web {}' > src/lib.rs
-
-# Build dependencies only (this caches all external crates)
-RUN cargo build --release
-
-# Remove ALL project-specific artifacts to force complete rebuild
-# This includes fingerprints which track file modification times
-RUN rm -rf src && \
-    rm -rf target/release/deps/discourse* && \
-    rm -rf target/release/deps/libdiscourse* && \
-    rm -rf target/release/.fingerprint/discourse* && \
-    rm -rf target/release/incremental/discourse* && \
-    rm -rf target/release/discourse*
-
-# Copy actual source code
 COPY src ./src
 
-# Touch all source files to ensure they're seen as newer than any cached metadata
-# This guarantees Cargo will rebuild the project with the real source
-RUN find src -name '*.rs' -exec touch {} +
-
-# Build the application
-RUN cargo build --release
+# Build the application using BuildKit cache mounts for cargo registry and target
+# This caches dependencies between builds without any fragile dummy file workarounds
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo build --release && \
+    cp target/release/discourse-link-archiver /usr/local/bin/
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -67,7 +48,7 @@ RUN useradd -r -s /bin/false -m -d /app archiver
 WORKDIR /app
 
 # Copy binary from builder stage
-COPY --from=builder /app/target/release/discourse-link-archiver /usr/local/bin/
+COPY --from=builder /usr/local/bin/discourse-link-archiver /usr/local/bin/
 
 # Create data directories (including ACME certificate cache)
 RUN mkdir -p /app/data/tmp /app/data/acme_cache && chown -R archiver:archiver /app
