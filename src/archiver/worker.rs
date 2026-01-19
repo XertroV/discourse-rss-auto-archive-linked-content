@@ -14,7 +14,7 @@ use crate::db::{
     get_pending_archives, insert_artifact, insert_artifact_with_hash, reset_archive_for_retry,
     reset_stuck_processing_archives, reset_todays_failed_archives, set_archive_complete,
     set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw, set_archive_processing,
-    set_archive_skipped, update_link_last_archived, ArtifactKind, Database,
+    set_archive_skipped, update_link_final_url, update_link_last_archived, ArtifactKind, Database,
 };
 use crate::dedup;
 use crate::handlers::HANDLERS;
@@ -765,6 +765,17 @@ async fn process_archive_inner(
     // Store IPFS CID if we have one
     if let Some(ref cid) = ipfs_cid {
         set_archive_ipfs_cid(db.pool(), archive_id, cid).await?;
+    }
+
+    // Update link final URL if different from normalized URL
+    if let Some(ref final_url) = result.final_url {
+        update_link_final_url(db.pool(), link_id, final_url).await?;
+        debug!(
+            link_id,
+            normalized_url = %link.normalized_url,
+            final_url = %final_url,
+            "Updated link with final URL after redirect"
+        );
     }
 
     // Update link last archived timestamp

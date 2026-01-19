@@ -153,18 +153,41 @@ impl SiteHandler for RedditHandler {
         // Normalize URL
         let normalized_url = self.normalize_url(&resolved_url);
 
+        // Follow redirects to get final canonical URL
+        let final_url = match follow_redirects(&normalized_url).await {
+            Ok(final_url) if final_url != normalized_url => {
+                debug!(
+                    normalized = %normalized_url,
+                    final_url = %final_url,
+                    "Followed redirect to final URL"
+                );
+                Some(final_url.clone())
+            }
+            Ok(_) => {
+                debug!("No redirect, using normalized URL");
+                None
+            }
+            Err(e) => {
+                debug!("Failed to follow redirects: {e}, using normalized URL");
+                None
+            }
+        };
+
+        // Use final URL for archiving if available, otherwise use normalized URL
+        let archive_url = final_url.as_ref().unwrap_or(&normalized_url);
+
         // Check if the subreddit name suggests NSFW content
-        let subreddit_nsfw = is_nsfw_subreddit(&normalized_url);
+        let subreddit_nsfw = is_nsfw_subreddit(archive_url);
 
         // Always try to fetch Reddit JSON API data for metadata (this is additive)
-        let json_result = fetch_reddit_json(&normalized_url, work_dir).await;
+        let json_result = fetch_reddit_json(archive_url, work_dir).await;
         let json_metadata = json_result.as_ref().ok();
 
         // Check if JSON API indicates NSFW
         let api_nsfw = json_metadata.and_then(|r| r.is_nsfw).unwrap_or(false);
 
         // Use yt-dlp for video/media content
-        let ytdlp_result = ytdlp::download(&normalized_url, work_dir, cookies).await;
+        let ytdlp_result = ytdlp::download(archive_url, work_dir, cookies).await;
 
         match ytdlp_result {
             Ok(mut result) => {
@@ -213,6 +236,9 @@ impl SiteHandler for RedditHandler {
                     }
                 }
 
+                // Set final URL if it's different from the normalized URL
+                result.final_url = final_url.clone();
+
                 Ok(result)
             }
             Err(e) => {
@@ -239,6 +265,8 @@ impl SiteHandler for RedditHandler {
                                 result.nsfw_source = Some("subreddit".to_string());
                             }
                         }
+                        // Set final URL if it's different from the normalized URL
+                        result.final_url = final_url.clone();
                         Ok(result)
                     }
                     Err(json_err) => {
@@ -253,6 +281,8 @@ impl SiteHandler for RedditHandler {
                             result.is_nsfw = Some(true);
                             result.nsfw_source = Some("subreddit".to_string());
                         }
+                        // Set final URL if it's different from the normalized URL
+                        result.final_url = final_url.clone();
                         Ok(result)
                     }
                 }
@@ -479,6 +509,27 @@ pub async fn resolve_short_url(short_url: &str) -> Result<String> {
     } else {
         Ok(short_url.to_string())
     }
+}
+
+/// Follow redirects for a Reddit URL to get the final canonical URL.
+///
+/// Some Reddit URLs (e.g., /comment/xyz) redirect to the full URL with post title.
+/// This function follows up to 5 redirects and returns the final URL.
+pub async fn follow_redirects(url: &str) -> Result<String> {
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .timeout(Duration::from_secs(10))
+        .build()
+        .context("Failed to build HTTP client")?;
+
+    let response = client
+        .head(url)
+        .header("User-Agent", ARCHIVAL_USER_AGENT)
+        .send()
+        .await
+        .context("Failed to follow redirects")?;
+
+    Ok(response.url().to_string())
 }
 
 #[cfg(test)]
