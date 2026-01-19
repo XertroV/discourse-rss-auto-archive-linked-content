@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 use tracing::{debug, error, info, warn, trace};
 
 use crate::config::Config;
+use crate::constants::ARCHIVER_HONEST_USER_AGENT;
 use crate::db::{
     self, create_pending_archive, get_archive_by_link_id, get_link_by_normalized_url,
     get_post_by_guid, insert_link, insert_link_occurrence, insert_post, link_occurrence_exists,
@@ -62,7 +63,7 @@ pub async fn poll_loop(config: Config, db: Database) {
 pub async fn poll_once(client: &reqwest::Client, config: &Config, db: &Database) -> Result<usize> {
     let response = client
         .get(&config.rss_url)
-        .header("User-Agent", "discourse-link-archiver/0.1")
+        .header("User-Agent", ARCHIVER_HONEST_USER_AGENT)
         .send()
         .await
         .context("Failed to fetch RSS feed")?;
