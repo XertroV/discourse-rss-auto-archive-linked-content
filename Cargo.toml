@@ -84,6 +84,16 @@ lto = true
 codegen-units = 1
 strip = true
 
+# Faster rebuilds for iterative deployments (less optimization, incremental).
+# Use via Docker/Compose build arg: CARGO_PROFILE=release-fast
+[profile.release-fast]
+opt-level = 3
+debug = 0
+lto = false
+codegen-units = 16
+strip = false
+incremental = true
+
 [lints.rust]
 unsafe_code = "forbid"
 

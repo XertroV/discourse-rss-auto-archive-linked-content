@@ -1,6 +1,9 @@
 services:
   archiver:
-    build: .
+    build:
+      context: .
+      args:
+        CARGO_PROFILE: ${CARGO_PROFILE:-release}
     ports:
       - "8080:8080"
       # Uncomment for HTTPS (requires TLS_ENABLED=true and TLS_DOMAINS set)

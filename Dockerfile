@@ -2,6 +2,11 @@
 # Build stage
 FROM rust:1.85-bookworm AS builder
 
+# Allows selecting a faster Cargo profile for iterative builds.
+# Examples:
+#   docker build --build-arg CARGO_PROFILE=release-fast .
+ARG CARGO_PROFILE=release
+
 WORKDIR /app
 
 # Install build dependencies
@@ -19,8 +24,8 @@ COPY src ./src
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo build --release && \
-    cp target/release/discourse-link-archiver /usr/local/bin/
+    cargo build --profile "${CARGO_PROFILE}" && \
+    cp "target/${CARGO_PROFILE}/discourse-link-archiver" /usr/local/bin/
 
 # Runtime stage
 FROM debian:bookworm-slim

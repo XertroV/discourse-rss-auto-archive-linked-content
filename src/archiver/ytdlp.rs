@@ -20,6 +20,7 @@ pub async fn download(
     let output_template = work_dir.join("%(title)s.%(ext)s");
 
     let mut args = vec![
+        "-4".to_string(),
         url.to_string(),
         "--no-playlist".to_string(),
         "--write-info-json".to_string(),
