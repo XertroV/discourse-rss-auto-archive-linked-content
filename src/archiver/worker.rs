@@ -707,16 +707,19 @@ async fn process_archive_inner(
                     // the archived HTML we already saved.
                     let view_path = work_dir.join("view.html");
                     let raw_path = work_dir.join("raw.html");
-                    let monolith_input = if view_path.exists() {
-                        Url::from_file_path(&view_path)
-                            .ok()
-                            .map(|u| u.to_string())
-                            .unwrap_or_else(|| view_path.display().to_string())
-                    } else if raw_path.exists() {
+                    // Use raw.html for monolith instead of view.html
+                    // The archive banner injection in view.html can break monolith's HTML parsing
+                    // on certain content types. Use the unmodified raw.html for monolith processing.
+                    let monolith_input = if raw_path.exists() {
                         Url::from_file_path(&raw_path)
                             .ok()
                             .map(|u| u.to_string())
                             .unwrap_or_else(|| raw_path.display().to_string())
+                    } else if view_path.exists() {
+                        Url::from_file_path(&view_path)
+                            .ok()
+                            .map(|u| u.to_string())
+                            .unwrap_or_else(|| view_path.display().to_string())
                     } else {
                         link.normalized_url.clone()
                     };
