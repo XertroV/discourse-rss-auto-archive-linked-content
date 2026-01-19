@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.4
 # Build stage
-FROM rust:1.85-bookworm AS builder
+FROM rust:1.88-bookworm AS builder
 
 # Allows selecting a Cargo profile for builds.
 # Options: release (default, optimized), release-fast (faster builds, less optimization), dev (fastest builds, no optimization)

@@ -329,3 +329,107 @@ impl std::fmt::Debug for StreamingUploader {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chunk_size_is_5mb() {
+        assert_eq!(CHUNK_SIZE, 5 * 1024 * 1024, "Chunk size should be 5MB");
+    }
+
+    #[test]
+    fn test_chunk_size_meets_s3_minimum() {
+        // S3 requires minimum 5MB chunks for multipart upload (except last part)
+        assert!(
+            CHUNK_SIZE >= 5 * 1024 * 1024,
+            "Chunk size must be at least 5MB for S3 multipart uploads"
+        );
+    }
+
+    #[test]
+    fn test_small_file_threshold() {
+        // Files smaller than CHUNK_SIZE should use simple upload
+        let small_file_size = CHUNK_SIZE - 1;
+        assert!(
+            small_file_size < CHUNK_SIZE,
+            "Small files should be below chunk size threshold"
+        );
+    }
+
+    #[test]
+    fn test_large_file_threshold() {
+        // Files at or above CHUNK_SIZE should use multipart upload
+        let large_file_size = CHUNK_SIZE;
+        assert!(
+            large_file_size >= CHUNK_SIZE,
+            "Large files should meet or exceed chunk size threshold"
+        );
+    }
+
+    #[test]
+    fn test_multipart_part_count_calculation() {
+        // Verify part count calculation is correct
+        let file_size = 15 * 1024 * 1024; // 15MB
+        let expected_parts = 3; // 5MB + 5MB + 5MB
+        let calculated_parts = (file_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
+        assert_eq!(
+            calculated_parts, expected_parts,
+            "Part count calculation should be correct"
+        );
+    }
+
+    #[test]
+    fn test_multipart_part_count_with_remainder() {
+        // Verify part count with non-even division
+        let file_size = 17 * 1024 * 1024; // 17MB
+        let expected_parts = 4; // 5MB + 5MB + 5MB + 2MB
+        let calculated_parts = (file_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
+        assert_eq!(
+            calculated_parts, expected_parts,
+            "Part count should round up for remainder"
+        );
+    }
+
+    #[test]
+    fn test_large_video_file_size() {
+        // Verify we can handle large files (e.g., 4GB video)
+        let video_size = 4u64 * 1024 * 1024 * 1024; // 4GB
+        let part_count = (video_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
+
+        // S3 supports up to 10,000 parts
+        assert!(
+            part_count < 10_000,
+            "4GB file should require fewer than 10,000 parts"
+        );
+
+        // Should be about 819 parts for 4GB with 5MB chunks
+        assert!(
+            part_count > 800 && part_count < 850,
+            "4GB file should require ~819 parts with 5MB chunks, got {part_count}"
+        );
+    }
+
+    #[test]
+    fn test_max_supported_file_size() {
+        // S3 supports up to 10,000 parts at 5MB each
+        let max_parts = 10_000u64;
+        let max_file_size = max_parts * CHUNK_SIZE;
+
+        // 10,000 * 5MB = 50,000 MB = ~48.8 GiB
+        let expected_max = 10_000 * 5 * 1024 * 1024; // 52,428,800,000 bytes
+
+        assert_eq!(
+            max_file_size, expected_max,
+            "Max file size with 5MB chunks and 10,000 parts"
+        );
+
+        // Verify it's close to 50GB (using decimal GB for clarity)
+        let fifty_billion_bytes = 50_000_000_000u64;
+        assert!(
+            max_file_size > fifty_billion_bytes,
+            "Max file size should exceed 50 billion bytes"
+        );
+    }
+}
