@@ -87,10 +87,10 @@ pub async fn create_complete_html(
     cmd.arg("-f");
 
     // Include JavaScript (configurable - some sites need it, but it can also cause issues)
+    // NOTE: monolith v2.8.3 supports `-j` to include JS, but does not accept `-J`.
+    // To exclude JS, simply omit `-j`.
     if config.include_js {
         cmd.arg("-j");
-    } else {
-        cmd.arg("-J"); // Exclude JavaScript
     }
 
     // Include iframes
