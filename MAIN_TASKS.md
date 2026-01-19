@@ -148,7 +148,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Initialize S3 client with aws-sdk-s3
 - [x] Support custom endpoints (MinIO, R2)
 - [x] Implement file upload function
-- [ ] Implement streaming upload for large files
+- [x] Implement streaming upload for large files (completed in Phase 13 Stage 2)
 - [x] Generate consistent S3 keys per storage layout spec
 - [ ] Implement presigned URL generation (if needed)
 - [ ] Write integration tests (with localstack or minio)
@@ -332,13 +332,15 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Create diff template
 
 ### Bulk Export
-- [ ] Create export route /export/{site}
-- [ ] Generate ZIP archive of domain content
-- [ ] Exclude large video files (>50MB)
-- [ ] Include metadata.json manifest
-- [ ] Add rate limiting (1/hour per IP)
-- [ ] Add max export size limit
-- [ ] Stream ZIP generation to avoid memory issues
+- [x] Create export route /export/{site}
+- [x] Generate ZIP archive of domain content
+- [x] Exclude large video files (>50MB)
+- [x] Include metadata.json manifest
+- [x] Add rate limiting (1/hour per IP)
+- [x] Add max export size limit (2GB)
+- [x] Stream ZIP generation to avoid memory issues (using spawn_blocking)
+- [x] Add database migration v8 for exports table
+- [x] Add export tracking and rate limiting queries
 - [ ] Write unit tests
 
 ---

@@ -1591,3 +1591,73 @@ pub async fn delete_jobs_for_archive(pool: &SqlitePool, archive_id: i64) -> Resu
 
     Ok(())
 }
+
+// ========== Exports ==========
+
+/// Count exports from an IP in the last hour (for rate limiting).
+pub async fn count_exports_from_ip_last_hour(pool: &SqlitePool, ip: &str) -> Result<i64> {
+    let row: (i64,) = sqlx::query_as(
+        r"
+        SELECT COUNT(*) FROM exports
+        WHERE exported_by_ip = ?
+        AND created_at > datetime('now', '-1 hour')
+        ",
+    )
+    .bind(ip)
+    .fetch_one(pool)
+    .await
+    .context("Failed to count exports from IP")?;
+
+    Ok(row.0)
+}
+
+/// Record a bulk export download.
+pub async fn insert_export(
+    pool: &SqlitePool,
+    site_domain: &str,
+    exported_by_ip: &str,
+    archive_count: i64,
+    total_size_bytes: i64,
+) -> Result<i64> {
+    let result = sqlx::query(
+        r"
+        INSERT INTO exports (site_domain, exported_by_ip, archive_count, total_size_bytes)
+        VALUES (?, ?, ?, ?)
+        ",
+    )
+    .bind(site_domain)
+    .bind(exported_by_ip)
+    .bind(archive_count)
+    .bind(total_size_bytes)
+    .execute(pool)
+    .await
+    .context("Failed to insert export record")?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Get all complete archives with their artifacts for a specific domain.
+/// This is used for bulk export functionality.
+pub async fn get_archives_with_artifacts_for_domain(
+    pool: &SqlitePool,
+    domain: &str,
+) -> Result<Vec<(Archive, Link, Vec<ArchiveArtifact>)>> {
+    // First, get all complete archives for the domain
+    let archives = get_archives_by_domain(pool, domain, 10000, 0).await?;
+
+    let mut result = Vec::new();
+    for archive in archives {
+        // Get the link
+        let link = match get_link(pool, archive.link_id).await? {
+            Some(l) => l,
+            None => continue, // Skip if link not found
+        };
+
+        // Get artifacts
+        let artifacts = get_artifacts_for_archive(pool, archive.id).await?;
+
+        result.push((archive, link, artifacts));
+    }
+
+    Ok(result)
+}

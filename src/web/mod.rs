@@ -1,4 +1,5 @@
 mod diff;
+pub mod export;
 mod feeds;
 mod routes;
 pub mod templates;
