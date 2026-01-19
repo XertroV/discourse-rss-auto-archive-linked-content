@@ -87,6 +87,7 @@ strip = true
 # Faster rebuilds for iterative deployments (less optimization, incremental).
 # Use via Docker/Compose build arg: CARGO_PROFILE=release-fast
 [profile.release-fast]
+inherits = "release"
 opt-level = 3
 debug = 0
 lto = false
