@@ -5,9 +5,13 @@ use anyhow::{Context, Result};
 use tokio::process::Command;
 use tracing::{debug, warn};
 
+use super::CookieOptions;
 use crate::handlers::ArchiveResult;
 
 /// Download content using yt-dlp.
+///
+/// If both browser_profile and cookies_file are provided, browser_profile is preferred
+/// as it typically provides fresher cookies.
 ///
 /// # Errors
 ///
@@ -15,13 +19,9 @@ use crate::handlers::ArchiveResult;
 pub async fn download(
     url: &str,
     work_dir: &Path,
-    cookies_file: Option<&Path>,
+    cookies: &CookieOptions<'_>,
 ) -> Result<ArchiveResult> {
     let output_template = work_dir.join("%(title)s.%(ext)s");
-
-    let cookies_from_browser = std::env::var("YT_DLP_COOKIES_FROM_BROWSER")
-        .ok()
-        .filter(|s| !s.is_empty());
 
     let mut args = vec![
         "-4".to_string(),
@@ -40,21 +40,29 @@ pub async fn download(
         "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best".to_string(),
     ];
 
-    if let Some(ref spec) = cookies_from_browser {
+    // Prefer browser profile over cookies file (fresher cookies)
+    // Only use one method to avoid potential conflicts
+    let mut cookie_method_used = false;
+
+    if let Some(ref spec) = cookies.browser_profile {
         debug!(spec = %spec, "Using cookies from browser profile");
         args.push("--cookies-from-browser".to_string());
-        args.push(spec.clone());
+        args.push(spec.to_string());
+        cookie_method_used = true;
     }
 
-    if let Some(cookies) = cookies_file {
-        if !cookies.exists() {
-            warn!(path = %cookies.display(), "Cookies file specified but does not exist, continuing without cookies");
-        } else if cookies.is_dir() {
-            warn!(path = %cookies.display(), "Cookies path is a directory, continuing without cookies");
-        } else {
-            debug!(path = %cookies.display(), "Using cookies file for authenticated download");
-            args.push("--cookies".to_string());
-            args.push(cookies.to_string_lossy().to_string());
+    // Only use cookies file if browser profile not set
+    if !cookie_method_used {
+        if let Some(cookies_path) = cookies.cookies_file {
+            if !cookies_path.exists() {
+                warn!(path = %cookies_path.display(), "Cookies file specified but does not exist, continuing without cookies");
+            } else if cookies_path.is_dir() {
+                warn!(path = %cookies_path.display(), "Cookies path is a directory, continuing without cookies");
+            } else {
+                debug!(path = %cookies_path.display(), "Using cookies file for authenticated download");
+                args.push("--cookies".to_string());
+                args.push(cookies_path.to_string_lossy().to_string());
+            }
         }
     }
 

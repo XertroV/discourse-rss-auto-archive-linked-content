@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use regex::Regex;
 
 use super::traits::{ArchiveResult, SiteHandler};
-use crate::archiver::ytdlp;
+use crate::archiver::{ytdlp, CookieOptions};
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
     vec![
@@ -51,9 +51,9 @@ impl SiteHandler for YouTubeHandler {
         &self,
         url: &str,
         work_dir: &Path,
-        cookies_file: Option<&Path>,
+        cookies: &CookieOptions<'_>,
     ) -> Result<ArchiveResult> {
-        ytdlp::download(url, work_dir, cookies_file).await
+        ytdlp::download(url, work_dir, cookies).await
     }
 }
 

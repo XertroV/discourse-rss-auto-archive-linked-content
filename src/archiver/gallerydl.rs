@@ -3,11 +3,15 @@ use std::process::Stdio;
 
 use anyhow::{Context, Result};
 use tokio::process::Command;
-use tracing::debug;
+use tracing::{debug, warn};
 
+use super::CookieOptions;
 use crate::handlers::ArchiveResult;
 
 /// Download content using gallery-dl.
+///
+/// Note: gallery-dl only supports cookies.txt files, not browser profiles.
+/// If only browser_profile is set in CookieOptions, no cookies will be used.
 ///
 /// # Errors
 ///
@@ -15,7 +19,7 @@ use crate::handlers::ArchiveResult;
 pub async fn download(
     url: &str,
     work_dir: &Path,
-    cookies_file: Option<&Path>,
+    cookies: &CookieOptions<'_>,
 ) -> Result<ArchiveResult> {
     let mut args = vec![
         url.to_string(),
@@ -29,9 +33,20 @@ pub async fn download(
         "--no-mtime".to_string(),
     ];
 
-    if let Some(cookies) = cookies_file {
-        args.push("--cookies".to_string());
-        args.push(cookies.to_string_lossy().to_string());
+    // gallery-dl only supports cookies files, not browser profiles
+    if let Some(cookies_path) = cookies.cookies_file {
+        if !cookies_path.exists() {
+            warn!(path = %cookies_path.display(), "Cookies file specified but does not exist, continuing without cookies");
+        } else if cookies_path.is_dir() {
+            warn!(path = %cookies_path.display(), "Cookies path is a directory, continuing without cookies");
+        } else {
+            debug!(path = %cookies_path.display(), "Using cookies file for gallery-dl download");
+            args.push("--cookies".to_string());
+            args.push(cookies_path.to_string_lossy().to_string());
+        }
+    } else if cookies.browser_profile.is_some() {
+        // Log that browser profile isn't supported by gallery-dl
+        debug!("Browser profile configured but gallery-dl only supports cookies files; proceeding without cookies");
     }
 
     debug!(url = %url, "Running gallery-dl");

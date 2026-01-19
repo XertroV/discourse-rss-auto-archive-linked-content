@@ -6,6 +6,7 @@ use regex::Regex;
 use scraper::{Html, Selector};
 
 use super::traits::{ArchiveResult, SiteHandler};
+use crate::archiver::CookieOptions;
 use crate::constants::ARCHIVAL_USER_AGENT;
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
@@ -48,7 +49,7 @@ impl SiteHandler for GenericHandler {
         &self,
         url: &str,
         work_dir: &Path,
-        _cookies_file: Option<&Path>,
+        _cookies: &CookieOptions<'_>,
     ) -> Result<ArchiveResult> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))

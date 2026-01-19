@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use regex::Regex;
 
 use super::traits::{ArchiveResult, SiteHandler};
-use crate::archiver::ytdlp;
+use crate::archiver::{ytdlp, CookieOptions};
 use crate::constants::ARCHIVAL_USER_AGENT;
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
@@ -49,7 +49,7 @@ impl SiteHandler for TikTokHandler {
         &self,
         url: &str,
         work_dir: &Path,
-        cookies_file: Option<&Path>,
+        cookies: &CookieOptions<'_>,
     ) -> Result<ArchiveResult> {
         // Resolve short URLs first
         let resolved_url = if url.contains("vm.tiktok.com") {
@@ -60,7 +60,7 @@ impl SiteHandler for TikTokHandler {
             url.to_string()
         };
 
-        ytdlp::download(&resolved_url, work_dir, cookies_file).await
+        ytdlp::download(&resolved_url, work_dir, cookies).await
     }
 }
 

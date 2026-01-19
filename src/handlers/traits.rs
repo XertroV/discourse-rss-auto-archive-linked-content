@@ -4,6 +4,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use regex::Regex;
 
+use crate::archiver::CookieOptions;
+
 /// Result of archiving a URL.
 #[derive(Debug, Clone)]
 pub struct ArchiveResult {
@@ -76,7 +78,7 @@ pub trait SiteHandler: Send + Sync {
     ///
     /// * `url` - The URL to archive
     /// * `work_dir` - Temporary directory for downloads
-    /// * `cookies_file` - Optional path to cookies.txt
+    /// * `cookies` - Cookie options for authenticated downloads
     ///
     /// # Errors
     ///
@@ -85,6 +87,6 @@ pub trait SiteHandler: Send + Sync {
         &self,
         url: &str,
         work_dir: &Path,
-        cookies_file: Option<&Path>,
+        cookies: &CookieOptions<'_>,
     ) -> Result<ArchiveResult>;
 }

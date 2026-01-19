@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use regex::Regex;
 
 use super::traits::{ArchiveResult, SiteHandler};
-use crate::archiver::gallerydl;
+use crate::archiver::{gallerydl, CookieOptions};
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
     vec![
@@ -70,9 +70,9 @@ impl SiteHandler for InstagramHandler {
         &self,
         url: &str,
         work_dir: &Path,
-        cookies_file: Option<&Path>,
+        cookies: &CookieOptions<'_>,
     ) -> Result<ArchiveResult> {
-        gallerydl::download(url, work_dir, cookies_file).await
+        gallerydl::download(url, work_dir, cookies).await
     }
 }
 

@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use thiserror::Error;
+use tracing::warn;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -55,6 +56,7 @@ pub struct Config {
     pub yt_dlp_path: String,
     pub gallery_dl_path: String,
     pub cookies_file_path: Option<PathBuf>,
+    pub yt_dlp_cookies_from_browser: Option<String>,
 
     // Archive Policy
     pub archive_mode: ArchiveMode,
@@ -178,6 +180,7 @@ pub struct WorkersConfig {
     pub yt_dlp_path: Option<String>,
     pub gallery_dl_path: Option<String>,
     pub cookies_file_path: Option<String>,
+    pub yt_dlp_cookies_from_browser: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -413,6 +416,8 @@ impl Config {
             cookies_file_path: optional_env("COOKIES_FILE_PATH")
                 .or(fc.workers.cookies_file_path)
                 .map(PathBuf::from),
+            yt_dlp_cookies_from_browser: optional_env("YT_DLP_COOKIES_FROM_BROWSER")
+                .or(fc.workers.yt_dlp_cookies_from_browser),
 
             // Archive Policy
             archive_mode: parse_archive_mode(&get_string(
@@ -600,6 +605,13 @@ impl Config {
                     ),
                 });
             }
+        }
+        // Warn if both cookie methods are configured
+        if self.cookies_file_path.is_some() && self.yt_dlp_cookies_from_browser.is_some() {
+            warn!(
+                "Both COOKIES_FILE_PATH and YT_DLP_COOKIES_FROM_BROWSER are configured. \
+                 yt-dlp will prefer browser profile; gallery-dl will use cookies file."
+            );
         }
         Ok(())
     }
