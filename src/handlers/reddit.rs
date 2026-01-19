@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use regex::Regex;
 use reqwest::header::COOKIE;
 use scraper::{Html, Selector};
+use tokio::process::Command;
 use tracing::{debug, info, warn};
 
 use super::traits::{ArchiveResult, SiteHandler};
@@ -128,44 +129,28 @@ impl SiteHandler for RedditHandler {
         // Normalize URL
         let normalized_url = self.normalize_url(&resolved_url);
 
-        // Follow redirects to get final canonical URL
-        let final_url = match follow_redirects(&normalized_url).await {
-            Ok(final_url) if final_url != normalized_url => {
-                debug!(
-                    normalized = %normalized_url,
-                    final_url = %final_url,
-                    "Followed redirect to final URL"
-                );
-                Some(final_url.clone())
-            }
-            Ok(_) => {
-                debug!("No redirect, using normalized URL");
-                None
-            }
+        // Fetch HTML first (authenticated when possible). We'll derive canonical/final URL
+        // from the HTML itself, which works even when redirect behavior depends on cookies.
+        let html_result = fetch_reddit_html(&normalized_url, work_dir, cookies).await;
+
+        // Extract media URLs and final URL from HTML if successful
+        let (html_content, media, final_url) = match &html_result {
+            Ok((html, media, final_url)) => (
+                Some(html.clone()),
+                Some(media.clone()),
+                final_url.clone(),
+            ),
             Err(e) => {
-                debug!("Failed to follow redirects: {e}, using normalized URL");
-                None
+                warn!("Failed to fetch Reddit HTML: {e}");
+                (None, None, None)
             }
         };
 
-        // Use final URL for archiving if available, otherwise use normalized URL
-        let archive_url = final_url.as_ref().unwrap_or(&normalized_url);
+        // Use final URL for downstream tooling when available.
+        let archive_url = final_url.as_deref().unwrap_or(&normalized_url);
 
         // Check if the subreddit name suggests NSFW content
         let subreddit_nsfw = is_nsfw_subreddit(archive_url);
-
-        // ALWAYS fetch HTML - this is required for Reddit archives
-        // Use cookies if available for logged-in access
-        let html_result = fetch_reddit_html(archive_url, work_dir, cookies).await;
-
-        // Extract media URLs from HTML if successful
-        let (html_content, media) = match &html_result {
-            Ok((html, media)) => (Some(html.clone()), Some(media.clone())),
-            Err(e) => {
-                warn!("Failed to fetch Reddit HTML: {e}");
-                (None, None)
-            }
-        };
 
         // Try yt-dlp for video/media content (only if we detected video)
         let has_video = media
@@ -252,12 +237,16 @@ impl SiteHandler for RedditHandler {
             }
         }
 
-        // Set final URL if it's different from the normalized URL
-        result.final_url = final_url.clone();
+        // Set final URL if discovered
+        result.final_url = final_url;
 
         Ok(result)
     }
 }
+
+// NOTE: We intentionally avoid separate redirect probing for Reddit.
+// Redirect/canonical behavior may depend on authenticated cookies, and we already
+// fetch HTML with cookies when possible and can derive the canonical URL from it.
 
 /// Fetch Reddit HTML page and extract media URLs.
 ///
@@ -267,22 +256,41 @@ async fn fetch_reddit_html(
     url: &str,
     work_dir: &Path,
     cookies: &CookieOptions<'_>,
-) -> Result<(String, RedditMedia)> {
+) -> Result<(String, RedditMedia, Option<String>)> {
+    // Reddit frequently blocks datacenter IPs unless authenticated.
+    // Prefer using cookies-from-browser (persisted Chromium profile) since that's the most
+    // reliable way to mimic a real logged-in browser.
+    if cookies.browser_profile.is_some() {
+        match fetch_html_with_chromium_profile(url, cookies).await {
+            Ok(html) => {
+                debug!("Fetched Reddit HTML via Chromium profile");
+                return finalize_reddit_html(url, work_dir, html).await;
+            }
+            Err(e) => {
+                warn!("Chromium profile fetch failed; will try cookies.txt fallback: {e}");
+            }
+        }
+    }
+
+    // Fallback: cookies.txt via reqwest (fast, but less reliable for Reddit)
+    let cookie_header = build_cookie_header(cookies, "reddit.com");
+    if cookie_header.is_none() {
+        anyhow::bail!(
+            "Reddit HTML fetch requires authenticated cookies (datacenter IPs are often blocked). \
+Configure either COOKIES_BROWSER_PROFILE (recommended) or COOKIES_FILE for reddit.com."
+        );
+    }
+
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
         .context("Failed to build HTTP client")?;
 
-    // Build request with optional cookies
-    let mut request = client.get(url).header("User-Agent", ARCHIVAL_USER_AGENT);
-
-    // Add cookies if available
-    if let Some(cookie_header) = build_cookie_header(cookies, "reddit.com") {
-        info!("Using cookies for Reddit request");
-        request = request.header(COOKIE, cookie_header);
-    }
-
-    let response = request
+    info!("Using cookies.txt for Reddit request");
+    let response = client
+        .get(url)
+        .header("User-Agent", ARCHIVAL_USER_AGENT)
+        .header(COOKIE, cookie_header.unwrap())
         .send()
         .await
         .context("Failed to fetch Reddit HTML")?;
@@ -297,6 +305,14 @@ async fn fetch_reddit_html(
         .await
         .context("Failed to read response body")?;
 
+    finalize_reddit_html(url, work_dir, html).await
+}
+
+async fn finalize_reddit_html(
+    url: &str,
+    work_dir: &Path,
+    html: String,
+) -> Result<(String, RedditMedia, Option<String>)> {
     // Save raw HTML
     let html_path = work_dir.join("raw.html");
     tokio::fs::write(&html_path, &html)
@@ -306,14 +322,119 @@ async fn fetch_reddit_html(
     // Parse HTML and extract media URLs
     let doc = Html::parse_document(&html);
     let media = extract_media_from_html(&doc);
+    let final_url = extract_canonical_url_from_html(&doc);
 
     debug!(
+        requested = %url,
+        final_url = %final_url.as_deref().unwrap_or(""),
         video = ?media.video_url,
         images = media.image_urls.len(),
         "Extracted media from Reddit HTML"
     );
 
-    Ok((html, media))
+    Ok((html, media, final_url))
+}
+
+fn extract_canonical_url_from_html(doc: &Html) -> Option<String> {
+    // Most reliable for Reddit: <link rel="canonical" href="...">
+    let selector = Selector::parse("link[rel='canonical']").ok()?;
+    let el = doc.select(&selector).next()?;
+    let href = el.value().attr("href")?.trim();
+    if href.is_empty() {
+        None
+    } else if href.starts_with("//") {
+        Some(format!("https:{href}"))
+    } else if href.starts_with("http://") || href.starts_with("https://") {
+        Some(href.to_string())
+    } else {
+        None
+    }
+}
+
+async fn fetch_html_with_chromium_profile(url: &str, cookies: &CookieOptions<'_>) -> Result<String> {
+    let spec = cookies
+        .browser_profile
+        .context("No browser_profile configured")?;
+
+    let (user_data_dir, profile_dir) = chromium_user_data_and_profile_from_spec(spec);
+    let chrome_path =
+        std::env::var("SCREENSHOT_CHROME_PATH").unwrap_or_else(|_| "chromium".to_string());
+
+    let mut cmd = Command::new(chrome_path);
+    cmd.arg("--headless=new")
+        .arg("--no-sandbox")
+        .arg("--disable-gpu")
+        .arg("--disable-dev-shm-usage")
+        .arg("--no-first-run")
+        .arg("--no-default-browser-check")
+        .arg(format!("--user-data-dir={}", user_data_dir.display()));
+
+    if let Some(profile_dir) = profile_dir {
+        cmd.arg(format!("--profile-directory={profile_dir}"));
+    }
+
+    // Dump final DOM after JS execution/navigation.
+    cmd.arg("--dump-dom").arg(url);
+
+    let output = tokio::time::timeout(Duration::from_secs(45), cmd.output())
+        .await
+        .context("Chromium dump-dom timed out")?
+        .context("Failed to execute Chromium")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "Chromium dump-dom failed (exit {:?}): {}",
+            output.status.code(),
+            stderr.trim()
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let html = stdout.trim();
+    if html.is_empty() {
+        anyhow::bail!("Chromium dump-dom returned empty output");
+    }
+    Ok(html.to_string())
+}
+
+fn chromium_user_data_and_profile_from_spec(spec: &str) -> (std::path::PathBuf, Option<String>) {
+    // yt-dlp spec format examples:
+    // - chromium+basictext:/app/cookies/chromium-profile
+    // - chromium+basictext:/app/cookies/chromium-profile/Default
+    // - chromium+basictext:/path::container (ignore container suffix)
+
+    let path_part = spec
+        .split_once(':')
+        .map(|(_, rest)| rest)
+        .unwrap_or(spec);
+    let profile_raw = path_part
+        .split_once("::")
+        .map(|(p, _)| p)
+        .unwrap_or(path_part);
+    let p = std::path::PathBuf::from(profile_raw);
+
+    let cookies_db_present = |dir: &std::path::Path| {
+        dir.join("Cookies").is_file() || dir.join("Network").join("Cookies").is_file()
+    };
+
+    // If they point at a profile dir directly (Default/), use its parent as user-data-dir.
+    if cookies_db_present(&p) {
+        let user_data_dir = p.parent().unwrap_or(&p).to_path_buf();
+        let profile_name = p
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_string());
+        return (user_data_dir, profile_name);
+    }
+
+    // If they point at a user-data-dir (contains Default/), assume Default.
+    if cookies_db_present(&p.join("Default")) {
+        return (p, Some("Default".to_string()));
+    }
+
+    // Fallback: treat as user-data-dir without specifying profile.
+    (p, None)
 }
 
 /// Build a cookie header string from CookieOptions for a specific domain.
@@ -558,27 +679,6 @@ pub async fn resolve_short_url(short_url: &str) -> Result<String> {
     } else {
         Ok(short_url.to_string())
     }
-}
-
-/// Follow redirects for a Reddit URL to get the final canonical URL.
-///
-/// Some Reddit URLs (e.g., /comment/xyz) redirect to the full URL with post title.
-/// This function follows up to 5 redirects and returns the final URL.
-pub async fn follow_redirects(url: &str) -> Result<String> {
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(5))
-        .timeout(Duration::from_secs(10))
-        .build()
-        .context("Failed to build HTTP client")?;
-
-    let response = client
-        .head(url)
-        .header("User-Agent", ARCHIVAL_USER_AGENT)
-        .send()
-        .await
-        .context("Failed to follow redirects")?;
-
-    Ok(response.url().to_string())
 }
 
 #[cfg(test)]
