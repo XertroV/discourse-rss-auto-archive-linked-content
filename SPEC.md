@@ -234,9 +234,44 @@ pub trait SiteHandler: Send + Sync {
 | YouTube | `youtube` | yt-dlp | Video + subtitles |
 | Instagram | `instagram` | gallery-dl | Posts, reels, stories |
 | Imgur | `imgur` | gallery-dl | Images, albums |
-| Streamable | `streamable` | yt-dlp | Video |
-| Bluesky | `bluesky` | HTTP fetch | Posts with media |
+| Streamable | `streamable` | yt-dlp | Video (simple domain registration) |
+| Bluesky | `bluesky` | HTTP API + media fetch | Posts via AT Protocol public API |
 | Facebook | `facebook` | yt-dlp | Best effort |
+
+### 8.4 Bluesky Handler Details
+
+Bluesky uses the AT Protocol with a simple public HTTP API:
+
+**URL Patterns:**
+- `bsky.app/profile/{handle}/post/{postid}`
+- `bsky.social/profile/{handle}/post/{postid}`
+
+**Archive Process:**
+1. Parse handle and post ID from URL
+2. Resolve handle to DID via `https://bsky.social/xrpc/com.atproto.identity.resolveHandle`
+3. Fetch post via `https://bsky.social/xrpc/app.bsky.feed.getPostThread?uri=at://{did}/app.bsky.feed.post/{postid}`
+4. Download embedded images/media from CDN URLs
+5. Store post JSON, text content, and media files
+
+**Data Captured:**
+- Post text content
+- Author handle and display name
+- Created timestamp
+- Embedded images (full size from CDN)
+- Embed cards (link previews)
+- Reply/quote context if present
+
+### 8.5 Streamable Handler Details
+
+Streamable is a simple video hosting platform fully supported by yt-dlp.
+
+**URL Patterns:**
+- `streamable.com/{video_id}`
+
+**Archive Process:**
+1. Pass URL directly to yt-dlp
+2. yt-dlp handles video download, metadata extraction
+3. Store video file, thumbnail, and metadata JSON
 
 ### 8.3 URL Normalization Rules
 
@@ -301,6 +336,65 @@ After successful archive:
 - Rate limit: max 5 requests/minute
 - Store snapshot URL when available
 
+### 9.6 Archive.today Integration
+
+Alternative/complementary to Wayback Machine:
+- Submit URL to `archive.today/submit/`
+- Often faster and more reliable than Wayback
+- Better at capturing dynamic JavaScript content
+- Rate limit: max 3 requests/minute (more restrictive)
+- Store archive.today URL when available
+- Configurable: enabled/disabled via `ARCHIVE_TODAY_ENABLED`
+
+### 9.7 Screenshot Capture
+
+Browser-based page rendering for visual archive:
+- Use `chromiumoxide` or `headless_chrome` crate
+- Capture full-page screenshots as PNG
+- Configurable viewport size (default: 1280x800)
+- Wait for page load completion
+- Store in S3 under `archives/{link_id}/render/screenshot.png`
+- Optional: Capture at multiple viewport sizes (mobile, tablet, desktop)
+
+Configuration:
+```bash
+SCREENSHOT_ENABLED=true
+SCREENSHOT_VIEWPORT_WIDTH=1280
+SCREENSHOT_VIEWPORT_HEIGHT=800
+CHROMIUM_PATH=/usr/bin/chromium
+```
+
+### 9.8 PDF Generation
+
+Print-quality document export:
+- Use same headless browser infrastructure as screenshots
+- Generate PDF via Chrome DevTools Protocol print-to-PDF
+- Optimized for articles and text content
+- Store in S3 under `archives/{link_id}/render/page.pdf`
+- Configurable paper size (default: A4)
+
+Configuration:
+```bash
+PDF_ENABLED=true
+PDF_PAPER_WIDTH=8.27  # A4 width in inches
+PDF_PAPER_HEIGHT=11.69  # A4 height in inches
+```
+
+### 9.9 Content Deduplication
+
+Perceptual hashing to detect duplicate media:
+- Use `image_hasher` crate for perceptual image hashing (pHash/dHash)
+- Store hash in `archive_artifacts` table
+- Before downloading, check if similar content already archived
+- Configurable similarity threshold (default: 90%)
+- Skip re-archiving if near-duplicate exists (link to existing)
+
+Database additions:
+```sql
+ALTER TABLE archive_artifacts ADD COLUMN perceptual_hash TEXT;
+CREATE INDEX idx_artifacts_phash ON archive_artifacts(perceptual_hash);
+```
+
 ---
 
 ## 10. S3 Storage Layout
@@ -346,6 +440,10 @@ After successful archive:
 | GET | `/healthz` | Health check endpoint |
 | GET | `/api/archives` | JSON API (paginated) |
 | GET | `/api/search` | JSON search endpoint |
+| GET | `/feed.rss` | RSS feed of new archives |
+| GET | `/feed.atom` | Atom feed of new archives |
+| GET | `/compare/{id1}/{id2}` | Compare two archive versions |
+| GET | `/export/{site}` | Bulk export archives for a domain |
 
 ### 11.2 Search Parameters
 
@@ -362,6 +460,41 @@ After successful archive:
 - Minimal CSS (PicoCSS or similar classless framework)
 - Optional htmx for dynamic search
 - No heavy JavaScript frameworks
+
+### 11.4 Dark Mode
+
+- System preference detection via `prefers-color-scheme` media query
+- Manual toggle switch in header
+- Preference stored in localStorage
+- PicoCSS dark theme classes
+- Cookie fallback for SSR
+
+### 11.5 RSS/Atom Feed
+
+Feed of newly archived content for subscription:
+- RSS 2.0 format at `/feed.rss`
+- Atom 1.0 format at `/feed.atom`
+- Include: title, original URL, archive URL, timestamp, content type
+- Last 50 archives by default
+- Optional filters via query params: `?site=reddit.com&type=video`
+
+### 11.6 Archive Comparison
+
+Show differences when content changes between archive versions:
+- Side-by-side text diff view
+- Highlight added/removed content
+- Timestamp comparison
+- Use `similar` crate for diff algorithm
+- Link to both full archives
+
+### 11.7 Bulk Export
+
+Download multiple archives as ZIP:
+- Export all archives for a specific domain
+- Exclude large video files (>50MB by default)
+- Include metadata.json with archive info
+- Configurable max export size (default: 500MB)
+- Rate limit: 1 export per hour per IP
 
 ---
 
@@ -515,14 +648,27 @@ Systemd service file for daemon management.
 
 ## 15. Future Enhancements (Post-MVP)
 
-1. RSS/Atom feed of newly archived content
-2. Webhook notifications (Discord/Slack)
-3. Content deduplication via perceptual hashing
-4. Archive.today integration
-5. Manual submission web form
-6. Prometheus metrics endpoint
-7. Browser extension for one-click archiving
-8. IPFS pinning for redundancy
+**Implemented:**
+- [x] RSS/Atom feed of newly archived content (Phase 12)
+- [x] Content deduplication via perceptual hashing (Phase 12)
+- [x] Archive.today integration (Phase 12)
+- [x] Manual submission web form (Phase 11)
+- [x] IPFS pinning for redundancy (Phase 10)
+- [x] Screenshot capture (Phase 12)
+- [x] PDF generation (Phase 12)
+- [x] Dark mode UI (Phase 12)
+- [x] Archive comparison/diff (Phase 12)
+- [x] Bulk export (Phase 12)
+- [x] Bluesky handler (Phase 12)
+- [x] Streamable handler (Phase 12)
+
+**Still Pending:**
+1. Webhook notifications (Discord/Slack)
+2. Prometheus metrics endpoint
+3. Browser extension for one-click archiving
+4. Email notifications for failed archives
+5. Admin dashboard for monitoring
+6. Custom archive request priorities
 
 ---
 

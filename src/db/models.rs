@@ -113,6 +113,7 @@ pub struct Archive {
     pub s3_key_thumb: Option<String>,
     pub s3_keys_extra: Option<String>,
     pub wayback_url: Option<String>,
+    pub archive_today_url: Option<String>,
     pub ipfs_cid: Option<String>,
     pub error_message: Option<String>,
     pub retry_count: i32,

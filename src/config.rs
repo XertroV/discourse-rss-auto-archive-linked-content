@@ -56,6 +56,10 @@ pub struct Config {
     pub wayback_enabled: bool,
     pub wayback_rate_limit_per_min: u32,
 
+    // Archive.today
+    pub archive_today_enabled: bool,
+    pub archive_today_rate_limit_per_min: u32,
+
     // Backup
     pub backup_enabled: bool,
     pub backup_interval_hours: u64,
@@ -133,6 +137,10 @@ impl Config {
             // Wayback Machine
             wayback_enabled: parse_env_bool("WAYBACK_ENABLED", true)?,
             wayback_rate_limit_per_min: parse_env_u32("WAYBACK_RATE_LIMIT_PER_MIN", 5)?,
+
+            // Archive.today
+            archive_today_enabled: parse_env_bool("ARCHIVE_TODAY_ENABLED", false)?,
+            archive_today_rate_limit_per_min: parse_env_u32("ARCHIVE_TODAY_RATE_LIMIT_PER_MIN", 3)?,
 
             // Backup
             backup_enabled: parse_env_bool("BACKUP_ENABLED", true)?,

@@ -1,5 +1,5 @@
 use axum::extract::{ConnectInfo, Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{header, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use axum::Form;
@@ -8,6 +8,7 @@ use axum::Router;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
+use super::feeds;
 use super::templates;
 use super::AppState;
 use crate::db::{
@@ -30,6 +31,8 @@ pub fn router() -> Router<AppState> {
         .route("/site/{site}", get(site_list))
         .route("/stats", get(stats))
         .route("/healthz", get(health))
+        .route("/feed.rss", get(feed_rss))
+        .route("/feed.atom", get(feed_atom))
         .route("/api/archives", get(api_archives))
         .route("/api/search", get(api_search))
 }
@@ -354,6 +357,68 @@ async fn submit_url(
 
     let html = templates::render_submit_success(submission_id);
     Html(html).into_response()
+}
+
+// ========== Feed Routes ==========
+
+#[derive(Debug, Deserialize)]
+pub struct FeedParams {
+    #[allow(dead_code)]
+    site: Option<String>,
+    #[serde(rename = "type")]
+    #[allow(dead_code)]
+    content_type: Option<String>,
+    limit: Option<i64>,
+}
+
+async fn feed_rss(State(state): State<AppState>, Query(params): Query<FeedParams>) -> Response {
+    let limit = params.limit.unwrap_or(50).min(100);
+
+    // TODO: Add site and content_type filtering once we have the query functions
+    let archives = match get_recent_archives(state.db.pool(), limit).await {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!("Failed to fetch archives for RSS feed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    // Determine base URL from config or default
+    let base_url = format!("http://{}:{}", state.config.web_host, state.config.web_port);
+
+    let rss = feeds::generate_rss(&archives, &base_url);
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/rss+xml; charset=utf-8")],
+        rss,
+    )
+        .into_response()
+}
+
+async fn feed_atom(State(state): State<AppState>, Query(params): Query<FeedParams>) -> Response {
+    let limit = params.limit.unwrap_or(50).min(100);
+
+    // TODO: Add site and content_type filtering once we have the query functions
+    let archives = match get_recent_archives(state.db.pool(), limit).await {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!("Failed to fetch archives for Atom feed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    // Determine base URL from config or default
+    let base_url = format!("http://{}:{}", state.config.web_host, state.config.web_port);
+
+    let atom = feeds::generate_atom(&archives, &base_url);
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/atom+xml; charset=utf-8")],
+        atom,
+    )
+        .into_response()
 }
 
 // ========== JSON API Routes ==========

@@ -6,6 +6,7 @@
 // Allow raw string hashes for safety - they're harmless and prevent issues if content changes
 #![allow(clippy::needless_raw_string_hashes)]
 
+pub mod archive_today;
 pub mod archiver;
 pub mod backup;
 pub mod config;

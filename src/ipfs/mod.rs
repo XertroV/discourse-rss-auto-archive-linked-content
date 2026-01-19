@@ -312,6 +312,8 @@ mod tests {
             web_port: 8080,
             wayback_enabled: false,
             wayback_rate_limit_per_min: 5,
+            archive_today_enabled: false,
+            archive_today_rate_limit_per_min: 3,
             backup_enabled: false,
             backup_interval_hours: 24,
             backup_retention_count: 30,
