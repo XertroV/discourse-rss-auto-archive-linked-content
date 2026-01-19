@@ -55,7 +55,11 @@ pub async fn poll_loop(config: Config, db: Database) {
 }
 
 /// Poll the RSS feed once and process any new posts.
-async fn poll_once(client: &reqwest::Client, config: &Config, db: &Database) -> Result<usize> {
+///
+/// # Errors
+///
+/// Returns an error if the RSS feed cannot be fetched or parsed.
+pub async fn poll_once(client: &reqwest::Client, config: &Config, db: &Database) -> Result<usize> {
     let response = client
         .get(&config.rss_url)
         .header("User-Agent", "discourse-link-archiver/0.1")
