@@ -1430,6 +1430,46 @@ pre {
     font-weight: 600;
 }
 
+/* Content Text section (collapsible plaintext) */
+.content-text-section {
+    margin-top: var(--spacing-lg);
+}
+
+.content-text-section details {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.content-text-section summary {
+    background: var(--bg-secondary);
+    padding: var(--spacing-sm) var(--spacing-md);
+    cursor: pointer;
+}
+
+.content-text-section summary:hover {
+    background: var(--bg-tertiary);
+}
+
+.content-text-section .text-size {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+    font-weight: normal;
+}
+
+.content-text {
+    padding: var(--spacing-md);
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    line-height: 1.6;
+    max-height: 600px;
+    overflow-y: auto;
+    background: var(--bg-tertiary);
+}
+
 /* Archive Jobs section */
 .archive-jobs {
     margin-top: var(--spacing-lg);

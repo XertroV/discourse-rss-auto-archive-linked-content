@@ -13,7 +13,7 @@ use chromiumoxide::cdp::browser_protocol::network::{
     CookieParam, SetCookiesParams, TimeSinceEpoch,
 };
 use chromiumoxide::cdp::browser_protocol::page::{
-    CaptureSnapshotFormat, CaptureSnapshotParams, PrintToPdfParams,
+    CaptureScreenshotFormat, CaptureSnapshotFormat, CaptureSnapshotParams, PrintToPdfParams,
 };
 use chromiumoxide::page::ScreenshotParams;
 use futures_util::StreamExt;
@@ -345,10 +345,14 @@ impl ScreenshotService {
         // Give the page a bit more time to render dynamic content
         tokio::time::sleep(Duration::from_millis(500)).await;
 
-        // Capture full page screenshot using the high-level API
-        let screenshot_params = ScreenshotParams::builder().full_page(true).build();
+        // Capture full page screenshot using webp format for better compression
+        let screenshot_params = ScreenshotParams::builder()
+            .full_page(true)
+            .format(CaptureScreenshotFormat::Webp)
+            .quality(85) // Good balance of quality vs size
+            .build();
 
-        let png_data = page
+        let webp_data = page
             .screenshot(screenshot_params)
             .await
             .context("Failed to capture screenshot")?;
@@ -358,9 +362,9 @@ impl ScreenshotService {
             warn!("Failed to close page: {e}");
         }
 
-        debug!(url = %url, size = png_data.len(), "Screenshot captured");
+        debug!(url = %url, size = webp_data.len(), "Screenshot captured (webp)");
 
-        Ok(png_data)
+        Ok(webp_data)
     }
 
     /// Capture a screenshot and save it to a file.

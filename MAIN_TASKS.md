@@ -450,3 +450,10 @@ Implemented:
 - [x] Database schema for archive_jobs table with job_type, status, timestamps, error
 - [ ] Only run yt-dlp on Reddit/Twitter if video is present
 - [ ] Design maintainable approach for job tracking and conditional tool execution
+
+### Additional Improvements (Phase 14b)
+- [x] Screenshots use webp format instead of png (better compression)
+- [x] Plaintext content is collapsible with size info (default collapsed)
+- [x] NSFW detection for Reddit posts/comments (metadata-based, not just subreddit)
+- [x] Handle direct Reddit media URLs (i.redd.it images, v.redd.it videos)
+- [x] More specific NSFW HTML detection (avoid false positives from user comments)

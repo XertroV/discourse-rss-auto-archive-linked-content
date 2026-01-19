@@ -350,8 +350,17 @@ pub fn render_archive_detail(
     }
 
     if let Some(ref text) = archive.content_text {
+        let text_size = text.len();
+        let size_display = if text_size >= 1024 {
+            format!("{:.1} KB", text_size as f64 / 1024.0)
+        } else {
+            format!("{} bytes", text_size)
+        };
         content.push_str(&format!(
-            "<section><h2>Content</h2><p>{}</p></section>",
+            r#"<section class="content-text-section"><details>
+            <summary><h2 style="display: inline;">Plaintext Content</h2> <span class="text-size">({size_display})</span></summary>
+            <pre class="content-text">{}</pre>
+            </details></section>"#,
             html_escape(text)
         ));
     }

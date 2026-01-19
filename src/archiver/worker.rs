@@ -966,11 +966,11 @@ async fn process_archive_inner(
     // Capture screenshot if enabled (non-fatal if it fails)
     if screenshot.is_enabled() {
         match screenshot.capture(&link.normalized_url).await {
-            Ok(png_data) => {
-                let screenshot_key = format!("{s3_prefix}render/screenshot.png");
-                let size_bytes = Some(png_data.len() as i64);
+            Ok(webp_data) => {
+                let screenshot_key = format!("{s3_prefix}render/screenshot.webp");
+                let size_bytes = Some(webp_data.len() as i64);
                 if let Err(e) = s3
-                    .upload_bytes(&png_data, &screenshot_key, "image/png")
+                    .upload_bytes(&webp_data, &screenshot_key, "image/webp")
                     .await
                 {
                     warn!(archive_id, error = %e, "Failed to upload screenshot");
@@ -982,7 +982,7 @@ async fn process_archive_inner(
                         archive_id,
                         ArtifactKind::Screenshot.as_str(),
                         &screenshot_key,
-                        Some("image/png"),
+                        Some("image/webp"),
                         size_bytes,
                         None,
                     )

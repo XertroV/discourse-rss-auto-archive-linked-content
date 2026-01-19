@@ -223,6 +223,16 @@ async fn find_and_parse_metadata(work_dir: &Path) -> Result<ArchiveResult> {
                 }
             }
 
+            // Also check Reddit's over_18 field (for Reddit-specific NSFW)
+            if result.is_nsfw.is_none() || !result.is_nsfw.unwrap_or(false) {
+                if let Some(over_18) = json.get("over_18").and_then(serde_json::Value::as_bool) {
+                    if over_18 {
+                        result.is_nsfw = Some(true);
+                        result.nsfw_source = Some("metadata".to_string());
+                    }
+                }
+            }
+
             result.metadata_json = Some(content);
         }
     }
@@ -321,17 +331,36 @@ pub async fn fetch_metadata_only(url: &str, cookies: &CookieOptions<'_>) -> Resu
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        // Extract NSFW status from age_limit field
-        let (is_nsfw, nsfw_source) =
+        // Extract NSFW status from age_limit or over_18 field
+        let (is_nsfw, nsfw_source) = {
+            // Check age_limit first (common for video platforms)
             if let Some(age_limit) = json.get("age_limit").and_then(serde_json::Value::as_i64) {
                 if age_limit >= 18 {
+                    (Some(true), Some("metadata".to_string()))
+                } else {
+                    // Check Reddit's over_18 field
+                    if let Some(over_18) = json.get("over_18").and_then(serde_json::Value::as_bool)
+                    {
+                        if over_18 {
+                            (Some(true), Some("metadata".to_string()))
+                        } else {
+                            (None, None)
+                        }
+                    } else {
+                        (None, None)
+                    }
+                }
+            } else if let Some(over_18) = json.get("over_18").and_then(serde_json::Value::as_bool) {
+                // Check Reddit's over_18 field if age_limit not present
+                if over_18 {
                     (Some(true), Some("metadata".to_string()))
                 } else {
                     (None, None)
                 }
             } else {
                 (None, None)
-            };
+            }
+        };
 
         Ok(ArchiveResult {
             title,

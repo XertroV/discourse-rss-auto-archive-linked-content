@@ -150,6 +150,11 @@ impl SiteHandler for RedditHandler {
         work_dir: &Path,
         cookies: &CookieOptions<'_>,
     ) -> Result<ArchiveResult> {
+        // Check if this is a direct media URL (i.redd.it, v.redd.it, preview.redd.it)
+        if is_direct_media_url(url) {
+            return archive_direct_media(url, work_dir, cookies).await;
+        }
+
         // Resolve redd.it shortlinks first
         let resolved_url = if is_shortlink(url) {
             match resolve_short_url(url).await {
@@ -274,6 +279,15 @@ impl SiteHandler for RedditHandler {
             result.nsfw_source = Some("subreddit".to_string());
         }
 
+        // Check HTML for NSFW indicators using the robust helper function
+        if result.is_nsfw.is_none() || !result.is_nsfw.unwrap_or(false) {
+            if let Some(ref html) = html_content {
+                if is_reddit_definitely_nsfw(html) {
+                    result.is_nsfw = Some(true);
+                    result.nsfw_source = Some("html".to_string());
+                }
+            }
+        }
         // Set final URL if discovered
         result.final_url = final_url;
 
@@ -807,6 +821,109 @@ fn is_reddit_definitely_nsfw(html: &str) -> bool {
         || s.contains("data-nsfw=\"true\"")
 }
 
+/// Check if URL is a direct media URL (i.redd.it, v.redd.it, preview.redd.it).
+fn is_direct_media_url(url: &str) -> bool {
+    url.contains("://i.redd.it/")
+        || url.contains("://v.redd.it/")
+        || url.contains("://preview.redd.it/")
+}
+
+/// Archive a direct media URL from Reddit.
+async fn archive_direct_media(
+    url: &str,
+    work_dir: &Path,
+    cookies: &CookieOptions<'_>,
+) -> Result<ArchiveResult> {
+    // For v.redd.it videos, use yt-dlp
+    if url.contains("://v.redd.it/") {
+        debug!(url = %url, "Downloading v.redd.it video via yt-dlp");
+        return ytdlp::download(url, work_dir, cookies).await;
+    }
+
+    // For i.redd.it and preview.redd.it images, download directly
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .context("Failed to build HTTP client")?;
+
+    debug!(url = %url, "Downloading Reddit image directly");
+
+    let response = client
+        .get(url)
+        .header("User-Agent", ARCHIVAL_USER_AGENT)
+        .send()
+        .await
+        .context("Failed to download image")?;
+
+    let status = response.status();
+    if !status.is_success() {
+        anyhow::bail!("Reddit image download failed with status {}", status);
+    }
+
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/jpeg")
+        .to_string();
+
+    // Determine filename from URL
+    let filename = url
+        .rsplit('/')
+        .next()
+        .unwrap_or("image.jpg")
+        .split('?')
+        .next()
+        .unwrap_or("image.jpg")
+        .to_string();
+
+    let bytes = response
+        .bytes()
+        .await
+        .context("Failed to read image data")?;
+
+    // Save the image
+    let output_path = work_dir.join(&filename);
+    tokio::fs::write(&output_path, &bytes)
+        .await
+        .context("Failed to write image file")?;
+
+    info!(url = %url, filename = %filename, size = bytes.len(), "Downloaded Reddit image");
+
+    // Determine content type from extension
+    let content_type_from_ext = if filename.ends_with(".gif") {
+        "image/gif"
+    } else if filename.ends_with(".png") {
+        "image/png"
+    } else if filename.ends_with(".webp") {
+        "image/webp"
+    } else if filename.ends_with(".mp4") {
+        "video/mp4"
+    } else {
+        &content_type
+    };
+
+    Ok(ArchiveResult {
+        content_type: if content_type_from_ext.starts_with("video") {
+            "video".to_string()
+        } else {
+            "image".to_string()
+        },
+        primary_file: Some(filename),
+        title: None,
+        author: None,
+        text: None,
+        thumbnail: None,
+        extra_files: vec![],
+        video_id: None,
+        is_nsfw: None,
+        nsfw_source: None,
+        metadata_json: None,
+        final_url: Some(url.to_string()),
+        http_status_code: Some(status.as_u16()),
+    })
+}
+
 /// Resolve a redd.it short URL to full Reddit URL.
 ///
 /// Sends a HEAD request and follows the redirect location header.
@@ -878,6 +995,20 @@ mod tests {
         // Not shortlinks (full Reddit URLs)
         assert!(!is_shortlink("https://www.reddit.com/r/rust"));
         assert!(!is_shortlink("https://old.reddit.com/r/test"));
+    }
+
+    #[test]
+    fn test_is_direct_media_url() {
+        // Direct media URLs
+        assert!(is_direct_media_url("https://i.redd.it/abc123.jpg"));
+        assert!(is_direct_media_url("https://i.redd.it/image.png"));
+        assert!(is_direct_media_url("https://v.redd.it/xyz789"));
+        assert!(is_direct_media_url("https://preview.redd.it/something.gif"));
+
+        // Not direct media URLs
+        assert!(!is_direct_media_url("https://reddit.com/r/test"));
+        assert!(!is_direct_media_url("https://old.reddit.com/r/pics"));
+        assert!(!is_direct_media_url("https://redd.it/abc123"));
     }
 
     #[test]
