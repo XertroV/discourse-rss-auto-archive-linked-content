@@ -1136,3 +1136,51 @@ pub async fn get_artifact(pool: &SqlitePool, id: i64) -> Result<Option<ArchiveAr
         .await
         .context("Failed to fetch artifact")
 }
+
+// ========== Re-archiving ==========
+
+/// Reset an archive for full re-archiving.
+///
+/// This resets the archive to pending state, clears all results from previous
+/// attempts, and deletes associated artifacts. The archive will be processed
+/// fresh through the full pipeline (including redirect handling).
+pub async fn reset_archive_for_rearchive(pool: &SqlitePool, id: i64) -> Result<()> {
+    // Delete existing artifacts for this archive
+    sqlx::query("DELETE FROM archive_artifacts WHERE archive_id = ?")
+        .bind(id)
+        .execute(pool)
+        .await
+        .context("Failed to delete artifacts")?;
+
+    // Reset archive to pending state with cleared results
+    sqlx::query(
+        r"
+        UPDATE archives
+        SET status = 'pending',
+            archived_at = NULL,
+            content_title = NULL,
+            content_author = NULL,
+            content_text = NULL,
+            content_type = NULL,
+            s3_key_primary = NULL,
+            s3_key_thumb = NULL,
+            s3_keys_extra = NULL,
+            wayback_url = NULL,
+            archive_today_url = NULL,
+            ipfs_cid = NULL,
+            error_message = NULL,
+            retry_count = 0,
+            next_retry_at = NULL,
+            last_attempt_at = NULL,
+            is_nsfw = 0,
+            nsfw_source = NULL
+        WHERE id = ?
+        ",
+    )
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Failed to reset archive")?;
+
+    Ok(())
+}

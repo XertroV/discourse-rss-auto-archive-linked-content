@@ -198,24 +198,77 @@ pub fn render_archive_detail(
         content.push_str(r#"<div class="nsfw-warning"><strong>Warning:</strong> This archive contains content marked as NSFW (Not Safe For Work).</div>"#);
     }
 
+    // Format status with icon
+    #[allow(clippy::useless_format)]
+    let status_display = match archive.status.as_str() {
+        "complete" => format!(r#"<span class="status-complete">✓ complete</span>"#),
+        "failed" => format!(r#"<span class="status-failed">✗ failed</span>"#),
+        "pending" => format!(r#"<span class="status-pending">⏳ pending</span>"#),
+        "processing" => format!(r#"<span class="status-processing">⟳ processing</span>"#),
+        "skipped" => format!(r#"<span class="status-skipped">⊘ skipped</span>"#),
+        _ => format!(
+            r#"<span class="status-{}">{}</span>"#,
+            archive.status, archive.status
+        ),
+    };
+
     content.push_str(&format!(
         r#"<h1>{}{nsfw_badge}</h1>
         <article>
             <header>
                 <p class="meta">
-                    <strong>Status:</strong> <span class="status-{}">{}</span><br>
+                    <strong>Status:</strong> {}<br>
                     <strong>Original URL:</strong> <a href="{}">{}</a><br>
                     <strong>Domain:</strong> {}<br>
                     <strong>Archived:</strong> {}
                 </p>
             </header>"#,
         html_escape(title),
-        archive.status,
-        archive.status,
+        status_display,
         html_escape(&link.normalized_url),
         html_escape(&link.normalized_url),
         html_escape(&link.domain),
         archive.archived_at.as_deref().unwrap_or("pending")
+    ));
+
+    // Show error details for failed/skipped archives
+    if archive.status == "failed" || archive.status == "skipped" {
+        content.push_str(r#"<section class="archive-error">"#);
+        content.push_str("<h2>Archive Result</h2>");
+
+        if let Some(ref error) = archive.error_message {
+            content.push_str(&format!(
+                r#"<p class="error-message"><strong>Error:</strong> <code>{}</code></p>"#,
+                html_escape(error)
+            ));
+        }
+
+        if let Some(ref last_attempt) = archive.last_attempt_at {
+            content.push_str(&format!(
+                r#"<p><strong>Last Attempt:</strong> {}</p>"#,
+                html_escape(last_attempt)
+            ));
+        }
+
+        content.push_str(&format!(
+            r#"<p><strong>Retry Count:</strong> {}</p>"#,
+            archive.retry_count
+        ));
+
+        content.push_str("</section>");
+    }
+
+    // Re-archive button (for debugging)
+    content.push_str(&format!(
+        r#"<section class="rearchive-section">
+            <form method="post" action="/archive/{}/rearchive" style="display: inline;">
+                <button type="submit" class="rearchive-button" title="Re-run the full archive pipeline including redirect handling">
+                    🔄 Re-archive
+                </button>
+            </form>
+            <small style="margin-left: 10px; color: var(--muted-color);">Debug: Triggers a fresh archive attempt</small>
+        </section>"#,
+        archive.id
     ));
 
     if let Some(ref author) = archive.content_author {

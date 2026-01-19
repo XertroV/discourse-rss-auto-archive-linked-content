@@ -1,7 +1,7 @@
 use axum::extract::{ConnectInfo, Path, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Form;
 use axum::Json;
 use axum::Router;
@@ -17,8 +17,9 @@ use crate::db::{
     create_pending_archive, get_archive, get_archive_by_link_id, get_archives_by_domain_display,
     get_archives_for_post_display, get_artifacts_for_archive, get_link, get_link_by_normalized_url,
     get_post_by_guid, get_recent_archives_display, get_recent_archives_filtered,
-    get_recent_archives_with_filters, insert_link, insert_submission, search_archives_display,
-    search_archives_filtered, submission_exists_for_url, NewLink, NewSubmission,
+    get_recent_archives_with_filters, insert_link, insert_submission, reset_archive_for_rearchive,
+    search_archives_display, search_archives_filtered, submission_exists_for_url, NewLink,
+    NewSubmission,
 };
 use crate::handlers::normalize_url;
 
@@ -29,6 +30,7 @@ pub fn router() -> Router<AppState> {
         .route("/search", get(search))
         .route("/submit", get(submit_form).post(submit_url))
         .route("/archive/:id", get(archive_detail))
+        .route("/archive/:id/rearchive", post(rearchive))
         .route("/compare/:id1/:id2", get(compare_archives))
         .route("/post/:guid", get(post_detail))
         .route("/site/:site", get(site_list))
@@ -126,6 +128,44 @@ async fn archive_detail(State(state): State<AppState>, Path(id): Path<i64>) -> R
 
     let html = templates::render_archive_detail(&archive, &link, &artifacts);
     Html(html).into_response()
+}
+
+/// Handler for re-archiving an archive (POST /archive/:id/rearchive).
+///
+/// This resets the archive to pending state and triggers a fresh archive
+/// through the full pipeline, including redirect handling.
+async fn rearchive(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
+    // Check that the archive exists
+    let archive = match get_archive(state.db.pool(), id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, "Archive not found").into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch archive for rearchive: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    // Don't allow re-archiving if currently processing
+    if archive.status == "processing" {
+        return (
+            StatusCode::CONFLICT,
+            "Archive is currently being processed. Please wait.",
+        )
+            .into_response();
+    }
+
+    // Reset the archive for re-processing
+    if let Err(e) = reset_archive_for_rearchive(state.db.pool(), id).await {
+        tracing::error!("Failed to reset archive for rearchive: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to reset archive").into_response();
+    }
+
+    tracing::info!(archive_id = id, "Archive queued for re-archiving");
+
+    // Redirect back to archive detail page
+    axum::response::Redirect::to(&format!("/archive/{id}")).into_response()
 }
 
 /// Path parameters for archive comparison.
@@ -536,19 +576,15 @@ async fn feed_atom(State(state): State<AppState>, Query(params): Query<FeedParam
 /// NSFW filter mode for API queries.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum NsfwFilter {
     /// Show all archives (both SFW and NSFW)
+    #[default]
     Show,
     /// Hide NSFW archives (show only SFW)
     Hide,
     /// Show only NSFW archives
     Only,
-}
-
-impl Default for NsfwFilter {
-    fn default() -> Self {
-        NsfwFilter::Show
-    }
 }
 
 #[derive(Debug, Deserialize)]

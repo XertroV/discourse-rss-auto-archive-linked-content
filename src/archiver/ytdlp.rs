@@ -47,7 +47,7 @@ pub async fn download(
     // Only use one method to avoid potential conflicts
     let mut cookie_method_used = false;
 
-    if let Some(ref spec) = cookies.browser_profile {
+    if let Some(spec) = cookies.browser_profile {
         let spec = maybe_adjust_chromium_user_data_dir_spec(spec);
         debug!(spec = %spec, "Using cookies from browser profile");
         args.push("--cookies-from-browser".to_string());
