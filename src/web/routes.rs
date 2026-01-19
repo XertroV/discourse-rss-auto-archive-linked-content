@@ -16,9 +16,9 @@ use crate::db::{
     count_archives_by_status, count_links, count_posts, count_submissions_from_ip_last_hour,
     create_pending_archive, get_archive, get_archive_by_link_id, get_archives_by_domain_display,
     get_archives_for_post_display, get_artifacts_for_archive, get_link, get_link_by_normalized_url,
-    get_post_by_guid, get_recent_archives, get_recent_archives_display, insert_link,
-    insert_submission, search_archives, search_archives_display, submission_exists_for_url,
-    NewLink, NewSubmission,
+    get_post_by_guid, get_recent_archives, get_recent_archives_display,
+    get_recent_archives_filtered, insert_link, insert_submission, search_archives_display,
+    search_archives_filtered, submission_exists_for_url, NewLink, NewSubmission,
 };
 use crate::handlers::normalize_url;
 
@@ -520,10 +520,30 @@ async fn feed_atom(State(state): State<AppState>, Query(params): Query<FeedParam
 
 // ========== JSON API Routes ==========
 
+/// NSFW filter mode for API queries.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NsfwFilter {
+    /// Show all archives (both SFW and NSFW)
+    Show,
+    /// Hide NSFW archives (show only SFW)
+    Hide,
+    /// Show only NSFW archives
+    Only,
+}
+
+impl Default for NsfwFilter {
+    fn default() -> Self {
+        NsfwFilter::Show
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ApiArchivesParams {
     page: Option<u32>,
     per_page: Option<u32>,
+    #[serde(default)]
+    nsfw: NsfwFilter,
 }
 
 #[derive(Debug, Serialize)]
@@ -541,7 +561,21 @@ async fn api_archives(
     let per_page = params.per_page.unwrap_or(20).min(100);
     let offset = i64::from(page.saturating_sub(1)) * i64::from(per_page);
 
-    let archives = match get_recent_archives(state.db.pool(), i64::from(per_page) + offset).await {
+    // Convert NsfwFilter enum to Option<bool>
+    // None = show all, Some(false) = hide NSFW, Some(true) = only NSFW
+    let nsfw_filter = match params.nsfw {
+        NsfwFilter::Show => None,
+        NsfwFilter::Hide => Some(false),
+        NsfwFilter::Only => Some(true),
+    };
+
+    let archives = match get_recent_archives_filtered(
+        state.db.pool(),
+        i64::from(per_page) + offset,
+        nsfw_filter,
+    )
+    .await
+    {
         Ok(a) => a.into_iter().skip(offset as usize).collect::<Vec<_>>(),
         Err(e) => {
             tracing::error!("Failed to fetch archives: {e}");
@@ -562,6 +596,8 @@ pub struct ApiSearchParams {
     q: String,
     page: Option<u32>,
     per_page: Option<u32>,
+    #[serde(default)]
+    nsfw: NsfwFilter,
 }
 
 async fn api_search(
@@ -571,7 +607,22 @@ async fn api_search(
     let page = params.page.unwrap_or(1);
     let per_page = params.per_page.unwrap_or(20).min(100);
 
-    let archives = match search_archives(state.db.pool(), &params.q, i64::from(per_page)).await {
+    // Convert NsfwFilter enum to Option<bool>
+    // None = show all, Some(false) = hide NSFW, Some(true) = only NSFW
+    let nsfw_filter = match params.nsfw {
+        NsfwFilter::Show => None,
+        NsfwFilter::Hide => Some(false),
+        NsfwFilter::Only => Some(true),
+    };
+
+    let archives = match search_archives_filtered(
+        state.db.pool(),
+        &params.q,
+        i64::from(per_page),
+        nsfw_filter,
+    )
+    .await
+    {
         Ok(a) => a,
         Err(e) => {
             tracing::error!("Failed to search archives: {e}");

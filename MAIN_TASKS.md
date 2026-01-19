@@ -375,8 +375,8 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 
 ### API Updates
 - [x] Add `is_nsfw` field to Archive JSON response (automatic via serde)
-- [ ] Add optional `?nsfw=show|hide|only` query parameter to API endpoints (optional enhancement)
-- [ ] Filter archives in database queries when `nsfw=hide` (optional enhancement)
+- [x] Add optional `?nsfw=show|hide|only` query parameter to API endpoints
+- [x] Filter archives in database queries based on NSFW filter parameter
 
 ### Testing
 - [x] Write comprehensive unit tests for NSFW subreddit detection in Reddit handler
