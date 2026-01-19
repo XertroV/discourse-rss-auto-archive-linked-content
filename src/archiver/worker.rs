@@ -10,10 +10,10 @@ use super::rate_limiter::DomainRateLimiter;
 use super::screenshot::ScreenshotService;
 use crate::config::Config;
 use crate::db::{
-    get_archive, get_failed_archives_for_retry, get_link, get_pending_archives,
+    get_archive, get_failed_archives_for_retry, get_link, get_pending_archives, insert_artifact,
     reset_archive_for_retry, reset_stuck_processing_archives, reset_todays_failed_archives,
     set_archive_complete, set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw,
-    set_archive_processing, set_archive_skipped, update_link_last_archived, Database,
+    set_archive_processing, set_archive_skipped, update_link_last_archived, ArtifactKind, Database,
 };
 use crate::handlers::HANDLERS;
 use crate::ipfs::IpfsClient;
@@ -218,6 +218,7 @@ async fn process_archive(
 }
 
 /// Create view.html with archive banner injected.
+/// Returns the file size of the created view.html.
 async fn create_view_html(
     db: &Database,
     archive_id: i64,
@@ -226,7 +227,7 @@ async fn create_view_html(
     work_dir: &Path,
     s3: &S3Client,
     s3_prefix: &str,
-) -> Result<()> {
+) -> Result<Option<i64>> {
     // Get archive and link info
     let archive = get_archive(db.pool(), archive_id)
         .await?
@@ -246,9 +247,12 @@ async fn create_view_html(
 
     // Save view.html locally
     let view_html_path = work_dir.join("view.html");
-    tokio::fs::write(&view_html_path, view_html)
+    tokio::fs::write(&view_html_path, &view_html)
         .await
         .context("Failed to write view.html")?;
+
+    // Get file size
+    let size_bytes = Some(view_html.len() as i64);
 
     // Upload view.html to S3
     let view_key = format!("{s3_prefix}media/view.html");
@@ -256,7 +260,7 @@ async fn create_view_html(
         .await
         .context("Failed to upload view.html")?;
 
-    Ok(())
+    Ok(size_bytes)
 }
 
 /// Inject archive banner into HTML content.
@@ -292,7 +296,7 @@ fn inject_archive_banner(html: &str, banner: &str) -> String {
             format!("{}{}{}", &html[..html_end], banner, &html[html_end..])
         } else {
             // Just prepend to the whole document
-            format!("{}{}", banner, html)
+            format!("{banner}{html}")
         }
     }
 }
@@ -357,9 +361,41 @@ async fn process_archive_inner(
         let local_path = work_dir.join(primary);
         if local_path.exists() {
             let key = format!("{s3_prefix}media/{primary}");
+            let metadata = tokio::fs::metadata(&local_path).await.ok();
+            let size_bytes = metadata.map(|m| m.len() as i64);
+            let content_type = mime_guess::from_path(&local_path)
+                .first_or_octet_stream()
+                .to_string();
+
             s3.upload_file(&local_path, &key).await?;
             primary_key = Some(key.clone());
             primary_local_path = Some(local_path.clone());
+
+            // Determine artifact kind based on content type
+            let kind = if result.content_type == "video" {
+                ArtifactKind::Video
+            } else if result.content_type == "image" || result.content_type == "gallery" {
+                ArtifactKind::Image
+            } else if primary == "raw.html" {
+                ArtifactKind::RawHtml
+            } else {
+                ArtifactKind::Metadata
+            };
+
+            // Insert artifact record
+            if let Err(e) = insert_artifact(
+                db.pool(),
+                archive_id,
+                kind.as_str(),
+                &key,
+                Some(&content_type),
+                size_bytes,
+                None,
+            )
+            .await
+            {
+                warn!(archive_id, error = %e, "Failed to insert primary artifact record");
+            }
 
             // If this is an HTML file (raw.html), create view.html with archive banner
             if primary == "raw.html" {
@@ -374,8 +410,23 @@ async fn process_archive_inner(
                 )
                 .await
                 {
-                    Ok(_) => {
+                    Ok(view_size) => {
                         debug!(archive_id, "Created view.html with archive banner");
+                        // Insert view.html artifact record
+                        let view_key = format!("{s3_prefix}media/view.html");
+                        if let Err(e) = insert_artifact(
+                            db.pool(),
+                            archive_id,
+                            ArtifactKind::RawHtml.as_str(),
+                            &view_key,
+                            Some("text/html"),
+                            view_size,
+                            None,
+                        )
+                        .await
+                        {
+                            warn!(archive_id, error = %e, "Failed to insert view.html artifact record");
+                        }
                     }
                     Err(e) => {
                         warn!(archive_id, error = %e, "Failed to create view.html, continuing without banner");
@@ -389,16 +440,104 @@ async fn process_archive_inner(
         let local_path = work_dir.join(thumb);
         if local_path.exists() {
             let key = format!("{s3_prefix}thumb/{thumb}");
+            let metadata = tokio::fs::metadata(&local_path).await.ok();
+            let size_bytes = metadata.map(|m| m.len() as i64);
+            let content_type = mime_guess::from_path(&local_path)
+                .first_or_octet_stream()
+                .to_string();
+
             s3.upload_file(&local_path, &key).await?;
-            thumb_key = Some(key);
+            thumb_key = Some(key.clone());
+
+            // Insert thumbnail artifact record
+            if let Err(e) = insert_artifact(
+                db.pool(),
+                archive_id,
+                ArtifactKind::Thumb.as_str(),
+                &key,
+                Some(&content_type),
+                size_bytes,
+                None,
+            )
+            .await
+            {
+                warn!(archive_id, error = %e, "Failed to insert thumbnail artifact record");
+            }
         }
     }
 
     // Upload metadata JSON if present
     if let Some(ref metadata) = result.metadata_json {
         let key = format!("{s3_prefix}meta.json");
+        let size_bytes = Some(metadata.len() as i64);
         s3.upload_bytes(metadata.as_bytes(), &key, "application/json")
             .await?;
+
+        // Insert metadata artifact record
+        if let Err(e) = insert_artifact(
+            db.pool(),
+            archive_id,
+            ArtifactKind::Metadata.as_str(),
+            &key,
+            Some("application/json"),
+            size_bytes,
+            None,
+        )
+        .await
+        {
+            warn!(archive_id, error = %e, "Failed to insert metadata artifact record");
+        }
+    }
+
+    // Upload extra files (images, etc.) from handlers
+    for extra_file in &result.extra_files {
+        let local_path = work_dir.join(extra_file);
+        if local_path.exists() {
+            let key = format!("{s3_prefix}media/{extra_file}");
+            let metadata = tokio::fs::metadata(&local_path).await.ok();
+            let size_bytes = metadata.map(|m| m.len() as i64);
+            let content_type = mime_guess::from_path(&local_path)
+                .first_or_octet_stream()
+                .to_string();
+
+            if let Err(e) = s3.upload_file(&local_path, &key).await {
+                warn!(archive_id, file = %extra_file, error = %e, "Failed to upload extra file");
+                continue;
+            }
+
+            debug!(archive_id, file = %extra_file, "Uploaded extra file");
+
+            // Determine artifact kind based on content type
+            let kind = if content_type.starts_with("image/") {
+                ArtifactKind::Image
+            } else if content_type.starts_with("video/") {
+                ArtifactKind::Video
+            } else if content_type.contains("subtitle")
+                || extra_file.ends_with(".vtt")
+                || extra_file.ends_with(".srt")
+            {
+                ArtifactKind::Subtitles
+            } else {
+                ArtifactKind::Metadata
+            };
+
+            // Insert extra file artifact record
+            if let Err(e) = insert_artifact(
+                db.pool(),
+                archive_id,
+                kind.as_str(),
+                &key,
+                Some(&content_type),
+                size_bytes,
+                None,
+            )
+            .await
+            {
+                warn!(archive_id, file = %extra_file, error = %e, "Failed to insert extra file artifact record");
+            }
+        } else {
+            warn!(archive_id, file = %extra_file, "Extra file not found in work directory");
+        }
     }
 
     // Capture screenshot if enabled (non-fatal if it fails)
@@ -406,6 +545,7 @@ async fn process_archive_inner(
         match screenshot.capture(&link.normalized_url).await {
             Ok(png_data) => {
                 let screenshot_key = format!("{s3_prefix}render/screenshot.png");
+                let size_bytes = Some(png_data.len() as i64);
                 if let Err(e) = s3
                     .upload_bytes(&png_data, &screenshot_key, "image/png")
                     .await
@@ -413,6 +553,20 @@ async fn process_archive_inner(
                     warn!(archive_id, error = %e, "Failed to upload screenshot");
                 } else {
                     debug!(archive_id, key = %screenshot_key, "Screenshot uploaded");
+                    // Insert screenshot artifact record
+                    if let Err(e) = insert_artifact(
+                        db.pool(),
+                        archive_id,
+                        ArtifactKind::Screenshot.as_str(),
+                        &screenshot_key,
+                        Some("image/png"),
+                        size_bytes,
+                        None,
+                    )
+                    .await
+                    {
+                        warn!(archive_id, error = %e, "Failed to insert screenshot artifact record");
+                    }
                 }
             }
             Err(e) => {
@@ -426,6 +580,7 @@ async fn process_archive_inner(
         match screenshot.capture_pdf(&link.normalized_url).await {
             Ok(pdf_data) => {
                 let pdf_key = format!("{s3_prefix}render/page.pdf");
+                let size_bytes = Some(pdf_data.len() as i64);
                 if let Err(e) = s3
                     .upload_bytes(&pdf_data, &pdf_key, "application/pdf")
                     .await
@@ -433,6 +588,20 @@ async fn process_archive_inner(
                     warn!(archive_id, error = %e, "Failed to upload PDF");
                 } else {
                     debug!(archive_id, key = %pdf_key, "PDF uploaded");
+                    // Insert PDF artifact record
+                    if let Err(e) = insert_artifact(
+                        db.pool(),
+                        archive_id,
+                        ArtifactKind::Pdf.as_str(),
+                        &pdf_key,
+                        Some("application/pdf"),
+                        size_bytes,
+                        None,
+                    )
+                    .await
+                    {
+                        warn!(archive_id, error = %e, "Failed to insert PDF artifact record");
+                    }
                 }
             }
             Err(e) => {

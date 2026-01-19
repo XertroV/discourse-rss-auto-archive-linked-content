@@ -104,6 +104,25 @@ incremental = true
 unsafe_code = "forbid"
 
 [lints.clippy]
-all = "warn"
-pedantic = "warn"
-nursery = "warn"
+# Set lint group priorities (higher priority = processed later)
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# File size casts (u64/usize to i64) are safe - files won't exceed 2^63 bytes
+cast_possible_wrap = "allow"
+# Precision loss is acceptable for display purposes (file sizes)
+cast_precision_loss = "allow"
+# Allow missing const fn - most of these are trivial getters
+missing_const_for_fn = "allow"
+# Allow these style preferences
+if_not_else = "allow"
+use_self = "allow"
+# Allow dropping temporaries slightly early (chromiumoxide patterns)
+significant_drop_tightening = "allow"
+# Allow these as they require larger refactoring or are false positives
+too_many_arguments = "allow"
+redundant_clone = "allow"
+# Style preferences that don't affect correctness
+useless_let_if_seq = "allow"
+assigning_clones = "allow"
+implicit_clone = "allow"
