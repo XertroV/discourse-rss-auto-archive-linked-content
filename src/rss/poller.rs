@@ -171,7 +171,6 @@ async fn process_single_link(
     // Skip links to the same domain as the forum (self-links)
     if let Some(forum) = forum_domain {
         if domains_match(&domain, forum) {
-            debug!(url = %link.url, "Skipping same-domain link");
             return Ok(());
         }
     }
