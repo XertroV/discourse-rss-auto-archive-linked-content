@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use std::collections::HashMap;
 use sqlx::SqlitePool;
+use std::collections::HashMap;
 
 use super::models::{
     Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, ArchiveJobType, Link, LinkOccurrence,
@@ -93,7 +93,7 @@ pub async fn get_all_threads(
         LEFT JOIN archives a ON l.id = a.link_id
         GROUP BY p.id
         ORDER BY p.published_at DESC
-        "
+        ",
     )
     .fetch_all(pool)
     .await
@@ -110,8 +110,10 @@ pub async fn get_all_threads(
             .and_modify(|agg| {
                 agg.link_count += row.link_count;
                 agg.archive_count += row.archive_count;
-                agg.last_archived_at = max_opt_string(agg.last_archived_at.take(), row.last_archived_at.clone());
-                agg.published_at = min_opt_string(agg.published_at.take(), row.published_at.clone());
+                agg.last_archived_at =
+                    max_opt_string(agg.last_archived_at.take(), row.last_archived_at.clone());
+                agg.published_at =
+                    min_opt_string(agg.published_at.take(), row.published_at.clone());
             })
             .or_insert(row);
     }
@@ -120,12 +122,13 @@ pub async fn get_all_threads(
 
     // Sort according to requested order, nulls last for dates.
     match sort_by {
-        "name" => threads.sort_by(|a, b| a
-            .title
-            .as_deref()
-            .unwrap_or("")
-            .to_lowercase()
-            .cmp(&b.title.as_deref().unwrap_or("").to_lowercase())),
+        "name" => threads.sort_by(|a, b| {
+            a.title
+                .as_deref()
+                .unwrap_or("")
+                .to_lowercase()
+                .cmp(&b.title.as_deref().unwrap_or("").to_lowercase())
+        }),
         "updated" => threads.sort_by(|a, b| cmp_opt_desc(&a.last_archived_at, &b.last_archived_at)),
         _ => threads.sort_by(|a, b| cmp_opt_desc(&a.published_at, &b.published_at)),
     }

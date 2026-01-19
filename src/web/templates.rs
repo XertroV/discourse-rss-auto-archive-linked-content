@@ -615,10 +615,12 @@ pub fn render_archive_detail(
         ));
     }
 
-    let thumb_key = archive
-        .s3_key_thumb
-        .as_deref()
-        .or_else(|| artifacts.iter().find(|a| a.kind == "thumb").map(|a| a.s3_key.as_str()));
+    let thumb_key = archive.s3_key_thumb.as_deref().or_else(|| {
+        artifacts
+            .iter()
+            .find(|a| a.kind == "thumb")
+            .map(|a| a.s3_key.as_str())
+    });
 
     let primary_key_opt = archive.s3_key_primary.as_deref();
     let is_html_archive = primary_key_opt
@@ -652,11 +654,8 @@ pub fn render_archive_detail(
     // Fallback: if primary media wasn't rendered, show first video artifact inline
     if primary_key_opt.is_none() && !is_html_archive {
         if let Some(video_artifact) = artifacts.iter().find(|a| a.kind == "video") {
-            let download_name = suggested_download_filename(
-                &link.domain,
-                archive.id,
-                &video_artifact.s3_key,
-            );
+            let download_name =
+                suggested_download_filename(&link.domain, archive.id, &video_artifact.s3_key);
             content.push_str("<section><h2>Media</h2>");
             content.push_str(&render_media_player(
                 &video_artifact.s3_key,

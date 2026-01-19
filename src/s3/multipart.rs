@@ -217,22 +217,34 @@ impl StreamingUploader {
         let mut completed_parts = Vec::new();
         let mut part_number = 1;
         let mut bytes_uploaded = 0u64;
+        let total_parts = (file_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
 
         loop {
-            // Read chunk into buffer
+            // Read a full chunk (or remainder at EOF)
+            // Note: read() may return fewer bytes than requested even when more data
+            // is available, so we must loop until the buffer is full or EOF.
             let mut buffer = vec![0u8; CHUNK_SIZE as usize];
-            let bytes_read = file
-                .read(&mut buffer)
-                .await
-                .context("Failed to read file chunk")?;
+            let mut total_read = 0usize;
 
-            if bytes_read == 0 {
-                break; // EOF
+            while total_read < CHUNK_SIZE as usize {
+                let bytes_read = file
+                    .read(&mut buffer[total_read..])
+                    .await
+                    .context("Failed to read file chunk")?;
+
+                if bytes_read == 0 {
+                    break; // EOF
+                }
+                total_read += bytes_read;
+            }
+
+            if total_read == 0 {
+                break; // No more data
             }
 
             // Truncate buffer to actual bytes read
-            buffer.truncate(bytes_read);
-            bytes_uploaded += bytes_read as u64;
+            buffer.truncate(total_read);
+            bytes_uploaded += total_read as u64;
 
             // Upload part
             let upload_part_output = self
@@ -262,9 +274,9 @@ impl StreamingUploader {
             debug!(
                 archive_id,
                 part_number,
+                total_parts,
                 progress_pct = (bytes_uploaded * 100 / file_size),
-                "Uploaded part {part_number}/{}",
-                (file_size + CHUNK_SIZE - 1) / CHUNK_SIZE
+                "Uploaded part {part_number}/{total_parts}"
             );
 
             part_number += 1;
