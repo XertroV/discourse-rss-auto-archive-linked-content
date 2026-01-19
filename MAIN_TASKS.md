@@ -96,14 +96,14 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
   - [x] URL patterns for youtube.com, youtu.be
   - [x] Archive via yt-dlp with subtitles
   - [x] Write tests
-- [ ] Instagram handler
-  - [ ] URL patterns for instagram.com
-  - [ ] Archive via gallery-dl
-  - [ ] Write tests
-- [ ] Imgur handler
-  - [ ] URL patterns for imgur.com, i.imgur.com
-  - [ ] Archive via gallery-dl
-  - [ ] Write tests
+- [x] Instagram handler
+  - [x] URL patterns for instagram.com
+  - [x] Archive via gallery-dl
+  - [x] Write tests
+- [x] Imgur handler
+  - [x] URL patterns for imgur.com, i.imgur.com
+  - [x] Archive via gallery-dl
+  - [x] Write tests
 - [x] Generic HTTP handler for fallback
   - [x] Fetch raw HTML
   - [x] Extract metadata (title, OpenGraph)
@@ -122,10 +122,10 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
   - [x] Configure output format and options
   - [x] Parse metadata JSON output
   - [x] Handle timeouts and errors
-- [ ] gallery-dl subprocess wrapper
-  - [ ] Configure output options
-  - [ ] Parse output
-  - [ ] Handle timeouts and errors
+- [x] gallery-dl subprocess wrapper
+  - [x] Configure output options
+  - [x] Parse output
+  - [x] Handle timeouts and errors
 
 ### Archive Processing
 - [x] Create temp working directory per job
@@ -138,10 +138,10 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [ ] Write integration tests for archive pipeline
 
 ### Wayback Machine Integration
-- [ ] Submit URLs to web.archive.org/save/
-- [ ] Rate limit submissions (5/minute)
-- [ ] Store wayback snapshot URL in database
-- [ ] Handle submission failures gracefully
+- [x] Submit URLs to web.archive.org/save/
+- [x] Rate limit submissions (5/minute)
+- [x] Store wayback snapshot URL in database
+- [x] Handle submission failures gracefully
 
 ## Phase 6: S3 Storage
 
@@ -173,7 +173,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Create home.html (recent archives grid)
 - [x] Create search.html (search form + results)
 - [x] Create archive_detail.html (single archive view)
-- [ ] Create post_detail.html (archives from one post)
+- [x] Create post_detail.html (archives from one post)
 - [x] Create site_list.html (browse by site)
 - [x] Create stats.html (statistics page)
 - [x] Create partials (archive_card, pagination, media_embed)
@@ -182,7 +182,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] GET / - home page with recent archives
 - [x] GET /search - search with FTS
 - [x] GET /archive/{id} - single archive detail
-- [ ] GET /post/{guid} - archives from discourse post
+- [x] GET /post/{guid} - archives from discourse post
 - [x] GET /site/{site} - browse by source site
 - [x] GET /stats - processing statistics
 - [x] GET /healthz - health check

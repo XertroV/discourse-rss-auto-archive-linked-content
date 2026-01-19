@@ -9,4 +9,5 @@ pub mod db;
 pub mod handlers;
 pub mod rss;
 pub mod s3;
+pub mod wayback;
 pub mod web;

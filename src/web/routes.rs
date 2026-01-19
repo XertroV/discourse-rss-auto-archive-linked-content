@@ -10,7 +10,7 @@ use super::templates;
 use super::AppState;
 use crate::db::{
     count_archives_by_status, count_links, count_posts, get_archive, get_archives_by_domain,
-    get_link, get_recent_archives, search_archives, Archive,
+    get_archives_for_post, get_link, get_post_by_guid, get_recent_archives, search_archives,
 };
 
 /// Create the router with all routes.
@@ -19,6 +19,7 @@ pub fn router() -> Router<AppState> {
         .route("/", get(home))
         .route("/search", get(search))
         .route("/archive/{id}", get(archive_detail))
+        .route("/post/{guid}", get(post_detail))
         .route("/site/{site}", get(site_list))
         .route("/stats", get(stats))
         .route("/healthz", get(health))
@@ -44,6 +45,7 @@ async fn home(State(state): State<AppState>) -> Response {
 #[derive(Debug, Deserialize)]
 pub struct SearchParams {
     q: Option<String>,
+    #[allow(dead_code)]
     site: Option<String>,
     page: Option<u32>,
 }
@@ -100,6 +102,30 @@ async fn archive_detail(State(state): State<AppState>, Path(id): Path<i64>) -> R
     };
 
     let html = templates::render_archive_detail(&archive, &link);
+    Html(html).into_response()
+}
+
+async fn post_detail(State(state): State<AppState>, Path(guid): Path<String>) -> Response {
+    let post = match get_post_by_guid(state.db.pool(), &guid).await {
+        Ok(Some(p)) => p,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, "Post not found").into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch post: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    let archives = match get_archives_for_post(state.db.pool(), post.id).await {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!("Failed to fetch archives for post: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    let html = templates::render_post_detail(&post, &archives);
     Html(html).into_response()
 }
 
