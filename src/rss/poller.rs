@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, warn, trace};
 
 use crate::config::Config;
 use crate::db::{
@@ -180,7 +180,7 @@ async fn process_single_link(
     let domain_lower = domain.to_lowercase();
     for skip_domain in SKIP_DOMAINS {
         if domain_lower == *skip_domain || domain_lower.ends_with(&format!(".{skip_domain}")) {
-            debug!(url = %link.url, domain = %domain, "Skipping domain from archiving");
+            trace!(url = %link.url, domain = %domain, "Skipping domain from archiving");
             return Ok(());
         }
     }
