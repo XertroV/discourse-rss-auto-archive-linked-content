@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use discourse_link_archiver::config::{ArchiveMode, Config, LogFormat};
+use discourse_link_archiver::config::Config;
 use discourse_link_archiver::db::{
     get_link_by_normalized_url, get_pending_archives, get_post_by_guid, Database,
 };
@@ -16,60 +16,8 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 fn create_test_config(rss_url: &str, work_dir: &std::path::Path) -> Config {
     Config {
         rss_url: rss_url.to_string(),
-        poll_interval: Duration::from_secs(60),
-        cache_window: Duration::from_secs(3600),
-        database_path: PathBuf::from("./test.db"),
-        s3_bucket: "test-bucket".to_string(),
-        s3_region: "us-east-1".to_string(),
-        s3_endpoint: None,
-        s3_prefix: "archives/".to_string(),
-        worker_concurrency: 4,
-        per_domain_concurrency: 1,
         work_dir: work_dir.to_path_buf(),
-        yt_dlp_path: "yt-dlp".to_string(),
-        gallery_dl_path: "gallery-dl".to_string(),
-        cookies_file_path: None,
-        yt_dlp_cookies_from_browser: None,
-        youtube_max_duration_seconds: Some(3600),
-        youtube_download_timeout_seconds: 7200,
-        archive_mode: ArchiveMode::All,
-        archive_quote_only_links: false,
-        web_host: "0.0.0.0".to_string(),
-        web_port: 8080,
-        tls_enabled: false,
-        tls_domains: vec![],
-        tls_contact_email: None,
-        tls_cache_dir: PathBuf::from("./acme_cache"),
-        tls_use_staging: false,
-        tls_https_port: 443,
-        wayback_enabled: false,
-        wayback_rate_limit_per_min: 5,
-        archive_today_enabled: false,
-        archive_today_rate_limit_per_min: 3,
-        backup_enabled: false,
-        backup_interval_hours: 24,
-        backup_retention_count: 30,
-        log_format: LogFormat::Pretty,
-        ipfs_enabled: false,
-        ipfs_api_url: "http://127.0.0.1:5001".to_string(),
-        ipfs_gateway_urls: vec![],
-        submission_enabled: false,
-        submission_rate_limit_per_hour: 10,
-        screenshot_enabled: false,
-        screenshot_viewport_width: 1280,
-        screenshot_viewport_height: 800,
-        screenshot_timeout_secs: 30,
-        screenshot_chrome_path: None,
-        pdf_enabled: false,
-        pdf_paper_width: 8.27,
-        pdf_paper_height: 11.69,
-        mhtml_enabled: false,
-        monolith_enabled: false,
-        monolith_path: "monolith".to_string(),
-        monolith_timeout_secs: 60,
-        monolith_include_js: false,
-        dedup_enabled: false,
-        dedup_similarity_threshold: 10,
+        ..Config::for_testing()
     }
 }
 
