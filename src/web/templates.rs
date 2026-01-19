@@ -121,20 +121,104 @@ fn base_layout(title: &str, content: &str) -> String {
 }
 
 /// Render home page with recent archives.
-pub fn render_home(archives: &[ArchiveDisplay]) -> String {
-    let mut content = String::from("<h1>Recent Archives</h1>");
+pub fn render_home(archives: &[ArchiveDisplay], recent_failed_count: usize) -> String {
+    render_recent_archives_page(
+        "Recent Archives",
+        "Home",
+        archives,
+        RecentArchivesTab::Recent,
+        recent_failed_count,
+    )
+}
+
+pub fn render_recent_failed_archives(archives: &[ArchiveDisplay], recent_failed_count: usize) -> String {
+    render_recent_archives_page(
+        "Recent Failed Archives",
+        "Failed Archives",
+        archives,
+        RecentArchivesTab::Failed,
+        recent_failed_count,
+    )
+}
+
+pub fn render_recent_all_archives(archives: &[ArchiveDisplay], recent_failed_count: usize) -> String {
+    render_recent_archives_page(
+        "All Recent Archives",
+        "All Archives",
+        archives,
+        RecentArchivesTab::All,
+        recent_failed_count,
+    )
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum RecentArchivesTab {
+    Recent,
+    All,
+    Failed,
+}
+
+fn render_recent_archives_tabs(active: RecentArchivesTab, recent_failed_count: usize) -> String {
+    let recent_class = if active == RecentArchivesTab::Recent {
+        "archive-tab active"
+    } else {
+        "archive-tab"
+    };
+    let all_class = if active == RecentArchivesTab::All {
+        "archive-tab active"
+    } else {
+        "archive-tab"
+    };
+    let failed_class = if active == RecentArchivesTab::Failed {
+        "archive-tab active"
+    } else {
+        "archive-tab"
+    };
+
+    let failed_count_badge = if recent_failed_count > 0 {
+        format!(
+            r#" <span class=\"archive-tab-count\" aria-label=\"{count} failed archives\">{count}</span>"#,
+            count = recent_failed_count
+        )
+    } else {
+        String::new()
+    };
+
+    format!(
+        r#"<nav class=\"archive-tabs\" aria-label=\"Archive list tabs\">\
+            <a class=\"{recent_class}\" href=\"/\">Recent</a>\
+            <a class=\"{all_class}\" href=\"/archives/all\">All</a>\
+            <a class=\"{failed_class}\" href=\"/archives/failed\">Failed{failed_count_badge}</a>\
+        </nav>"#,
+        recent_class = recent_class,
+        all_class = all_class,
+        failed_class = failed_class,
+        failed_count_badge = failed_count_badge
+    )
+}
+
+fn render_recent_archives_page(
+    heading: &str,
+    page_title: &str,
+    archives: &[ArchiveDisplay],
+    active_tab: RecentArchivesTab,
+    recent_failed_count: usize,
+) -> String {
+    let mut content = String::new();
+    content.push_str(&format!("<h1>{}</h1>", html_escape(heading)));
+    content.push_str(&render_recent_archives_tabs(active_tab, recent_failed_count));
 
     if archives.is_empty() {
         content.push_str("<p>No archives yet.</p>");
     } else {
-        content.push_str(r#"<div class="archive-grid">"#);
+        content.push_str(r#"<div class=\"archive-grid\">"#);
         for archive in archives {
             content.push_str(&render_archive_card_display(archive));
         }
         content.push_str("</div>");
     }
 
-    base_layout("Home", &content)
+    base_layout(page_title, &content)
 }
 
 /// Render search results page.

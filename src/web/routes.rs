@@ -30,6 +30,8 @@ use crate::handlers::normalize_url;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(home))
+        .route("/archives/failed", get(recent_failed_archives))
+        .route("/archives/all", get(recent_all_archives))
         .route("/search", get(search))
         .route("/submit", get(submit_form).post(submit_url))
         .route("/archive/:id", get(archive_detail))
@@ -57,7 +59,7 @@ pub fn router() -> Router<AppState> {
 // ========== HTML Routes ==========
 
 async fn home(State(state): State<AppState>) -> Response {
-    let archives = match get_recent_archives_display(state.db.pool(), 100).await {
+    let all_recent = match get_recent_archives_display(state.db.pool(), 100).await {
         Ok(a) => a,
         Err(e) => {
             tracing::error!("Failed to fetch recent archives: {e}");
@@ -65,7 +67,60 @@ async fn home(State(state): State<AppState>) -> Response {
         }
     };
 
-    let html = templates::render_home(&archives);
+    let recent_failed_count = all_recent
+        .iter()
+        .filter(|a| a.status == "failed")
+        .count();
+
+    // Home page: show pending + processing + complete, but not failed.
+    // Skipped is intentionally excluded to keep the page focused.
+    let archives: Vec<_> = all_recent
+        .into_iter()
+        .filter(|a| matches!(a.status.as_str(), "pending" | "processing" | "complete"))
+        .collect();
+
+    let html = templates::render_home(&archives, recent_failed_count);
+    Html(html).into_response()
+}
+
+async fn recent_failed_archives(State(state): State<AppState>) -> Response {
+    let all_recent = match get_recent_archives_display(state.db.pool(), 100).await {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!("Failed to fetch recent archives: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    let recent_failed_count = all_recent
+        .iter()
+        .filter(|a| a.status == "failed")
+        .count();
+
+    let failed: Vec<_> = all_recent
+        .into_iter()
+        .filter(|a| a.status == "failed")
+        .collect();
+
+    let html = templates::render_recent_failed_archives(&failed, recent_failed_count);
+    Html(html).into_response()
+}
+
+async fn recent_all_archives(State(state): State<AppState>) -> Response {
+    let all_recent = match get_recent_archives_display(state.db.pool(), 100).await {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!("Failed to fetch recent archives: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    let recent_failed_count = all_recent
+        .iter()
+        .filter(|a| a.status == "failed")
+        .count();
+
+    let html = templates::render_recent_all_archives(&all_recent, recent_failed_count);
     Html(html).into_response()
 }
 

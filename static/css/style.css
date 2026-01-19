@@ -451,6 +451,53 @@ tr:hover {
     gap: var(--spacing-md);
 }
 
+/* Recent archive tabs */
+.archive-tabs {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin: 0 0 var(--spacing-md) 0;
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.archive-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-decoration: none;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-secondary);
+}
+
+.archive-tab:hover {
+    color: var(--text-primary);
+    background-color: var(--bg-tertiary);
+    text-decoration: none;
+}
+
+.archive-tab.active {
+    color: var(--text-primary);
+    border-color: var(--primary);
+}
+
+.archive-tab-count {
+    display: inline-block;
+    min-width: 1.5em;
+    padding: 0 var(--spacing-xs);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    line-height: 1.4;
+    text-align: center;
+    color: var(--text-primary);
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+}
+
 /* Status badges */
 .status-complete {
     color: var(--success-fg);
