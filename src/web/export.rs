@@ -1,3 +1,61 @@
+//! Bulk export functionality for downloading site archives as ZIP files.
+//!
+//! This module provides the `/export/{site}` endpoint that allows users to download
+//! all archived content for a specific domain as a single ZIP file with metadata.
+//!
+//! # Features
+//!
+//! - **Rate Limiting**: 1 export per hour per IP address to prevent abuse
+//! - **Size Limits**: 2GB maximum export size, excludes videos >50MB
+//! - **Streaming**: Uses `spawn_blocking` for CPU-intensive ZIP generation
+//! - **Comprehensive Metadata**: JSON manifest with archive details, artifact info, and skip reasons
+//! - **Smart Filtering**: Only includes completed archives, documents all exclusions
+//!
+//! # ZIP Structure
+//!
+//! ```text
+//! {site}-archives.zip
+//! ├── metadata.json           # Export manifest with all details
+//! ├── {site}/
+//! │   ├── archive-{id}/
+//! │   │   ├── video.mp4      # Primary media file
+//! │   │   ├── screenshot.webp
+//! │   │   ├── page.pdf
+//! │   │   └── metadata.json   # yt-dlp/gallery-dl metadata
+//! │   └── archive-{id}/
+//! │       └── ...
+//! ```
+//!
+//! # metadata.json Format
+//!
+//! The root `metadata.json` contains:
+//! - `export_metadata`: Export info (site, count, size, timestamp)
+//! - `archives`: Array of archive objects with:
+//!   - Archive metadata (URL, title, author, content type, NSFW status)
+//!   - Archive links (Wayback, Archive.today, IPFS)
+//!   - `artifacts`: Array of included/excluded files with:
+//!     - File details (kind, size, content type, SHA256)
+//!     - Skip reasons for excluded files (too large, download failed, etc.)
+//!     - ZIP path for included files
+//!
+//! # Example Usage
+//!
+//! ```sh
+//! # Download all old.reddit.com archives
+//! curl -O http://localhost:3000/export/old.reddit.com
+//!
+//! # Extract and view metadata
+//! unzip old.reddit.com-archives.zip
+//! jq '.export_metadata' metadata.json
+//! ```
+//!
+//! # Implementation Notes
+//!
+//! - Uses `tokio::task::spawn_blocking` to avoid blocking the async runtime during ZIP creation
+//! - Downloads files from S3 within the blocking task using `block_on`
+//! - Tracks export statistics in the database for analytics and rate limiting
+//! - Gracefully handles S3 download failures by documenting them in metadata
+
 use anyhow::{Context, Result};
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{header, StatusCode};

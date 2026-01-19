@@ -481,7 +481,8 @@ See STAGE2_STREAMING_UPLOAD.md for full details:
 - [x] Track archive jobs/steps and show on archive page (collapsible section)
 - [x] Auto-collapse job details if all succeeded
 - [x] Database schema for archive_jobs table with job_type, status, timestamps, error
-- [ ] Only run yt-dlp on Reddit/Twitter if video is present
+- [x] Only run yt-dlp on Reddit if video is present (see reddit.rs:204-223)
+- [ ] Only run yt-dlp on Twitter if video is present (requires API/scraping - future improvement)
 - [ ] Design maintainable approach for job tracking and conditional tool execution
 
 ### Additional Improvements (Phase 14b)

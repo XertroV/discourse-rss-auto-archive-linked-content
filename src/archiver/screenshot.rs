@@ -362,7 +362,15 @@ impl ScreenshotService {
             warn!("Failed to close page: {e}");
         }
 
-        debug!(url = %url, size = webp_data.len(), "Screenshot captured (webp)");
+        // Warn if screenshot is suspiciously small (likely blank/failed)
+        let size = webp_data.len();
+        if size == 0 {
+            warn!(url = %url, "Screenshot is empty (0 bytes) - page may not have loaded properly");
+        } else if size < 100 {
+            warn!(url = %url, size, "Screenshot is very small (<100 bytes) - may be corrupted");
+        }
+
+        debug!(url = %url, size, "Screenshot captured (webp)");
 
         Ok(webp_data)
     }
@@ -449,7 +457,15 @@ impl ScreenshotService {
             warn!("Failed to close page: {e}");
         }
 
-        debug!(url = %url, size = pdf_data.len(), "PDF generated");
+        // Warn if PDF is suspiciously small (likely blank/failed)
+        let size = pdf_data.len();
+        if size == 0 {
+            warn!(url = %url, "PDF is empty (0 bytes) - page may not have loaded properly");
+        } else if size < 1000 {
+            warn!(url = %url, size, "PDF is very small (<1KB) - may be corrupted or blank");
+        }
+
+        debug!(url = %url, size, "PDF generated");
 
         Ok(pdf_data)
     }
