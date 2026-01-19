@@ -233,6 +233,8 @@ pub struct ArchiveDisplay {
     // Link fields
     pub original_url: String,
     pub domain: String,
+    // Total size of all artifacts (in bytes)
+    pub total_size_bytes: Option<i64>,
 }
 
 /// Submission status.

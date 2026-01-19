@@ -497,6 +497,46 @@ nav ul {
     text-decoration: underline;
 }
 
+/* Raw URL display as code */
+.archive-url .url-display {
+    display: block;
+    padding: 0.25rem 0.5rem;
+    background-color: var(--pico-code-background-color);
+    border: 1px solid var(--pico-muted-border-color);
+    border-radius: 0.25rem;
+    font-family: monospace;
+    font-size: 0.75rem;
+    color: var(--pico-code-color);
+    word-break: break-all;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.archive-url .url-display:hover {
+    background-color: var(--pico-muted-border-color);
+}
+
+[data-theme="dark"] .archive-url .url-display {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .archive-url .url-display:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Archive size display */
+.archive-size {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.75rem;
+    border-radius: 0.25rem;
+    background-color: var(--pico-muted-border-color);
+    color: var(--pico-muted-color);
+    font-weight: 500;
+    margin-left: 0.5rem;
+}
+
 /* Archive timestamp */
 .archive-time {
     margin: 0.5rem 0 0 0;

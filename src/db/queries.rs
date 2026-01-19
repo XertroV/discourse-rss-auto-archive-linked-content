@@ -397,10 +397,16 @@ pub async fn get_recent_archives_display(
             a.id, a.link_id, a.status, a.archived_at,
             a.content_title, a.content_author, a.content_type,
             a.is_nsfw, a.error_message, a.retry_count,
-            l.original_url, l.domain
+            l.original_url, l.domain,
+            COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
         FROM archives a
         JOIN links l ON a.link_id = l.id
+        LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
         WHERE a.status = 'complete'
+        GROUP BY a.id, a.link_id, a.status, a.archived_at,
+                 a.content_title, a.content_author, a.content_type,
+                 a.is_nsfw, a.error_message, a.retry_count,
+                 l.original_url, l.domain
         ORDER BY a.archived_at DESC
         LIMIT ?
         ",
@@ -423,11 +429,17 @@ pub async fn search_archives_display(
             a.id, a.link_id, a.status, a.archived_at,
             a.content_title, a.content_author, a.content_type,
             a.is_nsfw, a.error_message, a.retry_count,
-            l.original_url, l.domain
+            l.original_url, l.domain,
+            COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
         FROM archives a
         JOIN links l ON a.link_id = l.id
         JOIN archives_fts ON a.id = archives_fts.rowid
+        LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
         WHERE archives_fts MATCH ?
+        GROUP BY a.id, a.link_id, a.status, a.archived_at,
+                 a.content_title, a.content_author, a.content_type,
+                 a.is_nsfw, a.error_message, a.retry_count,
+                 l.original_url, l.domain
         ORDER BY rank
         LIMIT ?
         ",
@@ -452,10 +464,16 @@ pub async fn get_archives_by_domain_display(
             a.id, a.link_id, a.status, a.archived_at,
             a.content_title, a.content_author, a.content_type,
             a.is_nsfw, a.error_message, a.retry_count,
-            l.original_url, l.domain
+            l.original_url, l.domain,
+            COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
         FROM archives a
         JOIN links l ON a.link_id = l.id
+        LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
         WHERE l.domain = ? AND a.status = 'complete'
+        GROUP BY a.id, a.link_id, a.status, a.archived_at,
+                 a.content_title, a.content_author, a.content_type,
+                 a.is_nsfw, a.error_message, a.retry_count,
+                 l.original_url, l.domain
         ORDER BY a.archived_at DESC
         LIMIT ? OFFSET ?
         ",
@@ -479,11 +497,17 @@ pub async fn get_archives_for_post_display(
             a.id, a.link_id, a.status, a.archived_at,
             a.content_title, a.content_author, a.content_type,
             a.is_nsfw, a.error_message, a.retry_count,
-            l.original_url, l.domain
+            l.original_url, l.domain,
+            COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
         FROM archives a
         JOIN links l ON a.link_id = l.id
         JOIN link_occurrences lo ON l.id = lo.link_id
+        LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
         WHERE lo.post_id = ?
+        GROUP BY a.id, a.link_id, a.status, a.archived_at,
+                 a.content_title, a.content_author, a.content_type,
+                 a.is_nsfw, a.error_message, a.retry_count,
+                 l.original_url, l.domain
         ORDER BY a.archived_at DESC
         ",
     )

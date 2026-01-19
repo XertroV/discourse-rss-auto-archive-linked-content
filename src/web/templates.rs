@@ -579,22 +579,58 @@ fn render_archive_card_display(archive: &ArchiveDisplay) -> String {
         .map(|author| format!(r#"<span class="author">by {}</span>"#, html_escape(author)))
         .unwrap_or_default();
 
-    // Truncate URL for display (show domain + path up to 50 chars)
-    let display_url = if archive.original_url.len() > 60 {
-        format!("{}...", &archive.original_url[..57])
-    } else {
-        archive.original_url.clone()
+    // Status display with success/failure indicators
+    let status_display = match archive.status.as_str() {
+        "complete" => format!(
+            r#"<span class="status-{status}" title="Archive completed successfully">✓ {status}</span>"#,
+            status = archive.status
+        ),
+        "failed" => {
+            let error_hint = archive
+                .error_message
+                .as_deref()
+                .map(|e| format!(r#" title="{}""#, html_escape(e)))
+                .unwrap_or_default();
+            format!(
+                r#"<span class="status-{status}"{error_hint}>✗ {status}</span>"#,
+                status = archive.status
+            )
+        }
+        "pending" => format!(
+            r#"<span class="status-{status}" title="Archive pending">⏳ {status}</span>"#,
+            status = archive.status
+        ),
+        "processing" => format!(
+            r#"<span class="status-{status}" title="Archive in progress">⟳ {status}</span>"#,
+            status = archive.status
+        ),
+        "skipped" => format!(
+            r#"<span class="status-{status}" title="Archive skipped">⊘ {status}</span>"#,
+            status = archive.status
+        ),
+        _ => format!(
+            r#"<span class="status-{status}">{status}</span>"#,
+            status = archive.status
+        ),
     };
+
+    // Format size display
+    let size_display = archive
+        .total_size_bytes
+        .filter(|&size| size > 0)
+        .map(|size| format!(r#"<span class="archive-size">{}</span>"#, format_bytes(size)))
+        .unwrap_or_default();
 
     format!(
         r#"<article class="archive-card"{nsfw_attr}>
             <h3><a href="/archive/{id}">{title}</a>{nsfw_badge}</h3>
-            <p class="archive-url"><a href="{url}" target="_blank" rel="noopener" title="{url}">{display_url}</a></p>
+            <p class="archive-url"><code class="url-display" title="Click to copy" onclick="navigator.clipboard.writeText('{url}'); this.title='Copied!'; setTimeout(() => this.title='Click to copy', 2000);">{url}</code></p>
             <p class="meta">
-                <span class="status-{status}">{status}</span>
+                {status_display}
                 {type_badge}
                 <a href="/site/{domain}" class="domain-badge">{domain}</a>
                 {author_line}
+                {size_display}
             </p>
             <p class="archive-time">{archived_time}</p>
         </article>"#,
@@ -602,13 +638,31 @@ fn render_archive_card_display(archive: &ArchiveDisplay) -> String {
         title = html_escape(title),
         nsfw_badge = nsfw_badge,
         url = html_escape(&archive.original_url),
-        display_url = html_escape(&display_url),
-        status = archive.status,
+        status_display = status_display,
         type_badge = type_badge,
         domain = html_escape(&archive.domain),
         author_line = author_line,
+        size_display = size_display,
         archived_time = archived_time
     )
+}
+
+/// Format bytes into human-readable format (e.g., "1.5 MB").
+fn format_bytes(bytes: i64) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+    let mut size = bytes as f64;
+    let mut unit_idx = 0;
+
+    while size >= 1024.0 && unit_idx < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit_idx += 1;
+    }
+
+    if unit_idx == 0 {
+        format!("{} {}", bytes, UNITS[unit_idx])
+    } else {
+        format!("{:.1} {}", size, UNITS[unit_idx])
+    }
 }
 
 /// Render submission form page.
