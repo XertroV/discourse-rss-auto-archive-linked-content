@@ -140,8 +140,11 @@ pub async fn poll_once(client: &reqwest::Client, config: &Config, db: &Database)
 async fn process_links(db: &Database, post_id: i64, html: &str, config: &Config) -> Result<()> {
     let extracted = extract_links(html);
 
+    // Extract forum domain from RSS URL to skip self-links
+    let forum_domain = extract_domain(&config.rss_url);
+
     for link in extracted {
-        if let Err(e) = process_single_link(db, post_id, &link, config).await {
+        if let Err(e) = process_single_link(db, post_id, &link, forum_domain.as_deref()).await {
             warn!(url = %link.url, "Failed to process link: {e:#}");
         }
     }
@@ -154,7 +157,7 @@ async fn process_single_link(
     db: &Database,
     post_id: i64,
     link: &ExtractedLink,
-    _config: &Config,
+    forum_domain: Option<&str>,
 ) -> Result<()> {
     // Normalize the URL
     let normalized = normalize_url(&link.url);
@@ -163,6 +166,14 @@ async fn process_single_link(
     // Skip internal links and non-http URLs
     if !normalized.starts_with("http") {
         return Ok(());
+    }
+
+    // Skip links to the same domain as the forum (self-links)
+    if let Some(forum) = forum_domain {
+        if domains_match(&domain, forum) {
+            debug!(url = %link.url, "Skipping same-domain link");
+            return Ok(());
+        }
     }
 
     // Check if we already have this link
@@ -239,6 +250,15 @@ fn extract_domain(url: &str) -> Option<String> {
         .and_then(|u| u.host_str().map(ToString::to_string))
 }
 
+/// Check if two domains match (ignoring www prefix and case).
+fn domains_match(domain1: &str, domain2: &str) -> bool {
+    let d1 = domain1.to_ascii_lowercase();
+    let d2 = domain2.to_ascii_lowercase();
+    let d1 = d1.strip_prefix("www.").unwrap_or(&d1);
+    let d2 = d2.strip_prefix("www.").unwrap_or(&d2);
+    d1 == d2
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,5 +285,28 @@ mod tests {
             Some("reddit.com".to_string())
         );
         assert_eq!(extract_domain("not a url"), None);
+    }
+
+    #[test]
+    fn test_domains_match() {
+        // Same domain
+        assert!(domains_match("example.com", "example.com"));
+
+        // www prefix handling
+        assert!(domains_match("www.example.com", "example.com"));
+        assert!(domains_match("example.com", "www.example.com"));
+        assert!(domains_match("www.example.com", "www.example.com"));
+
+        // Case insensitive
+        assert!(domains_match("Example.COM", "example.com"));
+        assert!(domains_match("WWW.Example.COM", "example.com"));
+
+        // Different domains
+        assert!(!domains_match("example.com", "other.com"));
+        assert!(!domains_match("www.example.com", "www.other.com"));
+
+        // Subdomains are different
+        assert!(!domains_match("sub.example.com", "example.com"));
+        assert!(!domains_match("discuss.example.com", "www.example.com"));
     }
 }

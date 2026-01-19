@@ -33,7 +33,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Deno (JS runtime for yt-dlp)
+RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/opt/deno sh
+ENV PATH="/opt/deno/bin:$PATH"
 
 # Create a virtual environment for Python tools
 RUN python3 -m venv /opt/venv
