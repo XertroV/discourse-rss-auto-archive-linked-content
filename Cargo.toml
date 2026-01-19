@@ -18,7 +18,7 @@ tower-http = { version = "0.5", features = ["cors", "compression-gzip", "fs", "t
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 
 # HTTP client
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json", "multipart"] }
 
 # AWS S3
 aws-config = "1"

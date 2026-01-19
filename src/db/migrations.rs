@@ -3,21 +3,23 @@ use sqlx::SqlitePool;
 use tracing::debug;
 
 /// Schema version for tracking migrations.
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 /// Run all pending migrations.
 pub async fn run(pool: &SqlitePool) -> Result<()> {
     create_migration_table(pool).await?;
     let current_version = get_schema_version(pool).await?;
 
-    if current_version < SCHEMA_VERSION {
-        debug!(
-            current = current_version,
-            target = SCHEMA_VERSION,
-            "Running migrations"
-        );
+    if current_version < 1 {
+        debug!("Running migration v1");
         run_migration_v1(pool).await?;
-        set_schema_version(pool, SCHEMA_VERSION).await?;
+        set_schema_version(pool, 1).await?;
+    }
+
+    if current_version < 2 {
+        debug!("Running migration v2");
+        run_migration_v2(pool).await?;
+        set_schema_version(pool, 2).await?;
     }
 
     Ok(())
@@ -243,6 +245,48 @@ async fn run_migration_v1(pool: &SqlitePool) -> Result<()> {
     )
     .execute(pool)
     .await?;
+
+    Ok(())
+}
+
+async fn run_migration_v2(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v2: adding IPFS and submissions support");
+
+    // Add ipfs_cid column to archives table
+    sqlx::query("ALTER TABLE archives ADD COLUMN ipfs_cid TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add ipfs_cid column")?;
+
+    // Create submissions table for manual URL submissions
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS submissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            url TEXT NOT NULL,
+            normalized_url TEXT NOT NULL,
+            submitted_by_ip TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            link_id INTEGER REFERENCES links(id),
+            error_message TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            processed_at TEXT
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create submissions table")?;
+
+    // Index for rate limiting by IP
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_submissions_ip_created ON submissions(submitted_by_ip, created_at)")
+        .execute(pool)
+        .await?;
+
+    // Index for finding pending submissions
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status)")
+        .execute(pool)
+        .await?;
 
     Ok(())
 }

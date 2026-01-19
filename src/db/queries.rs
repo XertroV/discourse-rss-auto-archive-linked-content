@@ -504,3 +504,165 @@ pub async fn get_occurrences_for_post(
     .await
     .context("Failed to fetch occurrences for post")
 }
+
+// ========== IPFS ==========
+
+/// Set the IPFS CID for an archive.
+pub async fn set_archive_ipfs_cid(pool: &SqlitePool, id: i64, ipfs_cid: &str) -> Result<()> {
+    sqlx::query("UPDATE archives SET ipfs_cid = ? WHERE id = ?")
+        .bind(ipfs_cid)
+        .bind(id)
+        .execute(pool)
+        .await
+        .context("Failed to set IPFS CID")?;
+
+    Ok(())
+}
+
+// ========== Submissions ==========
+
+/// Insert a new submission, returning its ID.
+pub async fn insert_submission(pool: &SqlitePool, submission: &NewSubmission) -> Result<i64> {
+    let result = sqlx::query(
+        r"
+        INSERT INTO submissions (url, normalized_url, submitted_by_ip, status)
+        VALUES (?, ?, ?, 'pending')
+        ",
+    )
+    .bind(&submission.url)
+    .bind(&submission.normalized_url)
+    .bind(&submission.submitted_by_ip)
+    .execute(pool)
+    .await
+    .context("Failed to insert submission")?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Get a submission by ID.
+pub async fn get_submission(pool: &SqlitePool, id: i64) -> Result<Option<Submission>> {
+    sqlx::query_as("SELECT * FROM submissions WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to fetch submission")
+}
+
+/// Get pending submissions for processing.
+pub async fn get_pending_submissions(pool: &SqlitePool, limit: i64) -> Result<Vec<Submission>> {
+    sqlx::query_as(
+        r"
+        SELECT * FROM submissions
+        WHERE status = 'pending'
+        ORDER BY created_at ASC
+        LIMIT ?
+        ",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch pending submissions")
+}
+
+/// Count submissions from an IP in the last hour.
+pub async fn count_submissions_from_ip_last_hour(pool: &SqlitePool, ip: &str) -> Result<i64> {
+    let row: (i64,) = sqlx::query_as(
+        r"
+        SELECT COUNT(*) FROM submissions
+        WHERE submitted_by_ip = ?
+        AND created_at > datetime('now', '-1 hour')
+        ",
+    )
+    .bind(ip)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(row.0)
+}
+
+/// Check if a URL has already been submitted recently (within last 24 hours).
+pub async fn submission_exists_for_url(pool: &SqlitePool, normalized_url: &str) -> Result<bool> {
+    let row: (i64,) = sqlx::query_as(
+        r"
+        SELECT COUNT(*) FROM submissions
+        WHERE normalized_url = ?
+        AND created_at > datetime('now', '-24 hours')
+        ",
+    )
+    .bind(normalized_url)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(row.0 > 0)
+}
+
+/// Set submission status to processing.
+pub async fn set_submission_processing(pool: &SqlitePool, id: i64) -> Result<()> {
+    sqlx::query("UPDATE submissions SET status = 'processing' WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await
+        .context("Failed to set submission processing")?;
+
+    Ok(())
+}
+
+/// Set submission as complete with link_id.
+pub async fn set_submission_complete(pool: &SqlitePool, id: i64, link_id: i64) -> Result<()> {
+    sqlx::query(
+        r"
+        UPDATE submissions
+        SET status = 'complete',
+            link_id = ?,
+            processed_at = datetime('now')
+        WHERE id = ?
+        ",
+    )
+    .bind(link_id)
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Failed to set submission complete")?;
+
+    Ok(())
+}
+
+/// Set submission as failed.
+pub async fn set_submission_failed(pool: &SqlitePool, id: i64, error: &str) -> Result<()> {
+    sqlx::query(
+        r"
+        UPDATE submissions
+        SET status = 'failed',
+            error_message = ?,
+            processed_at = datetime('now')
+        WHERE id = ?
+        ",
+    )
+    .bind(error)
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Failed to set submission failed")?;
+
+    Ok(())
+}
+
+/// Set submission as rejected (e.g., rate limited, invalid URL).
+pub async fn set_submission_rejected(pool: &SqlitePool, id: i64, reason: &str) -> Result<()> {
+    sqlx::query(
+        r"
+        UPDATE submissions
+        SET status = 'rejected',
+            error_message = ?,
+            processed_at = datetime('now')
+        WHERE id = ?
+        ",
+    )
+    .bind(reason)
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Failed to set submission rejected")?;
+
+    Ok(())
+}

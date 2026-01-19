@@ -21,6 +21,7 @@ fn base_layout(title: &str, content: &str) -> String {
             <ul>
                 <li><a href="/">Home</a></li>
                 <li><a href="/search">Search</a></li>
+                <li><a href="/submit">Submit</a></li>
                 <li><a href="/stats">Stats</a></li>
             </ul>
         </nav>
@@ -144,6 +145,29 @@ pub fn render_archive_detail(archive: &Archive, link: &Link) -> String {
         ));
     }
 
+    if let Some(ref ipfs_cid) = archive.ipfs_cid {
+        content.push_str("<section><h2>IPFS</h2>");
+        content.push_str(&format!("<p><strong>CID:</strong> <code>{}</code></p>", html_escape(ipfs_cid)));
+        content.push_str("<p><strong>Public Gateways:</strong></p><ul>");
+        content.push_str(&format!(
+            "<li><a href=\"https://ipfs.io/ipfs/{cid}\" target=\"_blank\" rel=\"noopener\">ipfs.io</a></li>",
+            cid = html_escape(ipfs_cid)
+        ));
+        content.push_str(&format!(
+            "<li><a href=\"https://cloudflare-ipfs.com/ipfs/{cid}\" target=\"_blank\" rel=\"noopener\">Cloudflare IPFS</a></li>",
+            cid = html_escape(ipfs_cid)
+        ));
+        content.push_str(&format!(
+            "<li><a href=\"https://dweb.link/ipfs/{cid}\" target=\"_blank\" rel=\"noopener\">dweb.link</a></li>",
+            cid = html_escape(ipfs_cid)
+        ));
+        content.push_str(&format!(
+            "<li><a href=\"https://gateway.pinata.cloud/ipfs/{cid}\" target=\"_blank\" rel=\"noopener\">Pinata</a></li>",
+            cid = html_escape(ipfs_cid)
+        ));
+        content.push_str("</ul></section>");
+    }
+
     content.push_str("</article>");
 
     base_layout(title, &content)
@@ -261,6 +285,78 @@ fn render_archive_card(archive: &Archive) -> String {
         archive.content_type.as_deref().unwrap_or("unknown"),
         archive.archived_at.as_deref().unwrap_or("pending")
     )
+}
+
+/// Render submission form page.
+pub fn render_submit_form(error: Option<&str>, success: Option<&str>) -> String {
+    let mut content = String::from("<h1>Submit URL for Archiving</h1>");
+
+    content.push_str(r#"
+        <article>
+            <p>Submit a URL to be archived. Supported sites include Reddit, Twitter/X, TikTok, YouTube, Instagram, Imgur, and more.</p>
+            <p><strong>Rate limit:</strong> 10 submissions per hour per IP address.</p>
+        </article>
+    "#);
+
+    if let Some(err) = error {
+        content.push_str(&format!(
+            r#"<article class="error"><p><strong>Error:</strong> {}</p></article>"#,
+            html_escape(err)
+        ));
+    }
+
+    if let Some(msg) = success {
+        content.push_str(&format!(
+            r#"<article class="success"><p><strong>Success:</strong> {}</p></article>"#,
+            html_escape(msg)
+        ));
+    }
+
+    content.push_str(r#"
+        <form method="post" action="/submit">
+            <label for="url">URL to Archive</label>
+            <input type="url" id="url" name="url" required
+                   placeholder="https://reddit.com/r/..."
+                   pattern="https?://.*">
+            <small>Enter the full URL including https://</small>
+            <button type="submit">Submit for Archiving</button>
+        </form>
+    "#);
+
+    base_layout("Submit URL", &content)
+}
+
+/// Render submission success page.
+pub fn render_submit_success(submission_id: i64) -> String {
+    let content = format!(
+        r#"
+        <h1>URL Submitted Successfully</h1>
+        <article class="success">
+            <p>Your URL has been queued for archiving.</p>
+            <p><strong>Submission ID:</strong> {submission_id}</p>
+            <p>The archive will be processed shortly. Check back later for results.</p>
+        </article>
+        <p><a href="/submit">Submit another URL</a></p>
+        "#
+    );
+
+    base_layout("Submission Successful", &content)
+}
+
+/// Render submission error page.
+pub fn render_submit_error(error: &str) -> String {
+    let content = format!(
+        r#"
+        <h1>Submission Failed</h1>
+        <article class="error">
+            <p><strong>Error:</strong> {}</p>
+        </article>
+        <p><a href="/submit">Try again</a></p>
+        "#,
+        html_escape(error)
+    );
+
+    base_layout("Submission Failed", &content)
 }
 
 /// Escape HTML special characters.

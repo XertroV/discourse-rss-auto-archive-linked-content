@@ -4,9 +4,11 @@ use anyhow::{Context, Result};
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+use discourse_link_archiver::archiver::ArchiveWorker;
 use discourse_link_archiver::backup::BackupManager;
 use discourse_link_archiver::config::Config;
 use discourse_link_archiver::db::Database;
+use discourse_link_archiver::ipfs::IpfsClient;
 use discourse_link_archiver::s3::S3Client;
 use discourse_link_archiver::{rss, web};
 
@@ -56,9 +58,24 @@ async fn run() -> Result<()> {
         .await
         .context("Failed to initialize S3 client")?;
 
+    // Initialize IPFS client
+    let ipfs_client = IpfsClient::new(&config);
+    if ipfs_client.is_enabled() {
+        info!(api_url = %config.ipfs_api_url, "IPFS pinning enabled");
+        if let Ok(healthy) = ipfs_client.health_check().await {
+            if healthy {
+                info!("IPFS daemon is reachable");
+            } else {
+                info!("IPFS daemon not reachable, will retry on each pin");
+            }
+        }
+    } else {
+        info!("IPFS pinning disabled");
+    }
+
     // Start backup scheduler if enabled
     let backup_handle = if config.backup_enabled {
-        let backup_manager = BackupManager::new(&config, s3_client);
+        let backup_manager = BackupManager::new(&config, s3_client.clone());
         let interval = Duration::from_secs(config.backup_interval_hours * 3600);
         info!(
             interval_hours = config.backup_interval_hours,
@@ -72,6 +89,17 @@ async fn run() -> Result<()> {
         info!("Backup scheduler disabled");
         None
     };
+
+    // Start archive worker in background
+    let worker_config = config.clone();
+    let worker_db = db.clone();
+    let worker_s3 = s3_client;
+    let worker_ipfs = ipfs_client;
+    let worker = ArchiveWorker::new(worker_config, worker_db, worker_s3, worker_ipfs);
+    let worker_handle = tokio::spawn(async move {
+        worker.run().await;
+    });
+    info!("Archive worker started");
 
     // Start web server in background
     let web_config = config.clone();
@@ -95,6 +123,7 @@ async fn run() -> Result<()> {
     // Cancel tasks
     web_handle.abort();
     poll_handle.abort();
+    worker_handle.abort();
     if let Some(handle) = backup_handle {
         handle.abort();
     }

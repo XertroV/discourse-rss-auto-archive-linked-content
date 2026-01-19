@@ -63,6 +63,15 @@ pub struct Config {
 
     // Logging
     pub log_format: LogFormat,
+
+    // IPFS
+    pub ipfs_enabled: bool,
+    pub ipfs_api_url: String,
+    pub ipfs_gateway_urls: Vec<String>,
+
+    // Manual Submission
+    pub submission_enabled: bool,
+    pub submission_rate_limit_per_hour: u32,
 }
 
 /// Log output format.
@@ -132,6 +141,18 @@ impl Config {
 
             // Logging
             log_format: parse_log_format(&env_or_default("LOG_FORMAT", "pretty"))?,
+
+            // IPFS
+            ipfs_enabled: parse_env_bool("IPFS_ENABLED", false)?,
+            ipfs_api_url: env_or_default("IPFS_API_URL", "http://127.0.0.1:5001"),
+            ipfs_gateway_urls: parse_gateway_urls(&env_or_default(
+                "IPFS_GATEWAY_URLS",
+                "https://ipfs.io/ipfs/,https://cloudflare-ipfs.com/ipfs/,https://dweb.link/ipfs/",
+            )),
+
+            // Manual Submission
+            submission_enabled: parse_env_bool("SUBMISSION_ENABLED", true)?,
+            submission_rate_limit_per_hour: parse_env_u32("SUBMISSION_RATE_LIMIT_PER_HOUR", 10)?,
         })
     }
 
@@ -258,6 +279,15 @@ fn parse_log_format(value: &str) -> Result<LogFormat, ConfigError> {
             message: format!("must be 'pretty' or 'json', got '{value}'"),
         }),
     }
+}
+
+fn parse_gateway_urls(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect()
 }
 
 #[cfg(test)]

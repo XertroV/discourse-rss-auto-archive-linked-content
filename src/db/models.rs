@@ -113,6 +113,7 @@ pub struct Archive {
     pub s3_key_thumb: Option<String>,
     pub s3_keys_extra: Option<String>,
     pub wayback_url: Option<String>,
+    pub ipfs_cid: Option<String>,
     pub error_message: Option<String>,
     pub retry_count: i32,
     pub created_at: String,
@@ -203,4 +204,62 @@ pub struct NewLinkOccurrence {
 pub struct ArchiveWithLink {
     pub archive: Archive,
     pub link: Link,
+}
+
+/// Submission status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SubmissionStatus {
+    Pending,
+    Processing,
+    Complete,
+    Failed,
+    Rejected,
+}
+
+impl SubmissionStatus {
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Processing => "processing",
+            Self::Complete => "complete",
+            Self::Failed => "failed",
+            Self::Rejected => "rejected",
+        }
+    }
+
+    #[must_use]
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "pending" => Some(Self::Pending),
+            "processing" => Some(Self::Processing),
+            "complete" => Some(Self::Complete),
+            "failed" => Some(Self::Failed),
+            "rejected" => Some(Self::Rejected),
+            _ => None,
+        }
+    }
+}
+
+/// A manually submitted URL for archiving.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Submission {
+    pub id: i64,
+    pub url: String,
+    pub normalized_url: String,
+    pub submitted_by_ip: String,
+    pub status: String,
+    pub link_id: Option<i64>,
+    pub error_message: Option<String>,
+    pub created_at: String,
+    pub processed_at: Option<String>,
+}
+
+/// Data for creating a new submission.
+#[derive(Debug, Clone)]
+pub struct NewSubmission {
+    pub url: String,
+    pub normalized_url: String,
+    pub submitted_by_ip: String,
 }
