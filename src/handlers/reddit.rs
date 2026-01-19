@@ -195,12 +195,14 @@ impl SiteHandler for RedditHandler {
         // Check if the subreddit name suggests NSFW content (heuristic)
         let subreddit_nsfw = is_nsfw_subreddit(archive_url);
 
-        // Try yt-dlp for video/media content (only if we detected video)
+        // Only run yt-dlp if we detected video content
+        // This avoids unnecessary yt-dlp calls (and errors) for image/text-only posts
         let has_video = media
             .as_ref()
             .map(|m| m.video_url.is_some())
             .unwrap_or(false);
         let ytdlp_result = if has_video {
+            debug!(url = %archive_url, "Running yt-dlp for detected Reddit video");
             match ytdlp::download(archive_url, work_dir, cookies).await {
                 Ok(result) => Some(result),
                 Err(e) => {
@@ -209,14 +211,9 @@ impl SiteHandler for RedditHandler {
                 }
             }
         } else {
-            // Try yt-dlp anyway in case there's embedded media we didn't detect
-            match ytdlp::download(archive_url, work_dir, cookies).await {
-                Ok(result) => Some(result),
-                Err(e) => {
-                    debug!("yt-dlp found no media: {e}");
-                    None
-                }
-            }
+            // Skip yt-dlp when no video detected - avoid unnecessary errors
+            debug!(url = %archive_url, "Skipping yt-dlp - no video detected in Reddit post");
+            None
         };
 
         // We MUST have HTML content - fail if we don't
