@@ -259,7 +259,19 @@ async fn process_single_link(
     }
 
     // Skip specific domains that shouldn't be archived
-    const SKIP_DOMAINS: &[&str] = &["curi.us"];
+    const SKIP_DOMAINS: &[&str] = &[
+        "curi.us",
+        // Archive sites - no need to archive the archivers
+        "web.archive.org",
+        "archive.org",
+        "archive.today",
+        "archive.is",
+        "archive.ph",
+        "archive.fo",
+        "archive.li",
+        "archive.vn",
+        "archive.md",
+    ];
     let domain_lower = domain.to_lowercase();
     for skip_domain in SKIP_DOMAINS {
         if domain_lower == *skip_domain || domain_lower.ends_with(&format!(".{skip_domain}")) {
