@@ -55,7 +55,7 @@ pub fn router() -> Router<AppState> {
 // ========== HTML Routes ==========
 
 async fn home(State(state): State<AppState>) -> Response {
-    let archives = match get_recent_archives_display(state.db.pool(), 20).await {
+    let archives = match get_recent_archives_display(state.db.pool(), 100).await {
         Ok(a) => a,
         Err(e) => {
             tracing::error!("Failed to fetch recent archives: {e}");
