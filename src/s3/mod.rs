@@ -1,3 +1,5 @@
+mod multipart;
+
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -7,12 +9,14 @@ use s3::Bucket;
 use tracing::debug;
 
 use crate::config::Config;
+use multipart::StreamingUploader;
 
 /// S3 client wrapper.
 #[derive(Clone)]
 pub struct S3Client {
     bucket: Box<Bucket>,
     endpoint: Option<String>,
+    streaming_uploader: StreamingUploader,
 }
 
 impl S3Client {
@@ -48,13 +52,22 @@ impl S3Client {
             bucket
         };
 
+        // Initialize streaming uploader for large files
+        let streaming_uploader = StreamingUploader::new(config)
+            .await
+            .context("Failed to create streaming uploader")?;
+
         Ok(Self {
             bucket,
             endpoint: config.s3_endpoint.clone(),
+            streaming_uploader,
         })
     }
 
     /// Upload a file to S3.
+    ///
+    /// Uses streaming upload to avoid loading large files into memory.
+    /// Small files (<5MB) use simple PUT, large files use multipart upload.
     ///
     /// # Errors
     ///
@@ -65,22 +78,14 @@ impl S3Client {
         s3_key: &str,
         archive_id: Option<i64>,
     ) -> Result<()> {
-        let content = tokio::fs::read(local_path)
-            .await
-            .context("Failed to read file for upload")?;
-
         let content_type = mime_guess::from_path(local_path)
             .first_or_octet_stream()
             .to_string();
 
-        debug!(archive_id, key = %s3_key, content_type = %content_type, "Uploading file to S3");
-
-        self.bucket
-            .put_object_with_content_type(s3_key, &content, &content_type)
+        // Use streaming uploader to avoid memory constraints
+        self.streaming_uploader
+            .upload_file(s3_key, local_path, &content_type, archive_id)
             .await
-            .context("Failed to upload file to S3")?;
-
-        Ok(())
     }
 
     /// Upload bytes to S3.
@@ -89,14 +94,10 @@ impl S3Client {
     ///
     /// Returns an error if the upload fails.
     pub async fn upload_bytes(&self, data: &[u8], s3_key: &str, content_type: &str) -> Result<()> {
-        debug!(key = %s3_key, content_type = %content_type, "Uploading bytes to S3");
-
-        self.bucket
-            .put_object_with_content_type(s3_key, data, content_type)
+        // Use streaming uploader for consistency
+        self.streaming_uploader
+            .upload_bytes(data, s3_key, content_type)
             .await
-            .context("Failed to upload bytes to S3")?;
-
-        Ok(())
     }
 
     /// Check if an object exists in S3.
@@ -233,23 +234,16 @@ impl S3Client {
 
     /// Copy an object within S3 (server-side copy).
     ///
-    /// TODO: rust-s3 0.35 doesn't expose put_object_copy. For now we download+re-upload.
-    /// In Stage 2, implement proper server-side copy using aws-sdk-s3 or HTTP API.
+    /// Uses aws-sdk-s3 for efficient server-side copy without downloading.
     ///
     /// # Errors
     ///
     /// Returns an error if the copy fails.
     pub async fn copy_object(&self, source_key: &str, dest_key: &str) -> Result<()> {
-        debug!(source = %source_key, dest = %dest_key, "Copying S3 object (via download+re-upload)");
-
-        // Download from source
-        let (data, content_type) = self.download_file(source_key).await?;
-
-        // Re-upload to destination
-        self.upload_bytes(&data, dest_key, &content_type).await?;
-
-        debug!(source = %source_key, dest = %dest_key, "Successfully copied S3 object");
-        Ok(())
+        // Use streaming uploader's server-side copy (no download/re-upload)
+        self.streaming_uploader
+            .copy_object(source_key, dest_key)
+            .await
     }
 
     /// Check if the S3 bucket is public (AWS S3, R2) or private (MinIO).

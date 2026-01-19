@@ -27,6 +27,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 
 # S3 storage (rust-s3 has lower MSRV than aws-sdk-s3)
 rust-s3 = { version = "0.35", default-features = false, features = ["tokio-rustls-tls"] }
+# AWS SDK for multipart uploads and server-side copy
+aws-sdk-s3 = "1.68"
+aws-config = "1.5"
 
 # RSS parsing
 feed-rs = "2"
