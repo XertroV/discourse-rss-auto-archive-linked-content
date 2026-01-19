@@ -14,18 +14,53 @@ fn base_layout(title: &str, content: &str) -> String {
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="alternate" type="application/rss+xml" title="Archive RSS Feed" href="/feed.rss">
     <link rel="alternate" type="application/atom+xml" title="Archive Atom Feed" href="/feed.atom">
+    <style>
+        /* NSFW filtering styles */
+        body.nsfw-hidden [data-nsfw="true"] {{ display: none !important; }}
+        .nsfw-badge {{
+            background-color: #dc3545;
+            color: white;
+            padding: 0.15em 0.4em;
+            border-radius: 3px;
+            font-size: 0.75em;
+            font-weight: bold;
+            margin-left: 0.5em;
+            vertical-align: middle;
+        }}
+        .nsfw-warning {{
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #856404;
+            padding: 1em;
+            border-radius: 5px;
+            margin-bottom: 1em;
+        }}
+        [data-theme="dark"] .nsfw-warning {{
+            background-color: #332701;
+            border-color: #ffc107;
+            color: #ffc107;
+        }}
+        .nsfw-toggle {{ cursor: pointer; }}
+        .nsfw-toggle.active {{ background-color: #dc3545; color: white; border-color: #dc3545; }}
+    </style>
     <script>
         (function() {{
+            // Theme preference
             var theme = localStorage.getItem('theme');
             if (theme) {{
                 document.documentElement.setAttribute('data-theme', theme);
             }} else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {{
                 document.documentElement.setAttribute('data-theme', 'dark');
             }}
+            // NSFW preference - default to hidden
+            var nsfwEnabled = localStorage.getItem('nsfw_enabled') === 'true';
+            if (!nsfwEnabled) {{
+                document.body.classList.add('nsfw-hidden');
+            }}
         }})();
     </script>
 </head>
-<body>
+<body class="nsfw-hidden">
     <header class="container">
         <nav>
             <ul>
@@ -36,6 +71,7 @@ fn base_layout(title: &str, content: &str) -> String {
                 <li><a href="/search">Search</a></li>
                 <li><a href="/submit">Submit</a></li>
                 <li><a href="/stats">Stats</a></li>
+                <li><button id="nsfw-toggle" class="nsfw-toggle outline" title="Toggle NSFW content visibility" aria-label="Toggle NSFW content">18+</button></li>
                 <li><button id="theme-toggle" class="theme-toggle outline" title="Toggle dark mode" aria-label="Toggle dark mode">🌓</button></li>
             </ul>
         </nav>
@@ -48,15 +84,46 @@ fn base_layout(title: &str, content: &str) -> String {
     </footer>
     <script>
         (function() {{
-            var toggle = document.getElementById('theme-toggle');
-            if (!toggle) return;
-            toggle.addEventListener('click', function() {{
-                var html = document.documentElement;
-                var current = html.getAttribute('data-theme');
-                var next = (current === 'dark') ? 'light' : 'dark';
-                html.setAttribute('data-theme', next);
-                localStorage.setItem('theme', next);
-            }});
+            // Theme toggle
+            var themeToggle = document.getElementById('theme-toggle');
+            if (themeToggle) {{
+                themeToggle.addEventListener('click', function() {{
+                    var html = document.documentElement;
+                    var current = html.getAttribute('data-theme');
+                    var next = (current === 'dark') ? 'light' : 'dark';
+                    html.setAttribute('data-theme', next);
+                    localStorage.setItem('theme', next);
+                }});
+            }}
+
+            // NSFW toggle
+            var nsfwToggle = document.getElementById('nsfw-toggle');
+            if (nsfwToggle) {{
+                // Initialize button state
+                var nsfwEnabled = localStorage.getItem('nsfw_enabled') === 'true';
+                if (nsfwEnabled) {{
+                    document.body.classList.remove('nsfw-hidden');
+                    nsfwToggle.classList.add('active');
+                }} else {{
+                    document.body.classList.add('nsfw-hidden');
+                    nsfwToggle.classList.remove('active');
+                }}
+
+                nsfwToggle.addEventListener('click', function() {{
+                    var isEnabled = localStorage.getItem('nsfw_enabled') === 'true';
+                    if (isEnabled) {{
+                        // Disable NSFW content
+                        localStorage.setItem('nsfw_enabled', 'false');
+                        document.body.classList.add('nsfw-hidden');
+                        nsfwToggle.classList.remove('active');
+                    }} else {{
+                        // Enable NSFW content
+                        localStorage.setItem('nsfw_enabled', 'true');
+                        document.body.classList.remove('nsfw-hidden');
+                        nsfwToggle.classList.add('active');
+                    }}
+                }});
+            }}
         }})();
     </script>
 </body>
@@ -124,8 +191,21 @@ pub fn render_archive_detail(archive: &Archive, link: &Link) -> String {
         .as_deref()
         .unwrap_or("Untitled Archive");
 
-    let mut content = format!(
-        r#"<h1>{}</h1>
+    let nsfw_badge = if archive.is_nsfw {
+        r#" <span class="nsfw-badge">NSFW</span>"#
+    } else {
+        ""
+    };
+
+    let mut content = String::new();
+
+    // Show NSFW warning if applicable
+    if archive.is_nsfw {
+        content.push_str(r#"<div class="nsfw-warning"><strong>Warning:</strong> This archive contains content marked as NSFW (Not Safe For Work).</div>"#);
+    }
+
+    content.push_str(&format!(
+        r#"<h1>{}{nsfw_badge}</h1>
         <article>
             <header>
                 <p class="meta">
@@ -142,7 +222,7 @@ pub fn render_archive_detail(archive: &Archive, link: &Link) -> String {
         html_escape(&link.normalized_url),
         html_escape(&link.domain),
         archive.archived_at.as_deref().unwrap_or("pending")
-    );
+    ));
 
     if let Some(ref author) = archive.content_author {
         content.push_str(&format!(
@@ -315,6 +395,20 @@ fn render_archive_card(archive: &Archive) -> String {
     let title = archive.content_title.as_deref().unwrap_or("Untitled");
     let content_type = archive.content_type.as_deref().unwrap_or("unknown");
 
+    // NSFW data attribute for filtering
+    let nsfw_attr = if archive.is_nsfw {
+        r#" data-nsfw="true""#
+    } else {
+        ""
+    };
+
+    // NSFW badge
+    let nsfw_badge = if archive.is_nsfw {
+        r#"<span class="nsfw-badge">NSFW</span>"#
+    } else {
+        ""
+    };
+
     // Content type badge with appropriate styling
     let type_badge = match content_type {
         "video" => r#"<span class="media-type-badge media-type-video">Video</span>"#,
@@ -328,8 +422,8 @@ fn render_archive_card(archive: &Archive) -> String {
     };
 
     format!(
-        r#"<article class="archive-card">
-            <h3><a href="/archive/{}">{}</a></h3>
+        r#"<article class="archive-card"{nsfw_attr}>
+            <h3><a href="/archive/{}">{}</a>{nsfw_badge}</h3>
             <p class="meta">
                 <span class="status-{}">{}</span>
                 {type_badge}

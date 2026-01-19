@@ -118,6 +118,11 @@ pub struct Archive {
     pub error_message: Option<String>,
     pub retry_count: i32,
     pub created_at: String,
+    /// Whether the content is NSFW (Not Safe For Work).
+    #[serde(default)]
+    pub is_nsfw: bool,
+    /// Source of the NSFW flag: 'api', 'metadata', 'subreddit', 'manual'.
+    pub nsfw_source: Option<String>,
 }
 
 impl Archive {

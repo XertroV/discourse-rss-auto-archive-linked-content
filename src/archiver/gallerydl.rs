@@ -143,6 +143,8 @@ async fn find_and_parse_files(work_dir: &Path) -> Result<ArchiveResult> {
         thumbnail: None, // gallery-dl doesn't generate separate thumbnails
         extra_files,
         metadata_json,
+        is_nsfw: None,
+        nsfw_source: None,
     })
 }
 
