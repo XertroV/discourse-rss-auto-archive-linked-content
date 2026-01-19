@@ -425,3 +425,4 @@ Known gaps (for future work):
 
 ### Future Improvements
 - [ ] Upgrade axum from 0.7 to 0.8 (breaking change: path syntax changes from `:param` to `{param}`)
+- [ ] Archive failed log messages should include domain (e.g., `domain=old.reddit.com`) similar to `archive_id`
