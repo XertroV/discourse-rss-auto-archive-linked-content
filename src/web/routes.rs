@@ -881,10 +881,50 @@ async fn serve_s3_file(State(state): State<AppState>, Path(path): Path<String>) 
         &mime_type
     };
 
+    let content_disposition = suggest_content_disposition_filename(&final_key)
+        .map(|name| format!("inline; filename=\"{}\"", name))
+        .unwrap_or_else(|| "inline".to_string());
+
     (
         StatusCode::OK,
-        [(header::CONTENT_TYPE, final_content_type)],
+        [
+            (header::CONTENT_TYPE, final_content_type),
+            (header::CONTENT_DISPOSITION, content_disposition.as_str()),
+        ],
         content,
     )
         .into_response()
+}
+
+fn suggest_content_disposition_filename(s3_key: &str) -> Option<String> {
+    // S3 keys typically look like: archives/{id}/media/view.html
+    let filename = s3_key.rsplit('/').next()?;
+    if filename.is_empty() {
+        return None;
+    }
+
+    let archive_id = s3_key
+        .strip_prefix("archives/")
+        .and_then(|rest| rest.split('/').next())
+        .and_then(|s| s.parse::<u64>().ok());
+
+    let mut name = if let Some(id) = archive_id {
+        format!("archive_{id}_{filename}")
+    } else {
+        filename.to_string()
+    };
+
+    // Sanitize for header safety.
+    name = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' ) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+
+    Some(name)
 }

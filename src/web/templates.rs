@@ -372,6 +372,7 @@ pub fn render_archive_detail(
             primary_key.ends_with(".html") || archive.content_type.as_deref() == Some("thread");
 
         if !is_html_archive {
+            let download_name = suggested_download_filename(&link.domain, archive.id, primary_key);
             content.push_str("<section><h2>Media</h2>");
             content.push_str(&render_media_player(
                 primary_key,
@@ -379,10 +380,11 @@ pub fn render_archive_detail(
                 archive.s3_key_thumb.as_deref(),
             ));
             content.push_str(&format!(
-                r#"<p><a href="/s3/{}" class="media-download" download target="_blank" rel="noopener">
+                r#"<p><a href="/s3/{}" class="media-download" download="{}" target="_blank" rel="noopener">
                     <span>Download</span>
                 </a></p>"#,
-                html_escape(primary_key)
+                html_escape(primary_key),
+                html_escape(&download_name)
             ));
             content.push_str("</section>");
         }
@@ -489,16 +491,18 @@ pub fn render_archive_detail(
 
         // MHTML link
         if let Some(mhtml) = mhtml_artifact {
+            let download_name = suggested_download_filename(&link.domain, archive.id, &mhtml.s3_key);
             content.push_str(&format!(
                 r#"<div class="capture-item">
                     <h4>MHTML Archive</h4>
-                    <a href="/s3/{}" download class="capture-link">
+                    <a href="/s3/{}" download="{}" class="capture-link">
                         <span class="capture-icon">📦</span>
                         <span>Download MHTML</span>
                     </a>
                     <p class="capture-meta">{}</p>
                 </div>"#,
                 html_escape(&mhtml.s3_key),
+                html_escape(&download_name),
                 mhtml
                     .size_bytes
                     .map_or_else(|| "Unknown size".to_string(), format_bytes)
@@ -527,6 +531,7 @@ pub fn render_archive_detail(
                 .rsplit('/')
                 .next()
                 .unwrap_or(&artifact.s3_key);
+            let download_name = suggested_download_filename(&link.domain, archive.id, &artifact.s3_key);
             let size_display = artifact
                 .size_bytes
                 .map_or_else(|| "Unknown".to_string(), format_bytes);
@@ -552,17 +557,19 @@ pub fn render_archive_detail(
             let escaped_filename = html_escape(filename);
             let actions = if is_viewable {
                 format!(
-                    r#"<a href="/s3/{key}" target="_blank" title="View {name}" aria-label="View {name}" class="action-link">{view}</a> <a href="/s3/{key}" download title="Download {name}" aria-label="Download {name}" class="action-link">{download}</a>"#,
+                    r#"<a href="/s3/{key}" target="_blank" title="View {name}" aria-label="View {name}" class="action-link">{view}</a> <a href="/s3/{key}" download="{dl}" title="Download {name}" aria-label="Download {name}" class="action-link">{download}</a>"#,
                     key = escaped_key,
                     name = escaped_filename,
+                    dl = html_escape(&download_name),
                     view = view_icon(),
                     download = download_icon()
                 )
             } else {
                 format!(
-                    r#"<a href="/s3/{key}" download title="Download {name}" aria-label="Download {name}" class="action-link">{download}</a>"#,
+                    r#"<a href="/s3/{key}" download="{dl}" title="Download {name}" aria-label="Download {name}" class="action-link">{download}</a>"#,
                     key = escaped_key,
                     name = escaped_filename,
+                    dl = html_escape(&download_name),
                     download = download_icon()
                 )
             };
@@ -914,6 +921,30 @@ fn is_viewable_in_browser(filename: &str) -> bool {
         || filename_lower.ends_with(".txt")
         || filename_lower.ends_with(".json")
         || filename_lower.ends_with(".xml")
+}
+
+fn suggested_download_filename(domain: &str, archive_id: i64, s3_key: &str) -> String {
+    let filename = s3_key.rsplit('/').next().unwrap_or(s3_key);
+    let domain = sanitize_filename_component(&domain.to_lowercase());
+    let filename = sanitize_filename_component(filename);
+
+    if filename.is_empty() {
+        format!("{domain}_archive_{archive_id}")
+    } else {
+        format!("{domain}_archive_{archive_id}_{filename}")
+    }
+}
+
+fn sanitize_filename_component(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' ) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
 }
 
 /// Render site list page.
