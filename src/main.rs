@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use discourse_link_archiver::archiver::ArchiveWorker;
@@ -36,18 +36,43 @@ async fn run() -> Result<()> {
     info!(rss_url = %config.rss_url, "Configuration loaded");
 
     // Log cookie configuration status
-    if let Some(ref browser_profile) = config.yt_dlp_cookies_from_browser {
-        info!(spec = %browser_profile, "Browser profile configured for yt-dlp cookies");
-    }
-    if let Some(ref cookies_path) = config.cookies_file_path {
-        if cookies_path.exists() {
-            info!(path = %cookies_path.display(), "Cookies file configured and found");
-        } else {
-            warn!(path = %cookies_path.display(), "Cookies file configured but not found - will not be used until created");
+    match (
+        config.yt_dlp_cookies_from_browser.as_deref(),
+        config.cookies_file_path.as_deref(),
+    ) {
+        (Some(browser_profile), Some(cookies_path)) => {
+            warn!(
+                spec = %browser_profile,
+                cookies_path = %cookies_path.display(),
+                "Both YT_DLP_COOKIES_FROM_BROWSER and COOKIES_FILE_PATH are set; yt-dlp will use cookies-from-browser and ignore cookies.txt (gallery-dl will still use cookies.txt if present)."
+            );
+        }
+        (Some(browser_profile), None) => {
+            info!(spec = %browser_profile, "yt-dlp cookies-from-browser enabled");
+        }
+        (None, Some(cookies_path)) => {
+            if cookies_path.exists() {
+                info!(path = %cookies_path.display(), "Cookies file configured and found");
+            } else {
+                warn!(path = %cookies_path.display(), "Cookies file configured but not found - will not be used until created");
+            }
+        }
+        (None, None) => {
+            warn!("No cookies configured - authenticated downloads may fail");
         }
     }
-    if config.cookies_file_path.is_none() && config.yt_dlp_cookies_from_browser.is_none() {
-        debug!("No cookies configured - authenticated downloads may fail");
+
+    // If cookies-from-browser is enabled, best-effort warn when the profile path doesn't exist yet.
+    if let Some(spec) = config.yt_dlp_cookies_from_browser.as_deref() {
+        if let Some((_, rest)) = spec.split_once(':') {
+            let profile = rest.split("::").next().unwrap_or("");
+            if !profile.is_empty() {
+                let profile_path = std::path::Path::new(profile);
+                if profile_path.is_absolute() && !profile_path.exists() {
+                    warn!(path = %profile_path.display(), "yt-dlp cookies-from-browser profile path does not exist (yet)");
+                }
+            }
+        }
     }
 
     // Ensure data directories exist

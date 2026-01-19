@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use thiserror::Error;
-use tracing::warn;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -605,13 +604,6 @@ impl Config {
                     ),
                 });
             }
-        }
-        // Warn if both cookie methods are configured
-        if self.cookies_file_path.is_some() && self.yt_dlp_cookies_from_browser.is_some() {
-            warn!(
-                "Both COOKIES_FILE_PATH and YT_DLP_COOKIES_FROM_BROWSER are configured. \
-                 yt-dlp will prefer browser profile; gallery-dl will use cookies file."
-            );
         }
         Ok(())
     }
