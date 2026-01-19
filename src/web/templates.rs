@@ -4,13 +4,26 @@ use crate::db::{Archive, Link, Post};
 fn base_layout(title: &str, content: &str) -> String {
     format!(
         r#"<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="auto">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
     <title>{title} - Discourse Link Archiver</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="alternate" type="application/rss+xml" title="Archive RSS Feed" href="/feed.rss">
+    <link rel="alternate" type="application/atom+xml" title="Archive Atom Feed" href="/feed.atom">
+    <script>
+        (function() {{
+            var theme = localStorage.getItem('theme');
+            if (theme) {{
+                document.documentElement.setAttribute('data-theme', theme);
+            }} else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {{
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }}
+        }})();
+    </script>
 </head>
 <body>
     <header class="container">
@@ -23,6 +36,7 @@ fn base_layout(title: &str, content: &str) -> String {
                 <li><a href="/search">Search</a></li>
                 <li><a href="/submit">Submit</a></li>
                 <li><a href="/stats">Stats</a></li>
+                <li><button id="theme-toggle" class="theme-toggle outline" title="Toggle dark mode" aria-label="Toggle dark mode">🌓</button></li>
             </ul>
         </nav>
     </header>
@@ -30,8 +44,21 @@ fn base_layout(title: &str, content: &str) -> String {
         {content}
     </main>
     <footer class="container">
-        <small>Discourse Link Archiver</small>
+        <small>Discourse Link Archiver | <a href="/feed.rss">RSS</a> | <a href="/feed.atom">Atom</a></small>
     </footer>
+    <script>
+        (function() {{
+            var toggle = document.getElementById('theme-toggle');
+            if (!toggle) return;
+            toggle.addEventListener('click', function() {{
+                var html = document.documentElement;
+                var current = html.getAttribute('data-theme');
+                var next = (current === 'dark') ? 'light' : 'dark';
+                html.setAttribute('data-theme', next);
+                localStorage.setItem('theme', next);
+            }});
+        }})();
+    </script>
 </body>
 </html>"#
     )
@@ -142,6 +169,13 @@ pub fn render_archive_detail(archive: &Archive, link: &Link) -> String {
         content.push_str(&format!(
             "<section><h2>Wayback Machine</h2><p><a href=\"{}\">View on Wayback Machine</a></p></section>",
             html_escape(wayback)
+        ));
+    }
+
+    if let Some(ref archive_today) = archive.archive_today_url {
+        content.push_str(&format!(
+            "<section><h2>Archive.today</h2><p><a href=\"{}\" target=\"_blank\" rel=\"noopener\">View on Archive.today</a></p></section>",
+            html_escape(archive_today)
         ));
     }
 

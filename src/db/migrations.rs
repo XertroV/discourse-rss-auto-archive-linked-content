@@ -19,6 +19,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 2).await?;
     }
 
+    if current_version < 3 {
+        debug!("Running migration v3");
+        run_migration_v3(pool).await?;
+        set_schema_version(pool, 3).await?;
+    }
+
     Ok(())
 }
 
@@ -284,6 +290,18 @@ async fn run_migration_v2(pool: &SqlitePool) -> Result<()> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status)")
         .execute(pool)
         .await?;
+
+    Ok(())
+}
+
+async fn run_migration_v3(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v3: adding Archive.today URL column");
+
+    // Add archive_today_url column to archives table
+    sqlx::query("ALTER TABLE archives ADD COLUMN archive_today_url TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add archive_today_url column")?;
 
     Ok(())
 }

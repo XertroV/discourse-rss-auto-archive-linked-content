@@ -3,10 +3,12 @@ mod registry;
 mod traits;
 
 // Site handlers
+mod bluesky;
 mod generic;
 mod imgur;
 mod instagram;
 mod reddit;
+mod streamable;
 mod tiktok;
 mod twitter;
 mod youtube;
@@ -26,6 +28,8 @@ pub static HANDLERS: Lazy<HandlerRegistry> = Lazy::new(|| {
     registry.register(Box::new(twitter::TwitterHandler::new()));
     registry.register(Box::new(instagram::InstagramHandler::new()));
     registry.register(Box::new(imgur::ImgurHandler::new()));
+    registry.register(Box::new(bluesky::BlueskyHandler::new()));
+    registry.register(Box::new(streamable::StreamableHandler::new()));
     registry.register(Box::new(generic::GenericHandler::new()));
     registry
 });

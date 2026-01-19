@@ -257,6 +257,92 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 
 ---
 
+## Phase 12: High-Value Feature Additions
+
+### New Site Handlers
+- [x] Bluesky handler
+  - [x] URL patterns for bsky.app, bsky.social
+  - [x] Resolve handle to DID via AT Protocol
+  - [x] Fetch post via getPostThread API
+  - [x] Download embedded images from CDN
+  - [x] Store post JSON and media
+  - [x] Write unit tests
+- [x] Streamable handler
+  - [x] URL patterns for streamable.com
+  - [x] Archive via yt-dlp (already supported)
+  - [x] Write unit tests
+
+### Archive.today Integration
+- [x] Add archive.today client module
+- [x] Submit URLs to archive.today/submit/
+- [x] Rate limit submissions (3/minute)
+- [x] Store archive.today URL in database
+- [x] Add `archive_today_url` field to archives table
+- [x] Handle submission failures gracefully
+- [x] Add configuration (ARCHIVE_TODAY_ENABLED)
+
+### RSS Feed of Archives
+- [x] Add RSS 2.0 feed route at /feed.rss
+- [x] Add Atom 1.0 feed route at /feed.atom
+- [x] Include last 50 archives by default
+- [ ] Add optional site/type query filters
+- [x] Write unit tests for feed generation
+
+### Content Deduplication
+- [ ] Add image_hasher dependency
+- [ ] Add perceptual_hash column to archive_artifacts
+- [ ] Compute pHash for images during archiving
+- [ ] Check for near-duplicates before downloading
+- [ ] Link to existing archive if duplicate found
+- [ ] Add similarity threshold configuration
+- [ ] Write unit tests for hash comparison
+
+### Screenshot Capture
+- [ ] Add chromiumoxide or headless_chrome dependency
+- [ ] Create screenshot capture module
+- [ ] Configure viewport dimensions
+- [ ] Capture full-page screenshots as PNG
+- [ ] Store in S3 render/ directory
+- [ ] Add configuration options
+- [ ] Handle browser startup/cleanup
+- [ ] Write unit tests
+
+### PDF Generation
+- [ ] Use browser print-to-PDF capability
+- [ ] Configure paper size settings
+- [ ] Generate PDF for article content
+- [ ] Store in S3 render/ directory
+- [ ] Add configuration options
+- [ ] Write unit tests
+
+### Dark Mode for Web UI
+- [x] Add CSS dark mode variables
+- [x] Implement prefers-color-scheme detection
+- [x] Add manual toggle switch in header
+- [x] Store preference in localStorage
+- [x] Update PicoCSS to dark theme
+- [x] Test all pages in dark mode
+
+### Archive Comparison
+- [ ] Add similar crate for text diffing
+- [ ] Create comparison route /compare/{id1}/{id2}
+- [ ] Implement side-by-side diff view
+- [ ] Highlight additions/deletions
+- [ ] Show timestamp comparison
+- [ ] Create diff template
+
+### Bulk Export
+- [ ] Create export route /export/{site}
+- [ ] Generate ZIP archive of domain content
+- [ ] Exclude large video files (>50MB)
+- [ ] Include metadata.json manifest
+- [ ] Add rate limiting (1/hour per IP)
+- [ ] Add max export size limit
+- [ ] Stream ZIP generation to avoid memory issues
+- [ ] Write unit tests
+
+---
+
 ## Discovered Tasks
 
 Add new tasks here as they are discovered during development:
