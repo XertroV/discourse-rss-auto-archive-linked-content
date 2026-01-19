@@ -25,9 +25,8 @@ impl S3Client {
         let secret_key =
             std::env::var("AWS_SECRET_ACCESS_KEY").context("AWS_SECRET_ACCESS_KEY not set")?;
 
-        let credentials =
-            Credentials::new(Some(&access_key), Some(&secret_key), None, None, None)
-                .context("Failed to create S3 credentials")?;
+        let credentials = Credentials::new(Some(&access_key), Some(&secret_key), None, None, None)
+            .context("Failed to create S3 credentials")?;
 
         let region = if let Some(ref endpoint) = config.s3_endpoint {
             Region::Custom {
@@ -35,10 +34,7 @@ impl S3Client {
                 endpoint: endpoint.clone(),
             }
         } else {
-            config
-                .s3_region
-                .parse()
-                .unwrap_or(Region::UsEast1)
+            config.s3_region.parse().unwrap_or(Region::UsEast1)
         };
 
         let bucket = Bucket::new(&config.s3_bucket, region, credentials)
@@ -114,11 +110,7 @@ impl S3Client {
     /// Get the public URL for an object.
     #[must_use]
     pub fn get_public_url(&self, s3_key: &str) -> String {
-        format!(
-            "https://{}.s3.amazonaws.com/{}",
-            self.bucket.name(),
-            s3_key
-        )
+        format!("https://{}.s3.amazonaws.com/{}", self.bucket.name(), s3_key)
     }
 
     /// List objects with a given prefix.
