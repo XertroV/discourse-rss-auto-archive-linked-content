@@ -23,6 +23,7 @@ use url::Url;
 
 use crate::chromium_profile::chromium_user_data_and_profile_from_spec;
 use crate::fs_utils::copy_dir_best_effort;
+use crate::constants::ARCHIVAL_USER_AGENT;
 
 /// Default viewport width in pixels.
 pub const DEFAULT_VIEWPORT_WIDTH: u32 = 1280;
@@ -253,7 +254,9 @@ impl ScreenshotService {
             .arg("--disable-sync")
             .arg("--disable-translate")
             .arg("--mute-audio")
-            .arg("--hide-scrollbars");
+            .arg("--hide-scrollbars")
+            .arg("--disable-blink-features=AutomationControlled")
+            .arg(format!("--user-agent={ARCHIVAL_USER_AGENT}"));
 
         if let Some(dir) = user_data_dir {
             config_builder = config_builder.arg(format!("--user-data-dir={}", dir.display()));
