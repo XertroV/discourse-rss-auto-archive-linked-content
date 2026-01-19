@@ -20,6 +20,10 @@ cd "$(dirname "$0")"
 #   ./dc-restart.sh
 
 cleanup() {
+	# Fix permissions on chromium profile so archiver can read cookies
+	echo "Fixing permissions on chromium profile..."
+	docker compose --profile manual exec -T cookie-browser chmod -R 755 /cookies/chromium-profile 2>/dev/null || true
+
 	# Best-effort cleanup; don't fail the script if stop/rm fails.
 	docker compose stop cookie-browser >/dev/null 2>&1 || true
 	docker compose rm -f cookie-browser >/dev/null 2>&1 || true
