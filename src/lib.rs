@@ -3,6 +3,9 @@
 //! A service that monitors a Discourse forum RSS feed, archives linked content
 //! to S3, and serves a public web UI for browsing archives.
 
+// Allow raw string hashes for safety - they're harmless and prevent issues if content changes
+#![allow(clippy::needless_raw_string_hashes)]
+
 pub mod archiver;
 pub mod backup;
 pub mod config;

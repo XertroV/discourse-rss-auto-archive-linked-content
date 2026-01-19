@@ -16,6 +16,15 @@ cargo test --lib         # Unit tests only
 cargo test --test '*'    # Integration tests only
 cargo clippy             # Lint check
 cargo fmt --check        # Format check
+cargo fmt                # Auto-format code
+```
+
+## Before Committing
+
+Always run `cargo fmt` before committing to ensure code is properly formatted (CI checks formatting):
+
+```bash
+cargo fmt && git add -A && git commit -m "your message"
 ```
 
 ## Task Tracking

@@ -2,9 +2,6 @@ use anyhow::{Context, Result};
 use sqlx::SqlitePool;
 use tracing::debug;
 
-/// Schema version for tracking migrations.
-const SCHEMA_VERSION: i32 = 2;
-
 /// Run all pending migrations.
 pub async fn run(pool: &SqlitePool) -> Result<()> {
     create_migration_table(pool).await?;

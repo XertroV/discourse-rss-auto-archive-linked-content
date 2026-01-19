@@ -152,7 +152,7 @@ impl Config {
 
             // Manual Submission
             submission_enabled: parse_env_bool("SUBMISSION_ENABLED", true)?,
-            submission_rate_limit_per_hour: parse_env_u32("SUBMISSION_RATE_LIMIT_PER_HOUR", 10)?,
+            submission_rate_limit_per_hour: parse_env_u32("SUBMISSION_RATE_LIMIT_PER_HOUR", 60)?,
         })
     }
 
