@@ -285,7 +285,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Add RSS 2.0 feed route at /feed.rss
 - [x] Add Atom 1.0 feed route at /feed.atom
 - [x] Include last 50 archives by default
-- [ ] Add optional site/type query filters
+- [x] Add optional site/type query filters
 - [x] Write unit tests for feed generation
 
 ### Content Deduplication

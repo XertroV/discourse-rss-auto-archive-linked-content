@@ -430,6 +430,73 @@ pub async fn get_recent_archives_filtered(
     }
 }
 
+/// Get recent archives with domain and content_type filters.
+/// Used for RSS/Atom feeds with optional filtering.
+pub async fn get_recent_archives_with_filters(
+    pool: &SqlitePool,
+    limit: i64,
+    domain: Option<&str>,
+    content_type: Option<&str>,
+) -> Result<Vec<Archive>> {
+    match (domain, content_type) {
+        (Some(d), Some(ct)) => {
+            // Filter by both domain and content_type
+            sqlx::query_as(
+                r"
+                SELECT a.* FROM archives a
+                JOIN links l ON a.link_id = l.id
+                WHERE a.status = 'complete' AND l.domain = ? AND a.content_type = ?
+                ORDER BY a.archived_at DESC
+                LIMIT ?
+                ",
+            )
+            .bind(d)
+            .bind(ct)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .context("Failed to fetch archives with domain and content_type filter")
+        }
+        (Some(d), None) => {
+            // Filter by domain only
+            sqlx::query_as(
+                r"
+                SELECT a.* FROM archives a
+                JOIN links l ON a.link_id = l.id
+                WHERE a.status = 'complete' AND l.domain = ?
+                ORDER BY a.archived_at DESC
+                LIMIT ?
+                ",
+            )
+            .bind(d)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .context("Failed to fetch archives with domain filter")
+        }
+        (None, Some(ct)) => {
+            // Filter by content_type only
+            sqlx::query_as(
+                r"
+                SELECT * FROM archives
+                WHERE status = 'complete' AND content_type = ?
+                ORDER BY archived_at DESC
+                LIMIT ?
+                ",
+            )
+            .bind(ct)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .context("Failed to fetch archives with content_type filter")
+        }
+        (None, None) => {
+            // No filters, use existing function
+            get_recent_archives(pool, limit).await
+        }
+    }
+}
+
 /// Get recent archives with link info for display.
 pub async fn get_recent_archives_display(
     pool: &SqlitePool,

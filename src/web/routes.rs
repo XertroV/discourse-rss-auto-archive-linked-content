@@ -16,8 +16,8 @@ use crate::db::{
     count_archives_by_status, count_links, count_posts, count_submissions_from_ip_last_hour,
     create_pending_archive, get_archive, get_archive_by_link_id, get_archives_by_domain_display,
     get_archives_for_post_display, get_artifacts_for_archive, get_link, get_link_by_normalized_url,
-    get_post_by_guid, get_recent_archives, get_recent_archives_display,
-    get_recent_archives_filtered, insert_link, insert_submission, search_archives_display,
+    get_post_by_guid, get_recent_archives_display, get_recent_archives_filtered,
+    get_recent_archives_with_filters, insert_link, insert_submission, search_archives_display,
     search_archives_filtered, submission_exists_for_url, NewLink, NewSubmission,
 };
 use crate::handlers::normalize_url;
@@ -460,19 +460,26 @@ async fn submit_url(
 
 #[derive(Debug, Deserialize)]
 pub struct FeedParams {
-    #[allow(dead_code)]
+    /// Filter by domain (e.g., "old.reddit.com")
     site: Option<String>,
+    /// Filter by content type (e.g., "video", "article", "image")
     #[serde(rename = "type")]
-    #[allow(dead_code)]
     content_type: Option<String>,
+    /// Maximum number of items to return (default 50, max 100)
     limit: Option<i64>,
 }
 
 async fn feed_rss(State(state): State<AppState>, Query(params): Query<FeedParams>) -> Response {
     let limit = params.limit.unwrap_or(50).min(100);
 
-    // TODO: Add site and content_type filtering once we have the query functions
-    let archives = match get_recent_archives(state.db.pool(), limit).await {
+    let archives = match get_recent_archives_with_filters(
+        state.db.pool(),
+        limit,
+        params.site.as_deref(),
+        params.content_type.as_deref(),
+    )
+    .await
+    {
         Ok(a) => a,
         Err(e) => {
             tracing::error!("Failed to fetch archives for RSS feed: {e}");
@@ -496,8 +503,14 @@ async fn feed_rss(State(state): State<AppState>, Query(params): Query<FeedParams
 async fn feed_atom(State(state): State<AppState>, Query(params): Query<FeedParams>) -> Response {
     let limit = params.limit.unwrap_or(50).min(100);
 
-    // TODO: Add site and content_type filtering once we have the query functions
-    let archives = match get_recent_archives(state.db.pool(), limit).await {
+    let archives = match get_recent_archives_with_filters(
+        state.db.pool(),
+        limit,
+        params.site.as_deref(),
+        params.content_type.as_deref(),
+    )
+    .await
+    {
         Ok(a) => a,
         Err(e) => {
             tracing::error!("Failed to fetch archives for Atom feed: {e}");
