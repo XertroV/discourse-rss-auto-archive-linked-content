@@ -24,7 +24,7 @@ pub use worker::ArchiveWorker;
 /// # Examples
 ///
 /// ```
-/// # use discourse_rss_auto_archive_linked_content::archiver::sanitize_filename;
+/// # use discourse_link_archiver::archiver::sanitize_filename;
 /// assert_eq!(sanitize_filename("My Video #1.mp4"), "My_Video_1.mp4");
 /// assert_eq!(sanitize_filename("Test & Demo?.webm"), "Test_Demo.webm");
 /// ```
