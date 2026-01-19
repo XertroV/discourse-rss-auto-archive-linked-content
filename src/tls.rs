@@ -101,6 +101,9 @@ mod tests {
             screenshot_viewport_height: 800,
             screenshot_timeout_secs: 30,
             screenshot_chrome_path: None,
+            pdf_enabled: false,
+            pdf_paper_width: 8.27,
+            pdf_paper_height: 11.69,
         }
     }
 

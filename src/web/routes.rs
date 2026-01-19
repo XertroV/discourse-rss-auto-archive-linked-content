@@ -14,10 +14,10 @@ use super::templates;
 use super::AppState;
 use crate::db::{
     count_archives_by_status, count_links, count_posts, count_submissions_from_ip_last_hour,
-    create_pending_archive, get_archive, get_archive_by_link_id, get_archives_by_domain,
-    get_archives_for_post, get_link, get_link_by_normalized_url, get_post_by_guid,
-    get_recent_archives, insert_link, insert_submission, search_archives,
-    submission_exists_for_url, NewLink, NewSubmission,
+    create_pending_archive, get_archive, get_archive_by_link_id, get_archives_by_domain_display,
+    get_archives_for_post_display, get_link, get_link_by_normalized_url, get_post_by_guid,
+    get_recent_archives, get_recent_archives_display, insert_link, insert_submission,
+    search_archives, search_archives_display, submission_exists_for_url, NewLink, NewSubmission,
 };
 use crate::handlers::normalize_url;
 
@@ -27,10 +27,10 @@ pub fn router() -> Router<AppState> {
         .route("/", get(home))
         .route("/search", get(search))
         .route("/submit", get(submit_form).post(submit_url))
-        .route("/archive/{id}", get(archive_detail))
-        .route("/compare/{id1}/{id2}", get(compare_archives))
-        .route("/post/{guid}", get(post_detail))
-        .route("/site/{site}", get(site_list))
+        .route("/archive/:id", get(archive_detail))
+        .route("/compare/:id1/:id2", get(compare_archives))
+        .route("/post/:guid", get(post_detail))
+        .route("/site/:site", get(site_list))
         .route("/stats", get(stats))
         .route("/healthz", get(health))
         .route("/feed.rss", get(feed_rss))
@@ -42,7 +42,7 @@ pub fn router() -> Router<AppState> {
 // ========== HTML Routes ==========
 
 async fn home(State(state): State<AppState>) -> Response {
-    let archives = match get_recent_archives(state.db.pool(), 20).await {
+    let archives = match get_recent_archives_display(state.db.pool(), 20).await {
         Ok(a) => a,
         Err(e) => {
             tracing::error!("Failed to fetch recent archives: {e}");
@@ -69,7 +69,7 @@ async fn search(State(state): State<AppState>, Query(params): Query<SearchParams
     let offset = i64::from(page.saturating_sub(1)) * per_page;
 
     let archives = if query.is_empty() {
-        match get_recent_archives(state.db.pool(), per_page + offset).await {
+        match get_recent_archives_display(state.db.pool(), per_page + offset).await {
             Ok(a) => a.into_iter().skip(offset as usize).collect(),
             Err(e) => {
                 tracing::error!("Failed to fetch archives: {e}");
@@ -77,7 +77,7 @@ async fn search(State(state): State<AppState>, Query(params): Query<SearchParams
             }
         }
     } else {
-        match search_archives(state.db.pool(), &query, per_page).await {
+        match search_archives_display(state.db.pool(), &query, per_page).await {
             Ok(a) => a,
             Err(e) => {
                 tracing::error!("Failed to search archives: {e}");
@@ -203,7 +203,7 @@ async fn post_detail(State(state): State<AppState>, Path(guid): Path<String>) ->
         }
     };
 
-    let archives = match get_archives_for_post(state.db.pool(), post.id).await {
+    let archives = match get_archives_for_post_display(state.db.pool(), post.id).await {
         Ok(a) => a,
         Err(e) => {
             tracing::error!("Failed to fetch archives for post: {e}");
@@ -229,13 +229,14 @@ async fn site_list(
     let per_page = 20i64;
     let offset = i64::from(page.saturating_sub(1)) * per_page;
 
-    let archives = match get_archives_by_domain(state.db.pool(), &site, per_page, offset).await {
-        Ok(a) => a,
-        Err(e) => {
-            tracing::error!("Failed to fetch archives by domain: {e}");
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
-        }
-    };
+    let archives =
+        match get_archives_by_domain_display(state.db.pool(), &site, per_page, offset).await {
+            Ok(a) => a,
+            Err(e) => {
+                tracing::error!("Failed to fetch archives by domain: {e}");
+                return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+            }
+        };
 
     let html = templates::render_site_list(&site, &archives, page);
     Html(html).into_response()

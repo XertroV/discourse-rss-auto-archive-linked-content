@@ -216,6 +216,25 @@ pub struct ArchiveWithLink {
     pub link: Link,
 }
 
+/// Flattened archive data for list display (includes link info).
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ArchiveDisplay {
+    // Archive fields
+    pub id: i64,
+    pub link_id: i64,
+    pub status: String,
+    pub archived_at: Option<String>,
+    pub content_title: Option<String>,
+    pub content_author: Option<String>,
+    pub content_type: Option<String>,
+    pub is_nsfw: bool,
+    pub error_message: Option<String>,
+    pub retry_count: i32,
+    // Link fields
+    pub original_url: String,
+    pub domain: String,
+}
+
 /// Submission status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
