@@ -402,18 +402,60 @@ Configure either YT_DLP_COOKIES_FROM_BROWSER (recommended) or COOKIES_FILE_PATH 
     finalize_reddit_html(url, work_dir, html).await
 }
 
+/// Strip user information from Reddit HTML to preserve privacy.
+///
+/// Removes logged-in user information like username and karma that appears in the page.
+/// Extracts username from `<span class="user">` element and removes ALL instances of it.
+fn strip_user_info_from_html(html: &str) -> String {
+    // First, detect the username from the user span
+    let user_span_pattern =
+        Regex::new(r#"<span\s+class=["']user["'][^>]*>.*?/user/([^/"']+)/.*?</span>"#)
+            .expect("Invalid regex pattern");
+
+    let username = user_span_pattern
+        .captures(html)
+        .and_then(|caps| caps.get(1))
+        .map(|m| m.as_str().to_string());
+
+    // Remove the user span element
+    let mut result = user_span_pattern.replace_all(html, "").to_string();
+
+    // If we found a username, remove all instances of it from the page
+    if let Some(ref user) = username {
+        // Remove all exact username occurrences (case-sensitive)
+        // We use word boundaries where possible to avoid partial matches
+        let username_pattern =
+            Regex::new(&format!(r"\b{}\b", regex::escape(user))).expect("Invalid username pattern");
+        result = username_pattern
+            .replace_all(&result, "[redacted]")
+            .to_string();
+
+        // Also remove /user/username/ style references that might not have word boundaries
+        let user_link_pattern = Regex::new(&format!(r"/user/{}/", regex::escape(user)))
+            .expect("Invalid user link pattern");
+        result = user_link_pattern
+            .replace_all(&result, "/user/[redacted]/")
+            .to_string();
+    }
+
+    result
+}
+
 async fn finalize_reddit_html(
     url: &str,
     work_dir: &Path,
     html: String,
 ) -> Result<(String, RedditMedia, Option<String>)> {
-    // Save raw HTML
+    // Strip user info for privacy before saving
+    let sanitized_html = strip_user_info_from_html(&html);
+
+    // Save sanitized HTML
     let html_path = work_dir.join("raw.html");
-    tokio::fs::write(&html_path, &html)
+    tokio::fs::write(&html_path, &sanitized_html)
         .await
         .context("Failed to write HTML file")?;
 
-    // Parse HTML and extract media URLs
+    // Parse HTML and extract media URLs (from original HTML before sanitization)
     let doc = Html::parse_document(&html);
     let media = extract_media_from_html(&doc);
     let final_url = extract_canonical_url_from_html(&doc);
@@ -426,7 +468,7 @@ async fn finalize_reddit_html(
         "Extracted media from Reddit HTML"
     );
 
-    Ok((html, media, final_url))
+    Ok((sanitized_html, media, final_url))
 }
 
 fn extract_canonical_url_from_html(doc: &Html) -> Option<String> {
@@ -1183,5 +1225,44 @@ mod tests {
         assert!(is_reddit_definitely_nsfw("data-over18=\"true\""));
         assert!(is_reddit_definitely_nsfw("{\"isNsfw\": true}"));
         assert!(!is_reddit_definitely_nsfw("this is not nsfw, just text"));
+    }
+
+    #[test]
+    fn test_strip_user_info_from_html() {
+        // Test with the exact example from the user - should strip ALL instances of username
+        let html_with_user = r#"<html><body><span class="user"><a href="https://old.reddit.com/user/Scary_North9476/">Scary_North9476</a>&nbsp;(<span class="userkarma" title="post karma">1</span>)</span><p>Posted by Scary_North9476</p></body></html>"#;
+        let result = strip_user_info_from_html(html_with_user);
+        assert!(!result.contains("Scary_North9476"));
+        assert!(!result.contains("class=\"user\""));
+        assert!(!result.contains("userkarma"));
+        assert!(result.contains("[redacted]"));
+        assert!(result.contains("<p>Posted by [redacted]</p>"));
+
+        // Test username in various contexts is redacted
+        let html_multiple_refs = r#"<span class="user"><a href="/user/testuser/">testuser</a></span><p>Comment by testuser on <a href="/user/testuser/">testuser's profile</a></p>"#;
+        let result = strip_user_info_from_html(html_multiple_refs);
+        assert!(!result.contains("testuser"));
+        assert!(!result.contains("class=\"user\""));
+        assert!(result.contains("[redacted]"));
+        // Should have redacted all instances
+        assert_eq!(result.matches("[redacted]").count(), 3);
+
+        // Test with no user info - should remain unchanged
+        let html_no_user = "<html><body><p>Just normal content</p></body></html>";
+        let result = strip_user_info_from_html(html_no_user);
+        assert_eq!(result, html_no_user);
+
+        // Test user link patterns are updated
+        let html_user_link = r#"<span class="user"><a href="/user/bob/">bob</a></span><a href="/user/bob/">View profile</a>"#;
+        let result = strip_user_info_from_html(html_user_link);
+        assert!(result.contains("/user/[redacted]/"));
+        assert!(!result.contains("/user/bob/"));
+        assert!(!result.contains("bob"));
+
+        // Test that content-only username occurrences (not post author) are also redacted
+        let html_in_text = r#"<span class="user"><a href="/user/alice/">alice</a></span><p>alice posted this comment</p>"#;
+        let result = strip_user_info_from_html(html_in_text);
+        assert!(!result.contains("alice"));
+        assert!(result.contains("[redacted] posted this comment"));
     }
 }
