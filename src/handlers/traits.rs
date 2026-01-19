@@ -23,6 +23,10 @@ pub struct ArchiveResult {
     pub extra_files: Vec<String>,
     /// Raw metadata JSON.
     pub metadata_json: Option<String>,
+    /// Whether the content is NSFW (Not Safe For Work).
+    pub is_nsfw: Option<bool>,
+    /// Source of the NSFW determination (api, metadata, subreddit).
+    pub nsfw_source: Option<String>,
 }
 
 impl Default for ArchiveResult {
@@ -36,6 +40,8 @@ impl Default for ArchiveResult {
             thumbnail: None,
             extra_files: Vec::new(),
             metadata_json: None,
+            is_nsfw: None,
+            nsfw_source: None,
         }
     }
 }

@@ -343,6 +343,46 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 
 ---
 
+## Phase 13: NSFW Content Filtering
+
+### Database Schema
+- [x] Add `is_nsfw` boolean column to `archives` table (default false)
+- [x] Add `nsfw_source` text column to track detection source (api/metadata/subreddit/manual)
+- [x] Create migration v4 for NSFW columns
+- [x] Create index for NSFW filtering queries
+
+### Handler NSFW Detection
+- [x] Reddit handler: Detect NSFW from subreddit `over_18` field or post data
+  - [x] Parse `over_18` field from yt-dlp metadata JSON
+  - [x] Detect NSFW subreddits by name patterns (nsfw, gonewild, porn, etc.)
+- [x] YouTube/TikTok/Twitter handlers: Extract `age_limit` from yt-dlp info.json
+  - [x] Parse age_limit field (>= 18 = NSFW)
+- [x] Update ArchiveResult struct to include `is_nsfw: Option<bool>` and `nsfw_source: Option<String>`
+- [x] Store NSFW status during archive completion in worker
+
+### Frontend User Preference
+- [x] Add NSFW visibility toggle in header (18+ button similar to dark mode toggle)
+- [x] Store preference in localStorage (`nsfw_enabled` key)
+- [x] Default to hiding NSFW content (safe by default)
+- [x] Add JavaScript to toggle visibility dynamically without page reload
+
+### Content Display Filtering
+- [x] Add `data-nsfw="true"` attribute to archive cards for NSFW content
+- [x] Add CSS to hide `[data-nsfw="true"]` elements when filter active
+- [x] Add visual NSFW badge/indicator on archive cards (red badge)
+- [x] Add warning banner on archive detail page for NSFW content
+- [x] Respect filter on all pages: home, search, site list, post detail
+
+### API Updates
+- [x] Add `is_nsfw` field to Archive JSON response (automatic via serde)
+- [ ] Add optional `?nsfw=show|hide|only` query parameter to API endpoints (optional enhancement)
+- [ ] Filter archives in database queries when `nsfw=hide` (optional enhancement)
+
+### Testing
+- [x] Write unit tests for NSFW subreddit detection in Reddit handler
+
+---
+
 ## Discovered Tasks
 
 Add new tasks here as they are discovered during development:

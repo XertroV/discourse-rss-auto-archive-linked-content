@@ -25,6 +25,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 3).await?;
     }
 
+    if current_version < 4 {
+        debug!("Running migration v4");
+        run_migration_v4(pool).await?;
+        set_schema_version(pool, 4).await?;
+    }
+
     Ok(())
 }
 
@@ -302,6 +308,31 @@ async fn run_migration_v3(pool: &SqlitePool) -> Result<()> {
         .execute(pool)
         .await
         .context("Failed to add archive_today_url column")?;
+
+    Ok(())
+}
+
+async fn run_migration_v4(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v4: adding NSFW content filtering columns");
+
+    // Add is_nsfw column to archives table (default false/0)
+    sqlx::query("ALTER TABLE archives ADD COLUMN is_nsfw INTEGER NOT NULL DEFAULT 0")
+        .execute(pool)
+        .await
+        .context("Failed to add is_nsfw column")?;
+
+    // Add nsfw_source column to track where the NSFW flag came from
+    // Values: 'api', 'metadata', 'subreddit', 'manual', null
+    sqlx::query("ALTER TABLE archives ADD COLUMN nsfw_source TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add nsfw_source column")?;
+
+    // Create index for filtering NSFW content
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_archives_is_nsfw ON archives(is_nsfw)")
+        .execute(pool)
+        .await
+        .context("Failed to create is_nsfw index")?;
 
     Ok(())
 }

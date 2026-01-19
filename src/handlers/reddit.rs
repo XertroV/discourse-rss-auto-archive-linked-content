@@ -26,6 +26,31 @@ static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
 static SHORTLINK_PATTERN: std::sync::LazyLock<Regex> =
     std::sync::LazyLock::new(|| Regex::new(r"^https?://redd\.it/[a-zA-Z0-9]+$").unwrap());
 
+/// Pattern to extract subreddit name from URL.
+static SUBREDDIT_PATTERN: std::sync::LazyLock<Regex> =
+    std::sync::LazyLock::new(|| Regex::new(r"/r/([a-zA-Z0-9_]+)").unwrap());
+
+/// Known NSFW subreddit name patterns (case-insensitive prefixes/patterns).
+const NSFW_SUBREDDIT_PATTERNS: &[&str] = &[
+    "nsfw",
+    "gonewild",
+    "porn",
+    "xxx",
+    "nude",
+    "sex",
+    "adult",
+    "18_plus",
+    "onlyfans",
+    "lewd",
+    "hentai",
+    "rule34",
+    "celebnsfw",
+    "realgirls",
+    "boobs",
+    "ass",
+    "tits",
+];
+
 /// Reddit JSON API response structures
 #[derive(Debug, Deserialize)]
 struct RedditListing {
@@ -57,6 +82,7 @@ struct PostData {
     is_video: Option<bool>,
     is_self: Option<bool>,
     thumbnail: Option<String>,
+    over_18: Option<bool>,
 }
 
 pub struct RedditHandler;
@@ -126,9 +152,15 @@ impl SiteHandler for RedditHandler {
         // Normalize URL
         let normalized_url = self.normalize_url(&resolved_url);
 
+        // Check if the subreddit name suggests NSFW content
+        let subreddit_nsfw = is_nsfw_subreddit(&normalized_url);
+
         // Always try to fetch Reddit JSON API data for metadata (this is additive)
         let json_result = fetch_reddit_json(&normalized_url, work_dir).await;
         let json_metadata = json_result.as_ref().ok();
+
+        // Check if JSON API indicates NSFW
+        let api_nsfw = json_metadata.and_then(|r| r.is_nsfw).unwrap_or(false);
 
         // Use yt-dlp for video/media content
         let ytdlp_result = ytdlp::download(&normalized_url, work_dir, cookies_file).await;
@@ -152,20 +184,66 @@ impl SiteHandler for RedditHandler {
                         result.metadata_json = json_data.metadata_json.clone();
                     }
                 }
+
+                // Set NSFW status - check multiple sources
+                if result.is_nsfw.is_none() {
+                    if api_nsfw {
+                        result.is_nsfw = Some(true);
+                        result.nsfw_source = Some("api".to_string());
+                    } else if subreddit_nsfw {
+                        result.is_nsfw = Some(true);
+                        result.nsfw_source = Some("subreddit".to_string());
+                    }
+                }
+
+                // Also check the metadata JSON for Reddit's over_18 field (from yt-dlp)
+                if result.is_nsfw.is_none() {
+                    if let Some(ref json_str) = result.metadata_json {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
+                            if json
+                                .get("over_18")
+                                .and_then(serde_json::Value::as_bool)
+                                .unwrap_or(false)
+                            {
+                                result.is_nsfw = Some(true);
+                                result.nsfw_source = Some("metadata".to_string());
+                            }
+                        }
+                    }
+                }
+
                 Ok(result)
             }
             Err(e) => {
                 // If yt-dlp fails, use JSON API result if available
                 debug!("yt-dlp failed for Reddit URL: {e}");
                 match json_result {
-                    Ok(result) => Ok(result),
+                    Ok(mut result) => {
+                        // Set NSFW status from API or subreddit detection
+                        if result.is_nsfw.is_none() {
+                            if api_nsfw {
+                                result.is_nsfw = Some(true);
+                                result.nsfw_source = Some("api".to_string());
+                            } else if subreddit_nsfw {
+                                result.is_nsfw = Some(true);
+                                result.nsfw_source = Some("subreddit".to_string());
+                            }
+                        }
+                        Ok(result)
+                    }
                     Err(json_err) => {
                         debug!("JSON API also failed: {json_err}");
                         // Return a minimal result indicating the archive attempt
-                        Ok(ArchiveResult {
+                        let mut result = ArchiveResult {
                             content_type: "thread".to_string(),
                             ..Default::default()
-                        })
+                        };
+                        // Still check subreddit name for NSFW
+                        if subreddit_nsfw {
+                            result.is_nsfw = Some(true);
+                            result.nsfw_source = Some("subreddit".to_string());
+                        }
+                        Ok(result)
                     }
                 }
             }
@@ -235,7 +313,16 @@ async fn fetch_reddit_json(url: &str, work_dir: &Path) -> Result<ArchiveResult> 
         "url": post_data.url,
         "is_video": post_data.is_video,
         "is_self": post_data.is_self,
+        "over_18": post_data.over_18,
     });
+
+    // Determine NSFW status from API
+    let is_nsfw = post_data.over_18;
+    let nsfw_source = if is_nsfw == Some(true) {
+        Some("api".to_string())
+    } else {
+        None
+    };
 
     Ok(ArchiveResult {
         title: post_data.title,
@@ -244,6 +331,8 @@ async fn fetch_reddit_json(url: &str, work_dir: &Path) -> Result<ArchiveResult> 
         content_type: content_type.to_string(),
         metadata_json: Some(metadata.to_string()),
         primary_file: Some("reddit_data.json".to_string()),
+        is_nsfw,
+        nsfw_source,
         ..Default::default()
     })
 }
@@ -338,6 +427,7 @@ impl Clone for PostData {
             is_video: self.is_video,
             is_self: self.is_self,
             thumbnail: self.thumbnail.clone(),
+            over_18: self.over_18,
         }
     }
 }
@@ -345,6 +435,19 @@ impl Clone for PostData {
 /// Check if a URL is a redd.it shortlink.
 fn is_shortlink(url: &str) -> bool {
     SHORTLINK_PATTERN.is_match(url)
+}
+
+/// Check if a Reddit URL points to a known NSFW subreddit based on name patterns.
+fn is_nsfw_subreddit(url: &str) -> bool {
+    if let Some(caps) = SUBREDDIT_PATTERN.captures(url) {
+        if let Some(subreddit) = caps.get(1) {
+            let subreddit_lower = subreddit.as_str().to_lowercase();
+            return NSFW_SUBREDDIT_PATTERNS
+                .iter()
+                .any(|pattern| subreddit_lower.contains(pattern));
+        }
+    }
+    false
 }
 
 /// Resolve a redd.it short URL to full Reddit URL.
@@ -420,6 +523,31 @@ mod tests {
     }
 
     #[test]
+    fn test_is_nsfw_subreddit() {
+        // NSFW subreddits
+        assert!(is_nsfw_subreddit(
+            "https://old.reddit.com/r/nsfw/comments/abc123"
+        ));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/gonewild/"));
+        assert!(is_nsfw_subreddit("https://www.reddit.com/r/NSFW_GIF/"));
+        assert!(is_nsfw_subreddit("https://old.reddit.com/r/porn/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/hentai/"));
+        assert!(is_nsfw_subreddit(
+            "https://reddit.com/r/rule34/comments/xyz"
+        ));
+
+        // SFW subreddits
+        assert!(!is_nsfw_subreddit("https://reddit.com/r/rust/"));
+        assert!(!is_nsfw_subreddit("https://old.reddit.com/r/programming/"));
+        assert!(!is_nsfw_subreddit("https://www.reddit.com/r/funny/"));
+        assert!(!is_nsfw_subreddit("https://reddit.com/r/pics/"));
+
+        // Edge cases
+        assert!(!is_nsfw_subreddit("https://reddit.com/user/someone"));
+        assert!(!is_nsfw_subreddit("https://i.redd.it/image.jpg"));
+    }
+
+    #[test]
     fn test_make_json_url() {
         assert_eq!(
             make_json_url("https://old.reddit.com/r/rust/comments/abc123/title"),
@@ -450,7 +578,8 @@ mod tests {
                                 "num_comments": 50,
                                 "subreddit": "rust",
                                 "is_self": true,
-                                "is_video": false
+                                "is_video": false,
+                                "over_18": false
                             }
                         }
                     ]
@@ -467,6 +596,7 @@ mod tests {
         assert_eq!(result.subreddit.as_deref(), Some("rust"));
         assert_eq!(result.is_self, Some(true));
         assert_eq!(result.is_video, Some(false));
+        assert_eq!(result.over_18, Some(false));
     }
 
     #[test]
@@ -485,6 +615,7 @@ mod tests {
             is_video: Some(false),
             is_self: Some(true),
             thumbnail: None,
+            over_18: None,
         };
 
         let text = build_post_text(&post);
@@ -512,6 +643,7 @@ mod tests {
             is_video: Some(false),
             is_self: Some(false),
             thumbnail: None,
+            over_18: None,
         };
 
         let text = build_post_text(&post);

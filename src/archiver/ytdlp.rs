@@ -116,6 +116,16 @@ async fn find_and_parse_metadata(work_dir: &Path) -> Result<ArchiveResult> {
                 .get("description")
                 .and_then(|v| v.as_str())
                 .map(String::from);
+
+            // Extract NSFW status from age_limit field
+            // age_limit >= 18 indicates adult/NSFW content
+            if let Some(age_limit) = json.get("age_limit").and_then(serde_json::Value::as_i64) {
+                if age_limit >= 18 {
+                    result.is_nsfw = Some(true);
+                    result.nsfw_source = Some("metadata".to_string());
+                }
+            }
+
             result.metadata_json = Some(content);
         }
     }

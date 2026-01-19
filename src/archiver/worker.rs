@@ -10,8 +10,8 @@ use super::rate_limiter::DomainRateLimiter;
 use crate::config::Config;
 use crate::db::{
     get_failed_archives_for_retry, get_link, get_pending_archives, reset_archive_for_retry,
-    set_archive_complete, set_archive_failed, set_archive_ipfs_cid, set_archive_processing,
-    set_archive_skipped, update_link_last_archived, Database,
+    set_archive_complete, set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw,
+    set_archive_processing, set_archive_skipped, update_link_last_archived, Database,
 };
 use crate::handlers::HANDLERS;
 use crate::ipfs::IpfsClient;
@@ -267,6 +267,20 @@ async fn process_archive_inner(
         thumb_key.as_deref(),
     )
     .await?;
+
+    // Store NSFW status if detected
+    if let Some(is_nsfw) = result.is_nsfw {
+        set_archive_nsfw(
+            db.pool(),
+            archive_id,
+            is_nsfw,
+            result.nsfw_source.as_deref(),
+        )
+        .await?;
+        if is_nsfw {
+            info!(archive_id, nsfw_source = ?result.nsfw_source, "Archive marked as NSFW");
+        }
+    }
 
     // Store IPFS CID if we have one
     if let Some(ref cid) = ipfs_cid {

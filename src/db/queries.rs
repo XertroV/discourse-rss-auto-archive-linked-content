@@ -242,6 +242,24 @@ pub async fn set_archive_complete(
     Ok(())
 }
 
+/// Set the NSFW status for an archive.
+pub async fn set_archive_nsfw(
+    pool: &SqlitePool,
+    id: i64,
+    is_nsfw: bool,
+    nsfw_source: Option<&str>,
+) -> Result<()> {
+    sqlx::query("UPDATE archives SET is_nsfw = ?, nsfw_source = ? WHERE id = ?")
+        .bind(is_nsfw)
+        .bind(nsfw_source)
+        .bind(id)
+        .execute(pool)
+        .await
+        .context("Failed to set archive NSFW status")?;
+
+    Ok(())
+}
+
 /// Update archive as failed.
 pub async fn set_archive_failed(pool: &SqlitePool, id: i64, error: &str) -> Result<()> {
     sqlx::query(
