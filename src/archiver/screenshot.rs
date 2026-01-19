@@ -364,12 +364,14 @@ impl ScreenshotService {
             warn!("Failed to close page: {e}");
         }
 
-        // Warn if screenshot is suspiciously small (likely blank/failed)
+        // Reject empty or corrupted screenshots
         let size = webp_data.len();
         if size == 0 {
-            warn!(url = %url, "Screenshot is empty (0 bytes) - page may not have loaded properly");
+            anyhow::bail!("Screenshot is empty (0 bytes) - page may not have loaded properly for {url}");
         } else if size < 100 {
-            warn!(url = %url, size, "Screenshot is very small (<100 bytes) - may be corrupted");
+            // Very small files are likely corrupted or blank pages
+            // This is a warning case that we convert to an error for consistency
+            anyhow::bail!("Screenshot is very small ({size} bytes < 100 bytes) - likely corrupted or blank for {url}");
         }
 
         debug!(url = %url, size, "Screenshot captured (webp)");

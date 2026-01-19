@@ -757,7 +757,20 @@ async fn process_archive_inner(
                             }
                         }
                         Err(e) => {
-                            warn!(archive_id, error = %e, "Failed to create complete.html with monolith");
+                            let err_str = e.to_string();
+                            // Check if this is a known monolith panic (exit code 101)
+                            if err_str.contains("exit code Some(101)")
+                                || err_str.contains("panicked")
+                            {
+                                warn!(
+                                    archive_id,
+                                    error = %e,
+                                    "Monolith crashed processing this page - likely a tool limitation with this content type"
+                                );
+                                // This is expected for certain content types, continue with other formats
+                            } else {
+                                warn!(archive_id, error = %e, "Failed to create complete.html with monolith");
+                            }
                         }
                     }
                 }
