@@ -3,13 +3,16 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+PORT=${1:-${COOKIE_BROWSER_PORT:-7900}}
+export COOKIE_BROWSER_PORT="$PORT"
+
 # Start an interactive browser (noVNC) container to log into sites (Reddit/YouTube/etc)
 # and export a cookies.txt into a shared docker volume.
 #
 # Access UI securely via SSH tunnel:
-#   ssh -L 7900:127.0.0.1:7900 root@YOUR_SERVER
+#   ssh -L ${COOKIE_BROWSER_PORT:-7900}:127.0.0.1:7900 root@YOUR_SERVER
 # Then open:
-#   http://127.0.0.1:7900
+#   http://127.0.0.1:${COOKIE_BROWSER_PORT:-7900}
 #
 # After logging in and downloading/exporting cookies.txt inside the browser container,
 # copy it into the shared volume (mounted at /cookies):
@@ -34,8 +37,8 @@ trap cleanup EXIT INT TERM
 echo
 echo "Starting cookie-browser (will stop when you Ctrl+C)..."
 echo "Access UI securely via SSH tunnel:"
-echo "  ssh -L 7900:127.0.0.1:7900 root@YOUR_SERVER"
-echo "Then open: http://127.0.0.1:7900 (password: secret)"
+echo "  ssh -L ${COOKIE_BROWSER_PORT:-7900}:127.0.0.1:7900 root@YOUR_SERVER"
+echo "Then open: http://127.0.0.1:${COOKIE_BROWSER_PORT:-7900} (password: secret)"
 echo
 
 # Start detached so we can run an auto-launch command inside the container.
@@ -53,6 +56,8 @@ echo "Auto-launching Chromium in the noVNC desktop..."
 docker compose --profile manual exec -T cookie-browser bash -lc '
 	set -euo pipefail
 	mkdir -p /cookies/chromium-profile
+	# Clear stale Chromium locks in case the previous session crashed or archiver was reading the profile.
+	rm -f /cookies/chromium-profile/Singleton{Lock,Socket} /cookies/chromium-profile/.org.chromium.Chromium.* /cookies/chromium-profile/chrome_debug.log 2>/dev/null || true
 	url="about:blank"
 	if command -v chromium >/dev/null 2>&1; then
 		nohup chromium --no-sandbox --user-data-dir=/cookies/chromium-profile --password-store=basic "$url" >/tmp/chromium-autostart.log 2>&1 &
@@ -67,7 +72,7 @@ docker compose --profile manual exec -T cookie-browser bash -lc '
 '
 
 echo
-echo "cookie-browser is running. Open noVNC in your browser now."
+echo "cookie-browser is running. Open noVNC in your browser now on port ${COOKIE_BROWSER_PORT:-7900}."
 echo "Press Ctrl+C here when you're done."
 echo
 

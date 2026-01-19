@@ -71,7 +71,7 @@ services:
     volumes:
       - archiver-data:/app/data
       # Shared cookies volume (write via cookie-browser, read by archiver)
-      - cookies-data:/app/cookies
+      - cookies-data:/app/cookies:ro
       # Optional: bind-mount a local cookie file instead of using the volume
       # - ./cookies.txt:/app/cookies/cookies.txt:ro
       # - ./yt-cookies.json:/app/yt-cookies.json:ro
@@ -127,7 +127,7 @@ services:
     user: root
     shm_size: 2gb
     ports:
-      - "127.0.0.1:7900:7900"
+      - "127.0.0.1:${COOKIE_BROWSER_PORT:-7900}:7900"
     volumes:
       - cookies-data:/cookies
 
