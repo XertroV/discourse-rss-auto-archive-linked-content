@@ -441,15 +441,15 @@ Implemented:
 - [x] Update S3Client with copy_object method for deduplication (uses download+re-upload fallback until Stage 2)
 - [x] Document Stage 2 plan in STAGE2_STREAMING_UPLOAD.md
 
-#### Stage 2: Streaming Upload (Planned)
+#### Stage 2: Streaming Upload (Complete)
 See STAGE2_STREAMING_UPLOAD.md for full details:
-- [ ] Add aws-sdk-s3 dependency for multipart upload support
-- [ ] Implement multipart streaming upload (5MB chunks) to eliminate memory constraints
-- [ ] Add server-side S3 copy using aws-sdk-s3 CopyObject operation
-- [ ] Enable support for unlimited video lengths (no memory limit)
-- [ ] Add progress tracking for large file uploads
-- [ ] Test with MinIO, Cloudflare R2, and AWS S3
-- [ ] Keep rust-s3 for simple operations or remove after migration
+- [x] Add aws-sdk-s3 dependency for multipart upload support
+- [x] Implement multipart streaming upload (5MB chunks) to eliminate memory constraints
+- [x] Add server-side S3 copy using aws-sdk-s3 CopyObject operation
+- [x] Enable support for unlimited video lengths (no memory limit)
+- [x] Add progress tracking for large file uploads
+- [x] Keep rust-s3 for metadata operations (head_object, list_objects, etc.)
+- [x] All existing tests pass with new implementation
 
 ### Future Improvements
 - [ ] Replace video file duplication with database-backed reference system:
