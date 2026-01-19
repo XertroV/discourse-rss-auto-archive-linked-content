@@ -62,21 +62,39 @@ pub async fn poll_loop(config: Config, db: Database) {
 /// Returns an error if the RSS feed cannot be fetched or parsed.
 pub async fn poll_once(client: &reqwest::Client, config: &Config, db: &Database) -> Result<usize> {
     let mut total_new_count = 0;
+    let mut before_post_id: Option<i64> = None;
 
     // Fetch multiple pages if configured
-    for page in 0..config.rss_max_pages {
-        let page_new_count = fetch_and_process_page(client, config, db, page).await?;
+    // Discourse /posts.rss uses cursor-based pagination with 'before' parameter
+    for page_num in 0..config.rss_max_pages {
+        let (page_new_count, min_post_id) =
+            fetch_and_process_page(client, config, db, before_post_id).await?;
         total_new_count += page_new_count;
 
-        // If we got fewer new posts than expected, no need to fetch more pages
-        // (we've likely reached the end of new content)
-        if page_new_count == 0 {
-            debug!(page, "No new posts on this page, stopping pagination");
+        // If we got no posts, we've reached the end
+        if min_post_id.is_none() {
+            debug!(
+                page = page_num,
+                "No posts in this batch, stopping pagination"
+            );
+            break;
+        }
+
+        // Use the minimum post ID from this batch as the 'before' cursor for the next request
+        before_post_id = min_post_id;
+
+        // If we got no new posts (all were already in DB), we might want to continue
+        // a bit further to catch older posts we might have missed
+        if page_new_count == 0 && page_num > 0 {
+            debug!(
+                page = page_num,
+                "No new posts on this page, stopping pagination"
+            );
             break;
         }
 
         // Add a small delay between pages to be polite
-        if page + 1 < config.rss_max_pages {
+        if page_num + 1 < config.rss_max_pages {
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }
@@ -86,6 +104,8 @@ pub async fn poll_once(client: &reqwest::Client, config: &Config, db: &Database)
 
 /// Fetch and process a single page of the RSS feed.
 ///
+/// Returns (new_count, min_post_id) where min_post_id is used for cursor pagination.
+///
 /// # Errors
 ///
 /// Returns an error if the RSS feed cannot be fetched or parsed.
@@ -93,22 +113,21 @@ async fn fetch_and_process_page(
     client: &reqwest::Client,
     config: &Config,
     db: &Database,
-    page: usize,
-) -> Result<usize> {
-    // Build URL with page parameter
-    let url = if page == 0 {
-        config.rss_url.clone()
-    } else {
-        // Add page parameter to URL
+    before_post_id: Option<i64>,
+) -> Result<(usize, Option<i64>)> {
+    // Build URL with 'before' parameter for cursor-based pagination
+    let url = if let Some(before_id) = before_post_id {
         let separator = if config.rss_url.contains('?') {
             "&"
         } else {
             "?"
         };
-        format!("{}{separator}page={page}", config.rss_url)
+        format!("{}{separator}before={before_id}", config.rss_url)
+    } else {
+        config.rss_url.clone()
     };
 
-    trace!(url = %url, page, "Fetching RSS feed page");
+    trace!(url = %url, before_post_id, "Fetching RSS feed page");
 
     let response = client
         .get(&url)
@@ -125,9 +144,19 @@ async fn fetch_and_process_page(
     let feed = feed_rs::parser::parse(&body[..]).context("Failed to parse RSS feed")?;
 
     let mut new_count = 0;
+    let mut min_post_id: Option<i64> = None;
 
     for entry in feed.entries {
         let guid = entry.id.clone();
+
+        // Extract the Discourse post ID from GUID for pagination
+        // GUID format is typically like "https://discuss.example.com/p/12345"
+        if let Some(discourse_post_id) = extract_post_id_from_guid(&guid) {
+            min_post_id = Some(match min_post_id {
+                Some(current_min) => current_min.min(discourse_post_id),
+                None => discourse_post_id,
+            });
+        }
 
         // Check if we've seen this post before
         let existing = get_post_by_guid(db.pool(), &guid).await?;
@@ -183,7 +212,7 @@ async fn fetch_and_process_page(
         process_links(db, post_id, &content_html, config).await?;
     }
 
-    Ok(new_count)
+    Ok((new_count, min_post_id))
 }
 
 /// Process links extracted from a post.
@@ -318,6 +347,33 @@ fn domains_match(domain1: &str, domain2: &str) -> bool {
     d1 == d2
 }
 
+/// Extract Discourse post ID from GUID.
+///
+/// Discourse RSS GUIDs are typically URLs like "https://discuss.example.com/p/12345"
+/// where 12345 is the post ID.
+fn extract_post_id_from_guid(guid: &str) -> Option<i64> {
+    // Try parsing as URL first
+    if let Ok(url) = url::Url::parse(guid) {
+        // Get the last path segment
+        let path = url.path();
+        let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+
+        // Look for numeric segment (post ID)
+        for segment in segments.iter().rev() {
+            if let Ok(id) = segment.parse::<i64>() {
+                return Some(id);
+            }
+        }
+    }
+
+    // Fallback: try to find any number in the GUID string
+    // This handles cases where GUID might not be a valid URL
+    guid.split(|c: char| !c.is_ascii_digit())
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| s.parse::<i64>().ok())
+        .last()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,5 +423,29 @@ mod tests {
         // Subdomains are different
         assert!(!domains_match("sub.example.com", "example.com"));
         assert!(!domains_match("discuss.example.com", "www.example.com"));
+    }
+
+    #[test]
+    fn test_extract_post_id_from_guid() {
+        // Standard Discourse GUID format
+        assert_eq!(
+            extract_post_id_from_guid("https://discuss.example.com/p/12345"),
+            Some(12345)
+        );
+
+        // With additional path segments
+        assert_eq!(
+            extract_post_id_from_guid("https://discuss.example.com/t/topic-name/123/456"),
+            Some(456)
+        );
+
+        // Simple numeric GUID
+        assert_eq!(extract_post_id_from_guid("98765"), Some(98765));
+
+        // No numeric ID
+        assert_eq!(extract_post_id_from_guid("https://example.com/about"), None);
+
+        // Empty string
+        assert_eq!(extract_post_id_from_guid(""), None);
     }
 }
