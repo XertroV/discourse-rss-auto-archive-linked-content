@@ -81,7 +81,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
   - [x] Normalize to old.reddit.com
   - [x] Resolve redd.it shortlinks
   - [x] Archive via yt-dlp
-  - [ ] Fetch JSON API data
+  - [x] Fetch JSON API data
   - [x] Write tests
 - [x] TikTok handler
   - [x] URL patterns for tiktok.com, vm.tiktok.com
@@ -135,7 +135,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Update database with results
 - [x] Clean up temp files
 - [x] Implement retry logic with exponential backoff
-- [ ] Write integration tests for archive pipeline
+- [x] Write integration tests for archive pipeline
 
 ### Wayback Machine Integration
 - [x] Submit URLs to web.archive.org/save/
@@ -193,12 +193,12 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Add PicoCSS or similar classless framework
 - [x] Create custom styles for archive cards
 - [x] Ensure responsive design
-- [ ] Add media player styling
+- [x] Add media player styling
 
 ### Integration Tests
 - [x] Test all routes return expected status codes
 - [x] Test search returns relevant results
-- [ ] Test pagination works correctly
+- [x] Test pagination works correctly
 
 ## Phase 8: Deployment
 
@@ -253,7 +253,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Create pending submissions table in database
 - [x] Queue submissions for archiving
 - [x] Add submission success/error templates
-- [ ] Write integration tests for submission flow
+- [x] Write integration tests for submission flow
 
 ---
 

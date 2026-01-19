@@ -159,10 +159,19 @@ pub fn render_archive_detail(archive: &Archive, link: &Link) -> String {
     }
 
     if let Some(ref primary_key) = archive.s3_key_primary {
+        content.push_str("<section><h2>Media</h2>");
+        content.push_str(&render_media_player(
+            primary_key,
+            archive.content_type.as_deref(),
+            archive.s3_key_thumb.as_deref(),
+        ));
         content.push_str(&format!(
-            "<section><h2>Media</h2><p>S3 Key: {}</p></section>",
+            r#"<p><a href="/s3/{}" class="media-download" download>
+                <span>Download</span>
+            </a></p>"#,
             html_escape(primary_key)
         ));
+        content.push_str("</section>");
     }
 
     if let Some(ref wayback) = archive.wayback_url {
@@ -304,22 +313,35 @@ pub fn render_post_detail(post: &Post, archives: &[Archive]) -> String {
 /// Render an archive card.
 fn render_archive_card(archive: &Archive) -> String {
     let title = archive.content_title.as_deref().unwrap_or("Untitled");
+    let content_type = archive.content_type.as_deref().unwrap_or("unknown");
+
+    // Content type badge with appropriate styling
+    let type_badge = match content_type {
+        "video" => r#"<span class="media-type-badge media-type-video">Video</span>"#,
+        "audio" => r#"<span class="media-type-badge media-type-audio">Audio</span>"#,
+        "image" | "gallery" => r#"<span class="media-type-badge media-type-image">Image</span>"#,
+        "text" | "thread" => r#"<span class="media-type-badge media-type-text">Text</span>"#,
+        _ => &format!(
+            r#"<span class="media-type-badge">{}</span>"#,
+            html_escape(content_type)
+        ),
+    };
 
     format!(
         r#"<article class="archive-card">
             <h3><a href="/archive/{}">{}</a></h3>
             <p class="meta">
                 <span class="status-{}">{}</span>
-                | {}
-                | {}
+                {type_badge}
+                <span>{}</span>
             </p>
         </article>"#,
         archive.id,
         html_escape(title),
         archive.status,
         archive.status,
-        archive.content_type.as_deref().unwrap_or("unknown"),
-        archive.archived_at.as_deref().unwrap_or("pending")
+        archive.archived_at.as_deref().unwrap_or("pending"),
+        type_badge = type_badge
     )
 }
 
@@ -395,6 +417,125 @@ pub fn render_submit_error(error: &str) -> String {
     );
 
     base_layout("Submission Failed", &content)
+}
+
+/// Render a media player based on content type and file extension.
+fn render_media_player(
+    s3_key: &str,
+    content_type: Option<&str>,
+    thumbnail: Option<&str>,
+) -> String {
+    let extension = s3_key.rsplit('.').next().unwrap_or("").to_lowercase();
+
+    // Determine content type badge
+    let type_badge = match content_type {
+        Some("video") => r#"<span class="media-type-badge media-type-video">Video</span>"#,
+        Some("audio") => r#"<span class="media-type-badge media-type-audio">Audio</span>"#,
+        Some("image") | Some("gallery") => {
+            r#"<span class="media-type-badge media-type-image">Image</span>"#
+        }
+        _ => r#"<span class="media-type-badge media-type-text">File</span>"#,
+    };
+
+    let media_url = format!("/s3/{}", html_escape(s3_key));
+
+    // Video formats
+    if matches!(
+        extension.as_str(),
+        "mp4" | "webm" | "mkv" | "mov" | "avi" | "m4v"
+    ) || content_type == Some("video")
+    {
+        let poster = thumbnail
+            .map(|t| format!(r#" poster="/s3/{}""#, html_escape(t)))
+            .unwrap_or_default();
+
+        return format!(
+            r#"<div class="media-container">
+                {type_badge}
+                <div class="video-wrapper">
+                    <video controls preload="metadata"{poster}>
+                        <source src="{media_url}" type="video/{ext}">
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+            </div>"#,
+            type_badge = type_badge,
+            media_url = media_url,
+            ext = if extension == "mkv" {
+                "x-matroska"
+            } else {
+                &extension
+            },
+            poster = poster
+        );
+    }
+
+    // Audio formats
+    if matches!(
+        extension.as_str(),
+        "mp3" | "wav" | "ogg" | "m4a" | "flac" | "aac"
+    ) || content_type == Some("audio")
+    {
+        return format!(
+            r#"<div class="media-container">
+                {type_badge}
+                <div class="audio-wrapper">
+                    <audio controls preload="metadata">
+                        <source src="{media_url}" type="audio/{ext}">
+                        Your browser does not support the audio element.
+                    </audio>
+                </div>
+            </div>"#,
+            type_badge = type_badge,
+            media_url = media_url,
+            ext = if extension == "m4a" {
+                "mp4"
+            } else {
+                &extension
+            }
+        );
+    }
+
+    // Image formats
+    if matches!(
+        extension.as_str(),
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "svg" | "bmp"
+    ) || content_type == Some("image")
+        || content_type == Some("gallery")
+    {
+        return format!(
+            r#"<div class="media-container">
+                {type_badge}
+                <img src="{media_url}" alt="Archived media" loading="lazy">
+            </div>"#,
+            type_badge = type_badge,
+            media_url = media_url
+        );
+    }
+
+    // Default: show thumbnail if available, otherwise just a download link
+    if let Some(thumb) = thumbnail {
+        format!(
+            r#"<div class="media-container">
+                {type_badge}
+                <img src="/s3/{thumb}" alt="Thumbnail" class="archive-thumb">
+                <p><small>Preview image shown. Full media available for download.</small></p>
+            </div>"#,
+            type_badge = type_badge,
+            thumb = html_escape(thumb)
+        )
+    } else {
+        format!(
+            r#"<div class="media-container">
+                {type_badge}
+                <div class="media-error">
+                    <p>Media preview not available</p>
+                    <p><small>File: {}</small></p>
+                </div>
+            </div>"#,
+            html_escape(s3_key)
+        )
+    }
 }
 
 /// Escape HTML special characters.
