@@ -1,10 +1,9 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use aws_config::BehaviorVersion;
-use aws_sdk_s3::config::Credentials;
-use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_s3::Client;
+use s3::creds::Credentials;
+use s3::region::Region;
+use s3::Bucket;
 use tracing::debug;
 
 use crate::config::Config;
@@ -12,8 +11,7 @@ use crate::config::Config;
 /// S3 client wrapper.
 #[derive(Clone)]
 pub struct S3Client {
-    client: Client,
-    bucket: String,
+    bucket: Box<Bucket>,
 }
 
 impl S3Client {
@@ -27,27 +25,29 @@ impl S3Client {
         let secret_key =
             std::env::var("AWS_SECRET_ACCESS_KEY").context("AWS_SECRET_ACCESS_KEY not set")?;
 
-        let credentials = Credentials::new(access_key, secret_key, None, None, "env");
+        let credentials = Credentials::new(Some(&access_key), Some(&secret_key), None, None, None)
+            .context("Failed to create S3 credentials")?;
 
-        let mut s3_config_builder = aws_sdk_s3::Config::builder()
-            .behavior_version(BehaviorVersion::latest())
-            .region(aws_sdk_s3::config::Region::new(config.s3_region.clone()))
-            .credentials_provider(credentials);
+        let region = if let Some(ref endpoint) = config.s3_endpoint {
+            Region::Custom {
+                region: config.s3_region.clone(),
+                endpoint: endpoint.clone(),
+            }
+        } else {
+            config.s3_region.parse().unwrap_or(Region::UsEast1)
+        };
 
-        // Set custom endpoint if provided (for MinIO, R2, etc.)
-        if let Some(ref endpoint) = config.s3_endpoint {
-            s3_config_builder = s3_config_builder
-                .endpoint_url(endpoint)
-                .force_path_style(true);
-        }
+        let bucket = Bucket::new(&config.s3_bucket, region, credentials)
+            .context("Failed to create S3 bucket")?;
 
-        let s3_config = s3_config_builder.build();
-        let client = Client::from_conf(s3_config);
+        // Use path-style for custom endpoints (MinIO, R2, etc.)
+        let bucket = if config.s3_endpoint.is_some() {
+            bucket.with_path_style()
+        } else {
+            bucket
+        };
 
-        Ok(Self {
-            client,
-            bucket: config.s3_bucket.clone(),
-        })
+        Ok(Self { bucket })
     }
 
     /// Upload a file to S3.
@@ -56,7 +56,7 @@ impl S3Client {
     ///
     /// Returns an error if the upload fails.
     pub async fn upload_file(&self, local_path: &Path, s3_key: &str) -> Result<()> {
-        let body = ByteStream::from_path(local_path)
+        let content = tokio::fs::read(local_path)
             .await
             .context("Failed to read file for upload")?;
 
@@ -66,13 +66,8 @@ impl S3Client {
 
         debug!(key = %s3_key, content_type = %content_type, "Uploading file to S3");
 
-        self.client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(s3_key)
-            .body(body)
-            .content_type(content_type)
-            .send()
+        self.bucket
+            .put_object_with_content_type(s3_key, &content, &content_type)
             .await
             .context("Failed to upload file to S3")?;
 
@@ -85,17 +80,10 @@ impl S3Client {
     ///
     /// Returns an error if the upload fails.
     pub async fn upload_bytes(&self, data: &[u8], s3_key: &str, content_type: &str) -> Result<()> {
-        let body = ByteStream::from(data.to_vec());
-
         debug!(key = %s3_key, content_type = %content_type, "Uploading bytes to S3");
 
-        self.client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(s3_key)
-            .body(body)
-            .content_type(content_type)
-            .send()
+        self.bucket
+            .put_object_with_content_type(s3_key, data, content_type)
             .await
             .context("Failed to upload bytes to S3")?;
 
@@ -108,33 +96,21 @@ impl S3Client {
     ///
     /// Returns an error if the head request fails for reasons other than not found.
     pub async fn object_exists(&self, s3_key: &str) -> Result<bool> {
-        match self
-            .client
-            .head_object()
-            .bucket(&self.bucket)
-            .key(s3_key)
-            .send()
-            .await
-        {
+        match self.bucket.head_object(s3_key).await {
             Ok(_) => Ok(true),
-            Err(e) => {
-                let service_error = e.into_service_error();
-                if service_error.is_not_found() {
-                    Ok(false)
-                } else {
-                    Err(anyhow::anyhow!(
-                        "S3 head object failed: {:?}",
-                        service_error
-                    ))
-                }
+            Err(s3::error::S3Error::HttpFailWithBody(404, _)) => Ok(false),
+            Err(s3::error::S3Error::HttpFail) => {
+                // Check if it was a 404
+                Ok(false)
             }
+            Err(e) => Err(anyhow::anyhow!("S3 head object failed: {}", e)),
         }
     }
 
     /// Get the public URL for an object.
     #[must_use]
     pub fn get_public_url(&self, s3_key: &str) -> String {
-        format!("https://{}.s3.amazonaws.com/{}", self.bucket, s3_key)
+        format!("https://{}.s3.amazonaws.com/{}", self.bucket.name(), s3_key)
     }
 
     /// List objects with a given prefix.
@@ -143,36 +119,17 @@ impl S3Client {
     ///
     /// Returns an error if the list request fails.
     pub async fn list_objects(&self, prefix: &str) -> Result<Vec<String>> {
-        let mut keys = Vec::new();
-        let mut continuation_token: Option<String> = None;
+        let results = self
+            .bucket
+            .list(prefix.to_string(), None)
+            .await
+            .context("Failed to list S3 objects")?;
 
-        loop {
-            let mut request = self
-                .client
-                .list_objects_v2()
-                .bucket(&self.bucket)
-                .prefix(prefix);
-
-            if let Some(token) = continuation_token.take() {
-                request = request.continuation_token(token);
-            }
-
-            let response = request.send().await.context("Failed to list S3 objects")?;
-
-            if let Some(contents) = response.contents {
-                for object in contents {
-                    if let Some(key) = object.key {
-                        keys.push(key);
-                    }
-                }
-            }
-
-            if response.is_truncated == Some(true) {
-                continuation_token = response.next_continuation_token;
-            } else {
-                break;
-            }
-        }
+        let keys: Vec<String> = results
+            .into_iter()
+            .flat_map(|result| result.contents)
+            .map(|object| object.key)
+            .collect();
 
         debug!(count = keys.len(), prefix = %prefix, "Listed S3 objects");
         Ok(keys)
@@ -186,11 +143,8 @@ impl S3Client {
     pub async fn delete_object(&self, s3_key: &str) -> Result<()> {
         debug!(key = %s3_key, "Deleting S3 object");
 
-        self.client
-            .delete_object()
-            .bucket(&self.bucket)
-            .key(s3_key)
-            .send()
+        self.bucket
+            .delete_object(s3_key)
             .await
             .context("Failed to delete S3 object")?;
 
@@ -201,7 +155,7 @@ impl S3Client {
 impl std::fmt::Debug for S3Client {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("S3Client")
-            .field("bucket", &self.bucket)
+            .field("bucket", &self.bucket.name())
             .finish()
     }
 }

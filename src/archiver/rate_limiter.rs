@@ -52,10 +52,13 @@ impl DomainRateLimiter {
     #[allow(dead_code)]
     pub async fn try_acquire(&self, domain: &str) -> Option<DomainPermit> {
         let semaphore = self.get_or_create_semaphore(domain).await;
-        semaphore.try_acquire_owned().ok().map(|permit| DomainPermit {
-            domain: domain.to_string(),
-            _permit: permit,
-        })
+        semaphore
+            .try_acquire_owned()
+            .ok()
+            .map(|permit| DomainPermit {
+                domain: domain.to_string(),
+                _permit: permit,
+            })
     }
 
     async fn get_or_create_semaphore(&self, domain: &str) -> Arc<Semaphore> {

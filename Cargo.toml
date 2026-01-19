@@ -20,9 +20,8 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 # HTTP client
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json", "multipart"] }
 
-# AWS S3
-aws-config = "1"
-aws-sdk-s3 = "1"
+# S3 storage (rust-s3 has lower MSRV than aws-sdk-s3)
+rust-s3 = { version = "0.35", default-features = false, features = ["tokio-rustls-tls"] }
 
 # RSS parsing
 feed-rs = "2"

@@ -38,12 +38,17 @@ async fn run() -> Result<()> {
     // Ensure data directories exist
     tokio::fs::create_dir_all(&config.work_dir)
         .await
-        .with_context(|| format!("Failed to create work directory: {}", config.work_dir.display()))?;
+        .with_context(|| {
+            format!(
+                "Failed to create work directory: {}",
+                config.work_dir.display()
+            )
+        })?;
 
     if let Some(parent) = config.database_path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .with_context(|| format!("Failed to create database directory: {}", parent.display()))?;
+        tokio::fs::create_dir_all(parent).await.with_context(|| {
+            format!("Failed to create database directory: {}", parent.display())
+        })?;
     }
 
     // Initialize database

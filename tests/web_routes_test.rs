@@ -80,7 +80,9 @@ async fn search(
 
     let query = params.q.unwrap_or_default();
     let archives = if query.is_empty() {
-        get_recent_archives(state.db.pool(), 20).await.unwrap_or_default()
+        get_recent_archives(state.db.pool(), 20)
+            .await
+            .unwrap_or_default()
     } else {
         search_archives(state.db.pool(), &query, 20)
             .await
