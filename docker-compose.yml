@@ -7,8 +7,8 @@ services:
     ports:
       - "8080:8080"
       # Uncomment for HTTPS (requires TLS_ENABLED=true and TLS_DOMAINS set)
-      # - "443:443"
-      # - "80:80"
+      - "443:443"
+      - "80:80"
     environment:
       # RSS Feed Configuration
       RSS_URL: ${RSS_URL:-https://discuss.criticalfallibilism.com/posts.rss}
@@ -30,9 +30,9 @@ services:
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
       PER_DOMAIN_CONCURRENCY: ${PER_DOMAIN_CONCURRENCY:-1}
       WORK_DIR: /app/data/tmp
-      # Path to cookies file for yt-dlp (YouTube authentication)
-      # Create yt-cookies.json locally and it will be mounted into the container
-      COOKIES_FILE_PATH: ${COOKIES_FILE_PATH:-/app/yt-cookies.json}
+      # Path to cookies file for authenticated downloads (yt-dlp, gallery-dl, etc.)
+      # Recommended format: Netscape cookies.txt
+      COOKIES_FILE_PATH: ${COOKIES_FILE_PATH:-/app/cookies/cookies.txt}
 
       # Archive Policy
       ARCHIVE_MODE: ${ARCHIVE_MODE:-deletable}
@@ -64,10 +64,11 @@ services:
       RUST_LOG: ${RUST_LOG:-info,discourse_link_archiver=debug}
     volumes:
       - archiver-data:/app/data
-      # Mount cookies file for authenticated YouTube downloads
-      # Create yt-cookies.json locally (export from browser using extension or yt-dlp)
-      # Format: JSON or Netscape cookies.txt format
-      - ./yt-cookies.json:/app/yt-cookies.json:ro
+      # Shared cookies volume (write via cookie-browser, read by archiver)
+      - cookies-data:/app/cookies
+      # Optional: bind-mount a local cookie file instead of using the volume
+      # - ./cookies.txt:/app/cookies/cookies.txt:ro
+      # - ./yt-cookies.json:/app/yt-cookies.json:ro
     depends_on:
       minio:
         condition: service_healthy
@@ -111,6 +112,20 @@ services:
       exit 0;
       "
 
+  # Interactive browser for logging in and exporting cookies.
+  # Exposes noVNC on 127.0.0.1:7900 by default; use an SSH tunnel to access it securely.
+  cookie-browser:
+    profiles:
+      - manual
+    image: selenium/standalone-chromium:latest
+    shm_size: 2gb
+    ports:
+      - "127.0.0.1:7900:7900"
+    volumes:
+      - cookies-data:/cookies
+
+
 volumes:
   archiver-data:
   minio-data:
+  cookies-data:

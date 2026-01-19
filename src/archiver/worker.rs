@@ -269,7 +269,7 @@ fn inject_archive_banner(html: &str, banner: &str) -> String {
         } else {
             body_pos
         };
-        
+
         // Insert banner after opening body tag
         format!("{}{}{}", &html[..body_end], banner, &html[body_end..])
     } else {
@@ -323,7 +323,16 @@ async fn process_archive_inner(
         .context("Failed to create work directory")?;
 
     // Run the archive
-    let cookies_file = config.cookies_file_path.as_deref();
+    // Only use cookies if the file actually exists; this keeps the service working
+    // even if COOKIES_FILE_PATH is set but cookies haven't been exported yet.
+    let cookies_file = match config.cookies_file_path.as_deref() {
+        Some(path) if path.exists() => Some(path),
+        Some(path) => {
+            debug!(cookies_path = %path.display(), "Cookies file configured but not found; proceeding without cookies");
+            None
+        }
+        None => None,
+    };
     let result = handler
         .archive(&link.normalized_url, &work_dir, cookies_file)
         .await
