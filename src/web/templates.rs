@@ -1,4 +1,6 @@
-use crate::db::{Archive, ArchiveArtifact, ArchiveDisplay, Link, Post};
+use crate::db::{
+    Archive, ArchiveArtifact, ArchiveDisplay, Link, LinkOccurrenceWithPost, Post, QueueStats,
+};
 use crate::web::diff::DiffResult;
 
 /// Base HTML layout.
@@ -179,6 +181,7 @@ pub fn render_archive_detail(
     archive: &Archive,
     link: &Link,
     artifacts: &[ArchiveArtifact],
+    occurrences: &[LinkOccurrenceWithPost],
 ) -> String {
     let title = archive
         .content_title
@@ -258,15 +261,47 @@ pub fn render_archive_detail(
         content.push_str("</section>");
     }
 
-    // Re-archive button (for debugging)
+    // Debug actions section
     content.push_str(&format!(
-        r#"<section class="rearchive-section">
-            <form method="post" action="/archive/{}/rearchive" style="display: inline;">
-                <button type="submit" class="rearchive-button" title="Re-run the full archive pipeline including redirect handling">
-                    🔄 Re-archive
-                </button>
-            </form>
-            <small style="margin-left: 10px; color: var(--muted-color);">Debug: Triggers a fresh archive attempt</small>
+        r#"<section class="debug-actions">
+            <h3>Debug Actions</h3>
+            <div class="debug-buttons">
+                <form method="post" action="/archive/{id}/rearchive" style="display: inline;">
+                    <button type="submit" class="debug-button" title="Re-run the full archive pipeline including redirect handling">
+                        🔄 Re-archive
+                    </button>
+                </form>
+                <form method="post" action="/archive/{id}/toggle-nsfw" style="display: inline;">
+                    <button type="submit" class="debug-button" title="Toggle NSFW status">
+                        {nsfw_toggle_icon} Toggle NSFW
+                    </button>
+                </form>"#,
+        id = archive.id,
+        nsfw_toggle_icon = if archive.is_nsfw { "🔓" } else { "🔞" }
+    ));
+
+    // Add retry skipped button only for skipped archives
+    if archive.status == "skipped" {
+        content.push_str(&format!(
+            r#"
+                <form method="post" action="/archive/{}/retry-skipped" style="display: inline;">
+                    <button type="submit" class="debug-button" title="Reset skipped archive for retry">
+                        🔁 Retry Skipped
+                    </button>
+                </form>"#,
+            archive.id
+        ));
+    }
+
+    // Delete button with confirmation
+    content.push_str(&format!(
+        r#"
+                <form method="post" action="/archive/{}/delete" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this archive? This cannot be undone.');">
+                    <button type="submit" class="debug-button debug-button-danger" title="Delete archive and all artifacts">
+                        🗑️ Delete
+                    </button>
+                </form>
+            </div>
         </section>"#,
         archive.id
     ));
@@ -285,26 +320,37 @@ pub fn render_archive_detail(
         ));
     }
 
+    // Show Media section for non-HTML archives (videos, images, etc.)
+    // For HTML archives, we show the embedded preview instead
     if let Some(ref primary_key) = archive.s3_key_primary {
-        content.push_str("<section><h2>Media</h2>");
-        content.push_str(&render_media_player(
-            primary_key,
-            archive.content_type.as_deref(),
-            archive.s3_key_thumb.as_deref(),
-        ));
-        content.push_str(&format!(
-            r#"<p><a href="/s3/{}" class="media-download" download>
-                <span>Download</span>
-            </a></p>"#,
-            html_escape(primary_key)
-        ));
-        content.push_str("</section>");
+        let is_html_archive =
+            primary_key.ends_with(".html") || archive.content_type.as_deref() == Some("thread");
+
+        if !is_html_archive {
+            content.push_str("<section><h2>Media</h2>");
+            content.push_str(&render_media_player(
+                primary_key,
+                archive.content_type.as_deref(),
+                archive.s3_key_thumb.as_deref(),
+            ));
+            content.push_str(&format!(
+                r#"<p><a href="/s3/{}" class="media-download" download>
+                    <span>Download</span>
+                </a></p>"#,
+                html_escape(primary_key)
+            ));
+            content.push_str("</section>");
+        }
     }
 
     // Embedded HTML preview (collapsible) for webpage archives
+    // Prefer view.html (with banner) over raw.html
     if let Some(ref primary_key) = archive.s3_key_primary {
-        if primary_key.ends_with("raw.html") || primary_key.ends_with("view.html") {
-            // Find the view.html artifact, or fall back to raw.html
+        let is_html_archive =
+            primary_key.ends_with(".html") || archive.content_type.as_deref() == Some("thread");
+
+        if is_html_archive {
+            // Find the view.html artifact first, or fall back to raw.html
             let view_key = artifacts
                 .iter()
                 .find(|a| a.s3_key.ends_with("view.html"))
@@ -319,8 +365,8 @@ pub fn render_archive_detail(
             if let Some(embed_key) = view_key {
                 content.push_str(&format!(
                     r#"<section class="embedded-preview">
-                        <details>
-                            <summary><h2 style="display: inline;">Embedded Preview</h2></summary>
+                        <details open>
+                            <summary><h2 style="display: inline;">Archived Page Preview</h2></summary>
                             <div class="iframe-container">
                                 <iframe src="/s3/{}" sandbox="allow-same-origin" loading="lazy" title="Archived webpage preview"></iframe>
                             </div>
@@ -335,7 +381,7 @@ pub fn render_archive_detail(
     // Archived Files section (list of all artifacts)
     if !artifacts.is_empty() {
         content.push_str("<section><h2>Archived Files</h2>");
-        content.push_str(r#"<table class="artifacts-table"><thead><tr><th>Type</th><th>File</th><th>Size</th><th>Download</th></tr></thead><tbody>"#);
+        content.push_str(r#"<table class="artifacts-table"><thead><tr><th>Type</th><th>File</th><th>Size</th><th>Dedup</th><th>Actions</th></tr></thead><tbody>"#);
 
         for artifact in artifacts {
             let kind_display = artifact_kind_display(&artifact.kind);
@@ -348,20 +394,55 @@ pub fn render_archive_detail(
                 .size_bytes
                 .map_or_else(|| "Unknown".to_string(), format_bytes);
 
+            // Dedup info
+            let dedup_info = if let Some(dup_id) = artifact.duplicate_of_artifact_id {
+                format!(
+                    r#"<span class="dedup-dup" title="Duplicate of artifact #{}">🔗 #{}</span>"#,
+                    dup_id, dup_id
+                )
+            } else if artifact.perceptual_hash.is_some() {
+                format!(
+                    r#"<span class="dedup-hash" title="Hash: {}">✓</span>"#,
+                    html_escape(artifact.perceptual_hash.as_deref().unwrap_or(""))
+                )
+            } else {
+                "—".to_string()
+            };
+
+            // Determine if this artifact is viewable in browser
+            let is_viewable = is_viewable_in_browser(filename);
+            let actions = if is_viewable {
+                format!(
+                    r#"<a href="/s3/{}" target="_blank" title="View {}" class="action-link">View</a> <a href="/s3/{}" download title="Download {}" class="action-link">{}</a>"#,
+                    html_escape(&artifact.s3_key),
+                    html_escape(filename),
+                    html_escape(&artifact.s3_key),
+                    html_escape(filename),
+                    download_icon()
+                )
+            } else {
+                format!(
+                    r#"<a href="/s3/{}" download title="Download {}" class="action-link">{}</a>"#,
+                    html_escape(&artifact.s3_key),
+                    html_escape(filename),
+                    download_icon()
+                )
+            };
+
             content.push_str(&format!(
                 r#"<tr>
                     <td><span class="artifact-kind artifact-kind-{}">{}</span></td>
                     <td><code>{}</code></td>
                     <td>{}</td>
-                    <td><a href="/s3/{}" download title="Download {}">{}</a></td>
+                    <td>{}</td>
+                    <td>{}</td>
                 </tr>"#,
                 html_escape(&artifact.kind),
                 html_escape(kind_display),
                 html_escape(filename),
                 html_escape(&size_display),
-                html_escape(&artifact.s3_key),
-                html_escape(filename),
-                download_icon()
+                dedup_info,
+                actions
             ));
         }
 
@@ -417,6 +498,135 @@ pub fn render_archive_detail(
 
     content.push_str("</article>");
 
+    // Link occurrences section
+    if !occurrences.is_empty() {
+        content.push_str(r#"<section class="link-occurrences"><h2>Link Occurrences</h2>"#);
+        content.push_str(&format!(
+            "<p>This link has been found in {} post(s):</p>",
+            occurrences.len()
+        ));
+        content.push_str(r#"<table class="occurrences-table"><thead><tr><th>Post</th><th>Author</th><th>In Quote</th><th>Seen At</th></tr></thead><tbody>"#);
+
+        for occ in occurrences {
+            let post_title = occ.post_title.as_deref().unwrap_or("Untitled Post");
+            let author = occ.post_author.as_deref().unwrap_or("Unknown");
+            let in_quote = if occ.in_quote { "Yes" } else { "No" };
+
+            content.push_str(&format!(
+                r#"<tr>
+                    <td><a href="/post/{}">{}</a></td>
+                    <td>{}</td>
+                    <td>{}</td>
+                    <td>{}</td>
+                </tr>"#,
+                html_escape(&occ.post_guid),
+                html_escape(post_title),
+                html_escape(author),
+                in_quote,
+                html_escape(&occ.seen_at)
+            ));
+        }
+
+        content.push_str("</tbody></table></section>");
+    }
+
+    // Collapsible debug info section
+    content.push_str(r#"<section class="debug-info"><details><summary><h2 style="display: inline;">Debug Info</h2></summary>"#);
+    content.push_str(r#"<table class="debug-table"><tbody>"#);
+
+    // Archive internal fields
+    content.push_str(&format!(
+        r#"<tr><th>Archive ID</th><td>{}</td></tr>"#,
+        archive.id
+    ));
+    content.push_str(&format!(
+        r#"<tr><th>Link ID</th><td>{}</td></tr>"#,
+        archive.link_id
+    ));
+    content.push_str(&format!(
+        r#"<tr><th>Created At</th><td>{}</td></tr>"#,
+        html_escape(&archive.created_at)
+    ));
+    content.push_str(&format!(
+        r#"<tr><th>Status</th><td>{}</td></tr>"#,
+        html_escape(&archive.status)
+    ));
+    content.push_str(&format!(
+        r#"<tr><th>Retry Count</th><td>{}</td></tr>"#,
+        archive.retry_count
+    ));
+    if let Some(ref next_retry) = archive.next_retry_at {
+        content.push_str(&format!(
+            r#"<tr><th>Next Retry At</th><td>{}</td></tr>"#,
+            html_escape(next_retry)
+        ));
+    }
+    if let Some(ref last_attempt) = archive.last_attempt_at {
+        content.push_str(&format!(
+            r#"<tr><th>Last Attempt At</th><td>{}</td></tr>"#,
+            html_escape(last_attempt)
+        ));
+    }
+    if let Some(ref error) = archive.error_message {
+        content.push_str(&format!(
+            r#"<tr><th>Error Message</th><td><code>{}</code></td></tr>"#,
+            html_escape(error)
+        ));
+    }
+    content.push_str(&format!(
+        r#"<tr><th>Is NSFW</th><td>{}</td></tr>"#,
+        archive.is_nsfw
+    ));
+    if let Some(ref nsfw_source) = archive.nsfw_source {
+        content.push_str(&format!(
+            r#"<tr><th>NSFW Source</th><td>{}</td></tr>"#,
+            html_escape(nsfw_source)
+        ));
+    }
+    if let Some(ref content_type) = archive.content_type {
+        content.push_str(&format!(
+            r#"<tr><th>Content Type</th><td>{}</td></tr>"#,
+            html_escape(content_type)
+        ));
+    }
+
+    // Link internal fields
+    content.push_str(
+        r#"<tr><th colspan="2" style="background: var(--border-color);">Link Info</th></tr>"#,
+    );
+    content.push_str(&format!(
+        r#"<tr><th>Original URL</th><td><code>{}</code></td></tr>"#,
+        html_escape(&link.original_url)
+    ));
+    content.push_str(&format!(
+        r#"<tr><th>Normalized URL</th><td><code>{}</code></td></tr>"#,
+        html_escape(&link.normalized_url)
+    ));
+    if let Some(ref canonical) = link.canonical_url {
+        content.push_str(&format!(
+            r#"<tr><th>Canonical URL</th><td><code>{}</code></td></tr>"#,
+            html_escape(canonical)
+        ));
+    }
+    if let Some(ref final_url) = link.final_url {
+        content.push_str(&format!(
+            r#"<tr><th>Final URL (after redirects)</th><td><code>{}</code></td></tr>"#,
+            html_escape(final_url)
+        ));
+    }
+    content.push_str(&format!(
+        r#"<tr><th>Domain</th><td>{}</td></tr>"#,
+        html_escape(&link.domain)
+    ));
+    if let Some(ref last_archived) = link.last_archived_at {
+        content.push_str(&format!(
+            r#"<tr><th>Last Archived At</th><td>{}</td></tr>"#,
+            html_escape(last_archived)
+        ));
+    }
+
+    content.push_str("</tbody></table></details></section>");
+
     // Comparison form
     content.push_str(&format!(
         r#"<section class="comparison-form">
@@ -451,6 +661,35 @@ fn artifact_kind_display(kind: &str) -> &'static str {
 /// Return a download icon SVG.
 fn download_icon() -> &'static str {
     r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>"#
+}
+
+/// Check if a file can be viewed directly in a browser.
+fn is_viewable_in_browser(filename: &str) -> bool {
+    let filename_lower = filename.to_lowercase();
+    // HTML files
+    filename_lower.ends_with(".html")
+        || filename_lower.ends_with(".htm")
+        // PDF files
+        || filename_lower.ends_with(".pdf")
+        // Image files
+        || filename_lower.ends_with(".jpg")
+        || filename_lower.ends_with(".jpeg")
+        || filename_lower.ends_with(".png")
+        || filename_lower.ends_with(".gif")
+        || filename_lower.ends_with(".webp")
+        || filename_lower.ends_with(".svg")
+        || filename_lower.ends_with(".bmp")
+        // Video files (modern browsers support these)
+        || filename_lower.ends_with(".mp4")
+        || filename_lower.ends_with(".webm")
+        // Audio files
+        || filename_lower.ends_with(".mp3")
+        || filename_lower.ends_with(".ogg")
+        || filename_lower.ends_with(".wav")
+        // Text files
+        || filename_lower.ends_with(".txt")
+        || filename_lower.ends_with(".json")
+        || filename_lower.ends_with(".xml")
 }
 
 /// Render site list page.
@@ -1164,4 +1403,126 @@ fn truncate_url(url: &str, max_len: usize) -> String {
         let truncated = &url[..max_len];
         format!("{}...", html_escape(truncated))
     }
+}
+
+/// Render debug queue status page.
+pub fn render_debug_queue(stats: &QueueStats, recent_failures: &[Archive]) -> String {
+    let mut content = String::from("<h1>Debug: Archive Queue Status</h1>");
+
+    // Queue statistics
+    content.push_str(r#"<section class="queue-stats"><h2>Queue Statistics</h2>"#);
+    content.push_str(r#"<table class="stats-table"><tbody>"#);
+
+    content.push_str(&format!(
+        r#"<tr><th>Pending</th><td class="stat-pending">{}</td></tr>"#,
+        stats.pending_count
+    ));
+    content.push_str(&format!(
+        r#"<tr><th>Processing</th><td class="stat-processing">{}</td></tr>"#,
+        stats.processing_count
+    ));
+    content.push_str(&format!(
+        r#"<tr><th>Failed (awaiting retry)</th><td class="stat-failed">{}</td></tr>"#,
+        stats.failed_awaiting_retry
+    ));
+    content.push_str(&format!(
+        r#"<tr><th>Failed (max retries reached)</th><td class="stat-failed">{}</td></tr>"#,
+        stats.failed_max_retries
+    ));
+    content.push_str(&format!(
+        r#"<tr><th>Skipped</th><td class="stat-skipped">{}</td></tr>"#,
+        stats.skipped_count
+    ));
+    content.push_str(&format!(
+        r#"<tr><th>Complete</th><td class="stat-complete">{}</td></tr>"#,
+        stats.complete_count
+    ));
+
+    if let Some(ref next_retry) = stats.next_retry_at {
+        content.push_str(&format!(
+            r#"<tr><th>Next Retry At</th><td>{}</td></tr>"#,
+            html_escape(next_retry)
+        ));
+    }
+
+    if let Some(ref oldest) = stats.oldest_pending_at {
+        content.push_str(&format!(
+            r#"<tr><th>Oldest Pending</th><td>{}</td></tr>"#,
+            html_escape(oldest)
+        ));
+    }
+
+    content.push_str("</tbody></table></section>");
+
+    // Actions
+    content.push_str(r#"<section class="queue-actions"><h2>Actions</h2>"#);
+
+    if stats.skipped_count > 0 {
+        content.push_str(&format!(
+            r#"<form method="post" action="/debug/reset-skipped" style="display: inline;" onsubmit="return confirm('Reset all {} skipped archives for retry?');">
+                <button type="submit" class="debug-button">🔁 Reset All Skipped ({} archives)</button>
+            </form>"#,
+            stats.skipped_count, stats.skipped_count
+        ));
+    } else {
+        content.push_str("<p>No skipped archives to reset.</p>");
+    }
+
+    content.push_str("</section>");
+
+    // Recent failures
+    content.push_str(r#"<section class="recent-failures"><h2>Recent Failures</h2>"#);
+
+    if recent_failures.is_empty() {
+        content.push_str("<p>No recent failures.</p>");
+    } else {
+        content.push_str(r#"<table class="failures-table"><thead><tr><th>ID</th><th>Status</th><th>Retries</th><th>Last Attempt</th><th>Error</th><th>Actions</th></tr></thead><tbody>"#);
+
+        for archive in recent_failures {
+            let status_class = match archive.status.as_str() {
+                "failed" => "status-failed",
+                "skipped" => "status-skipped",
+                _ => "",
+            };
+            let error_display = archive
+                .error_message
+                .as_deref()
+                .map(|e| {
+                    let truncated = if e.len() > 80 { &e[..80] } else { e };
+                    html_escape(truncated)
+                })
+                .unwrap_or_else(|| "—".to_string());
+
+            content.push_str(&format!(
+                r#"<tr>
+                    <td><a href="/archive/{id}">#{id}</a></td>
+                    <td class="{status_class}">{status}</td>
+                    <td>{retries}</td>
+                    <td>{last_attempt}</td>
+                    <td><code title="{full_error}">{error}</code></td>
+                    <td>
+                        <form method="post" action="/archive/{id}/rearchive" style="display: inline;">
+                            <button type="submit" class="small-button">🔄</button>
+                        </form>
+                    </td>
+                </tr>"#,
+                id = archive.id,
+                status_class = status_class,
+                status = html_escape(&archive.status),
+                retries = archive.retry_count,
+                last_attempt = archive.last_attempt_at.as_deref().unwrap_or("—"),
+                full_error = html_escape(archive.error_message.as_deref().unwrap_or("")),
+                error = error_display
+            ));
+        }
+
+        content.push_str("</tbody></table>");
+    }
+
+    content.push_str("</section>");
+
+    // Navigation
+    content.push_str(r#"<section class="debug-nav"><p><a href="/">← Back to Home</a> | <a href="/stats">View Stats</a></p></section>"#);
+
+    base_layout("Debug: Queue Status", &content)
 }

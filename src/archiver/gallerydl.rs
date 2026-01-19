@@ -161,6 +161,7 @@ async fn find_and_parse_files(work_dir: &Path) -> Result<ArchiveResult> {
         is_nsfw: None,
         nsfw_source: None,
         final_url: None,
+        video_id: None,
     })
 }
 

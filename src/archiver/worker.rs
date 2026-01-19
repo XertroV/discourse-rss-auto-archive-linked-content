@@ -17,6 +17,7 @@ use crate::db::{
     set_archive_skipped, update_link_final_url, update_link_last_archived, ArtifactKind, Database,
 };
 use crate::dedup;
+use crate::handlers::youtube::extract_video_id;
 use crate::handlers::HANDLERS;
 use crate::ipfs::IpfsClient;
 use crate::s3::S3Client;
@@ -219,11 +220,49 @@ async fn process_archive(
     if let Err(e) =
         process_archive_inner(db, s3, ipfs, screenshot, config, archive_id, link_id).await
     {
-        error!(archive_id, domain = %domain, "Archive failed: {e:#}");
-        if let Err(e2) = set_archive_failed(db.pool(), archive_id, &format!("{e:#}")).await {
-            error!(archive_id, domain = %domain, "Failed to mark archive as failed: {e2:#}");
+        let error_msg = format!("{e:#}");
+        error!(archive_id, domain = %domain, "Archive failed: {error_msg}");
+
+        // Check if this is a permanent failure (401, 403, 404) that shouldn't be retried
+        if is_permanent_failure(&error_msg) {
+            warn!(
+                archive_id,
+                domain = %domain,
+                "Permanent failure detected, marking as skipped (no retry)"
+            );
+            if let Err(e2) = set_archive_skipped(db.pool(), archive_id).await {
+                error!(archive_id, domain = %domain, "Failed to mark archive as skipped: {e2:#}");
+            }
+            // Also store the error message
+            if let Err(e2) = set_archive_failed(db.pool(), archive_id, &error_msg).await {
+                error!(archive_id, domain = %domain, "Failed to store error message: {e2:#}");
+            }
+        } else {
+            if let Err(e2) = set_archive_failed(db.pool(), archive_id, &error_msg).await {
+                error!(archive_id, domain = %domain, "Failed to mark archive as failed: {e2:#}");
+            }
         }
     }
+}
+
+/// Check if an error indicates a permanent failure that shouldn't be retried.
+///
+/// Returns true for HTTP 401 (Unauthorized), 403 (Forbidden), and 404 (Not Found)
+/// errors, which are unlikely to succeed on retry.
+fn is_permanent_failure(error_msg: &str) -> bool {
+    let error_lower = error_msg.to_lowercase();
+
+    // Check for specific HTTP status codes
+    error_lower.contains("401")
+        || error_lower.contains("403")
+        || error_lower.contains("404")
+        || error_lower.contains("unauthorized")
+        || error_lower.contains("forbidden")
+        || error_lower.contains("not found")
+        // Also check for common permanent error patterns
+        || error_lower.contains("private")
+        || error_lower.contains("deleted")
+        || error_lower.contains("removed")
 }
 
 /// Create view.html with archive banner injected.
@@ -334,31 +373,78 @@ async fn process_archive_inner(
         .find_handler(&link.normalized_url)
         .context("No handler found for URL")?;
 
+    // Check for existing YouTube video before downloading
+    let is_youtube = handler.site_id() == "youtube";
+    let video_id = if is_youtube {
+        extract_video_id(&link.normalized_url)
+    } else {
+        None
+    };
+
+    // Check if video already exists on S3
+    let existing_video = if let Some(ref vid) = video_id {
+        match check_existing_youtube_video(s3, vid).await {
+            Ok(Some((existing_key, ext))) => {
+                info!(
+                    archive_id,
+                    video_id = %vid,
+                    s3_key = %existing_key,
+                    "YouTube video already exists on S3, skipping download"
+                );
+                Some((existing_key, ext))
+            }
+            Ok(None) => None,
+            Err(e) => {
+                warn!(archive_id, error = %e, "Failed to check for existing video, proceeding with download");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Create work directory
     let work_dir = config.work_dir.join(format!("archive_{archive_id}"));
     tokio::fs::create_dir_all(&work_dir)
         .await
         .context("Failed to create work directory")?;
 
-    // Run the archive
-    // Only use cookies if the file actually exists; this keeps the service working
-    // even if COOKIES_FILE_PATH is set but cookies haven't been exported yet.
-    let cookies_file = match config.cookies_file_path.as_deref() {
-        Some(path) if path.exists() => Some(path),
-        Some(path) => {
-            debug!(cookies_path = %path.display(), "Cookies file configured but not found; proceeding without cookies");
-            None
+    // If video already exists, create a result without downloading
+    let result = if let Some((existing_key, _ext)) = existing_video {
+        // Create a minimal result referencing existing video
+        use crate::handlers::ArchiveResult;
+        let filename = existing_key
+            .rsplit('/')
+            .next()
+            .unwrap_or(&existing_key)
+            .to_string();
+        ArchiveResult {
+            content_type: "video".to_string(),
+            primary_file: Some(filename),
+            video_id: video_id.clone(),
+            ..Default::default()
         }
-        None => None,
+    } else {
+        // Run the archive normally
+        // Only use cookies if the file actually exists; this keeps the service working
+        // even if COOKIES_FILE_PATH is set but cookies haven't been exported yet.
+        let cookies_file = match config.cookies_file_path.as_deref() {
+            Some(path) if path.exists() => Some(path),
+            Some(path) => {
+                debug!(cookies_path = %path.display(), "Cookies file configured but not found; proceeding without cookies");
+                None
+            }
+            None => None,
+        };
+        let cookies = super::CookieOptions {
+            cookies_file,
+            browser_profile: config.yt_dlp_cookies_from_browser.as_deref(),
+        };
+        handler
+            .archive(&link.normalized_url, &work_dir, &cookies)
+            .await
+            .context("Handler archive failed")?
     };
-    let cookies = super::CookieOptions {
-        cookies_file,
-        browser_profile: config.yt_dlp_cookies_from_browser.as_deref(),
-    };
-    let result = handler
-        .archive(&link.normalized_url, &work_dir, &cookies)
-        .await
-        .context("Handler archive failed")?;
 
     // Upload artifacts to S3
     let s3_prefix = format!("{}{}/", config.s3_prefix, link_id);
@@ -486,6 +572,32 @@ async fn process_archive_inner(
                     }
                     Err(e) => {
                         warn!(archive_id, error = %e, "Failed to create view.html, continuing without banner");
+                    }
+                }
+            }
+
+            // Copy YouTube videos to predictable path for deduplication
+            if let Some(ref vid) = result.video_id {
+                if result.content_type == "video" && duplicate_of.is_none() {
+                    if let Some(ref uploaded_key) = primary_key {
+                        match copy_video_to_predictable_path(s3, uploaded_key, vid).await {
+                            Ok(predictable_key) => {
+                                debug!(
+                                    archive_id,
+                                    video_id = %vid,
+                                    predictable_key = %predictable_key,
+                                    "Copied video to predictable S3 path"
+                                );
+                            }
+                            Err(e) => {
+                                warn!(
+                                    archive_id,
+                                    video_id = %vid,
+                                    error = %e,
+                                    "Failed to copy video to predictable path"
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -795,6 +907,60 @@ async fn process_archive_inner(
 #[allow(dead_code)]
 fn create_work_dir(base: &Path, archive_id: i64) -> PathBuf {
     base.join(format!("archive_{archive_id}"))
+}
+
+/// Check if a YouTube video already exists on S3.
+///
+/// Returns the existing S3 key if found, along with file extension.
+async fn check_existing_youtube_video(
+    s3: &S3Client,
+    video_id: &str,
+) -> Result<Option<(String, String)>> {
+    // Check for common video extensions at predictable path
+    let video_extensions = ["webm", "mp4", "mkv", "mov", "avi"];
+    let video_prefix = format!("videos/{video_id}");
+
+    for ext in video_extensions {
+        let key = format!("{video_prefix}.{ext}");
+        if s3.object_exists(&key).await? {
+            debug!(video_id = %video_id, s3_key = %key, "Found existing YouTube video on S3");
+            return Ok(Some((key, ext.to_string())));
+        }
+    }
+
+    Ok(None)
+}
+
+/// Copy a video file to the predictable video path on S3.
+async fn copy_video_to_predictable_path(
+    s3: &S3Client,
+    source_key: &str,
+    video_id: &str,
+) -> Result<String> {
+    // Extract extension from source key
+    let ext = source_key.rsplit('.').next().unwrap_or("mp4");
+
+    let target_key = format!("videos/{video_id}.{ext}");
+
+    // Check if target already exists (might be copied from a different archive)
+    if s3.object_exists(&target_key).await? {
+        debug!(video_id = %video_id, target_key = %target_key, "Video already exists at predictable path");
+        return Ok(target_key);
+    }
+
+    // Download from source and re-upload to target
+    // (S3 copy requires bucket policy, so we do download + upload for compatibility)
+    let (data, content_type) = s3.download_file(source_key).await?;
+    s3.upload_bytes(&data, &target_key, &content_type).await?;
+
+    info!(
+        video_id = %video_id,
+        source_key = %source_key,
+        target_key = %target_key,
+        "Copied video to predictable S3 path"
+    );
+
+    Ok(target_key)
 }
 
 /// Compute perceptual hash for an image or video file.

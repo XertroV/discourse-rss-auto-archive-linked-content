@@ -497,7 +497,7 @@ pub async fn get_recent_archives_with_filters(
     }
 }
 
-/// Get recent archives with link info for display.
+/// Get recent archives with link info for display (all statuses).
 pub async fn get_recent_archives_display(
     pool: &SqlitePool,
     limit: i64,
@@ -513,12 +513,11 @@ pub async fn get_recent_archives_display(
         FROM archives a
         JOIN links l ON a.link_id = l.id
         LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
-        WHERE a.status = 'complete'
         GROUP BY a.id, a.link_id, a.status, a.archived_at,
                  a.content_title, a.content_author, a.content_type,
                  a.is_nsfw, a.error_message, a.retry_count,
                  l.original_url, l.domain
-        ORDER BY a.archived_at DESC
+        ORDER BY COALESCE(a.archived_at, a.last_attempt_at, a.created_at) DESC
         LIMIT ?
         ",
     )
@@ -562,7 +561,7 @@ pub async fn search_archives_display(
     .context("Failed to search archives with links")
 }
 
-/// Get archives by domain with link info for display.
+/// Get archives by domain with link info for display (all statuses).
 pub async fn get_archives_by_domain_display(
     pool: &SqlitePool,
     domain: &str,
@@ -580,12 +579,12 @@ pub async fn get_archives_by_domain_display(
         FROM archives a
         JOIN links l ON a.link_id = l.id
         LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
-        WHERE l.domain = ? AND a.status = 'complete'
+        WHERE l.domain = ?
         GROUP BY a.id, a.link_id, a.status, a.archived_at,
                  a.content_title, a.content_author, a.content_type,
                  a.is_nsfw, a.error_message, a.retry_count,
                  l.original_url, l.domain
-        ORDER BY a.archived_at DESC
+        ORDER BY COALESCE(a.archived_at, a.last_attempt_at, a.created_at) DESC
         LIMIT ? OFFSET ?
         ",
     )
@@ -1135,6 +1134,218 @@ pub async fn get_artifact(pool: &SqlitePool, id: i64) -> Result<Option<ArchiveAr
         .fetch_optional(pool)
         .await
         .context("Failed to fetch artifact")
+}
+
+// ========== Debug / Queue Stats ==========
+
+/// Queue statistics for debug page.
+#[derive(Debug, Clone)]
+pub struct QueueStats {
+    pub pending_count: i64,
+    pub processing_count: i64,
+    pub failed_awaiting_retry: i64,
+    pub failed_max_retries: i64,
+    pub skipped_count: i64,
+    pub complete_count: i64,
+    pub next_retry_at: Option<String>,
+    pub oldest_pending_at: Option<String>,
+}
+
+/// Get queue statistics for debug page.
+pub async fn get_queue_stats(pool: &SqlitePool, max_retries: i32) -> Result<QueueStats> {
+    // Get counts by status
+    let pending: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM archives WHERE status = 'pending'")
+        .fetch_one(pool)
+        .await?;
+
+    let processing: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM archives WHERE status = 'processing'")
+            .fetch_one(pool)
+            .await?;
+
+    let failed_awaiting: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM archives WHERE status = 'failed' AND retry_count < ?")
+            .bind(max_retries)
+            .fetch_one(pool)
+            .await?;
+
+    let failed_max: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM archives WHERE status = 'failed' AND retry_count >= ?",
+    )
+    .bind(max_retries)
+    .fetch_one(pool)
+    .await?;
+
+    let skipped: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM archives WHERE status = 'skipped'")
+        .fetch_one(pool)
+        .await?;
+
+    let complete: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM archives WHERE status = 'complete'")
+            .fetch_one(pool)
+            .await?;
+
+    // Get next retry time
+    let next_retry: Option<(String,)> = sqlx::query_as(
+        "SELECT next_retry_at FROM archives WHERE status = 'failed' AND retry_count < ? AND next_retry_at IS NOT NULL ORDER BY next_retry_at ASC LIMIT 1",
+    )
+    .bind(max_retries)
+    .fetch_optional(pool)
+    .await?;
+
+    // Get oldest pending
+    let oldest_pending: Option<(String,)> = sqlx::query_as(
+        "SELECT created_at FROM archives WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(QueueStats {
+        pending_count: pending.0,
+        processing_count: processing.0,
+        failed_awaiting_retry: failed_awaiting.0,
+        failed_max_retries: failed_max.0,
+        skipped_count: skipped.0,
+        complete_count: complete.0,
+        next_retry_at: next_retry.map(|r| r.0),
+        oldest_pending_at: oldest_pending.map(|r| r.0),
+    })
+}
+
+/// Get recent failed archives with error details.
+pub async fn get_recent_failed_archives(pool: &SqlitePool, limit: i64) -> Result<Vec<Archive>> {
+    sqlx::query_as(
+        r"
+        SELECT * FROM archives
+        WHERE status = 'failed' OR status = 'skipped'
+        ORDER BY last_attempt_at DESC NULLS LAST, created_at DESC
+        LIMIT ?
+        ",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch recent failed archives")
+}
+
+/// Reset all skipped archives back to pending for retry.
+pub async fn reset_skipped_archives(pool: &SqlitePool) -> Result<u64> {
+    let result = sqlx::query(
+        r"
+        UPDATE archives
+        SET status = 'pending',
+            retry_count = 0,
+            next_retry_at = NULL,
+            error_message = NULL
+        WHERE status = 'skipped'
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to reset skipped archives")?;
+
+    Ok(result.rows_affected())
+}
+
+/// Reset a single skipped archive back to pending for retry.
+pub async fn reset_single_skipped_archive(pool: &SqlitePool, id: i64) -> Result<bool> {
+    let result = sqlx::query(
+        r"
+        UPDATE archives
+        SET status = 'pending',
+            retry_count = 0,
+            next_retry_at = NULL,
+            error_message = NULL
+        WHERE id = ? AND status = 'skipped'
+        ",
+    )
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Failed to reset skipped archive")?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// Get link occurrences with post info for an archive's link.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct LinkOccurrenceWithPost {
+    pub occurrence_id: i64,
+    pub post_id: i64,
+    pub in_quote: bool,
+    pub context_snippet: Option<String>,
+    pub seen_at: String,
+    pub post_guid: String,
+    pub post_title: Option<String>,
+    pub post_author: Option<String>,
+}
+
+/// Get all occurrences of a link with post information.
+pub async fn get_link_occurrences_with_posts(
+    pool: &SqlitePool,
+    link_id: i64,
+) -> Result<Vec<LinkOccurrenceWithPost>> {
+    sqlx::query_as(
+        r"
+        SELECT
+            lo.id as occurrence_id,
+            lo.post_id,
+            lo.in_quote,
+            lo.context_snippet,
+            lo.seen_at,
+            p.guid as post_guid,
+            p.title as post_title,
+            p.author as post_author
+        FROM link_occurrences lo
+        JOIN posts p ON lo.post_id = p.id
+        WHERE lo.link_id = ?
+        ORDER BY lo.seen_at DESC
+        ",
+    )
+    .bind(link_id)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch link occurrences with posts")
+}
+
+/// Toggle NSFW status for an archive.
+pub async fn toggle_archive_nsfw(pool: &SqlitePool, id: i64) -> Result<bool> {
+    // Get current status
+    let archive: Option<Archive> = sqlx::query_as("SELECT * FROM archives WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+
+    let archive = archive.context("Archive not found")?;
+    let new_status = !archive.is_nsfw;
+
+    sqlx::query("UPDATE archives SET is_nsfw = ?, nsfw_source = 'manual' WHERE id = ?")
+        .bind(new_status)
+        .bind(id)
+        .execute(pool)
+        .await
+        .context("Failed to toggle NSFW status")?;
+
+    Ok(new_status)
+}
+
+/// Delete an archive and all its artifacts.
+pub async fn delete_archive(pool: &SqlitePool, id: i64) -> Result<()> {
+    // Delete artifacts first (foreign key constraint)
+    sqlx::query("DELETE FROM archive_artifacts WHERE archive_id = ?")
+        .bind(id)
+        .execute(pool)
+        .await
+        .context("Failed to delete artifacts")?;
+
+    // Delete the archive
+    sqlx::query("DELETE FROM archives WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await
+        .context("Failed to delete archive")?;
+
+    Ok(())
 }
 
 // ========== Re-archiving ==========

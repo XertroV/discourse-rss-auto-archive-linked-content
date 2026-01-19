@@ -14,12 +14,14 @@ use super::templates;
 use super::AppState;
 use crate::db::{
     count_archives_by_status, count_links, count_posts, count_submissions_from_ip_last_hour,
-    create_pending_archive, get_archive, get_archive_by_link_id, get_archives_by_domain_display,
-    get_archives_for_post_display, get_artifacts_for_archive, get_link, get_link_by_normalized_url,
-    get_post_by_guid, get_recent_archives_display, get_recent_archives_filtered,
-    get_recent_archives_with_filters, insert_link, insert_submission, reset_archive_for_rearchive,
-    search_archives_display, search_archives_filtered, submission_exists_for_url, NewLink,
-    NewSubmission,
+    create_pending_archive, delete_archive, get_archive, get_archive_by_link_id,
+    get_archives_by_domain_display, get_archives_for_post_display, get_artifacts_for_archive,
+    get_link, get_link_by_normalized_url, get_link_occurrences_with_posts, get_post_by_guid,
+    get_queue_stats, get_recent_archives_display, get_recent_archives_filtered,
+    get_recent_archives_with_filters, get_recent_failed_archives, insert_link, insert_submission,
+    reset_archive_for_rearchive, reset_single_skipped_archive, reset_skipped_archives,
+    search_archives_display, search_archives_filtered, submission_exists_for_url,
+    toggle_archive_nsfw, NewLink, NewSubmission,
 };
 use crate::handlers::normalize_url;
 
@@ -31,6 +33,9 @@ pub fn router() -> Router<AppState> {
         .route("/submit", get(submit_form).post(submit_url))
         .route("/archive/:id", get(archive_detail))
         .route("/archive/:id/rearchive", post(rearchive))
+        .route("/archive/:id/toggle-nsfw", post(toggle_nsfw))
+        .route("/archive/:id/delete", post(delete_archive_handler))
+        .route("/archive/:id/retry-skipped", post(retry_skipped))
         .route("/compare/:id1/:id2", get(compare_archives))
         .route("/post/:guid", get(post_detail))
         .route("/site/:site", get(site_list))
@@ -42,6 +47,9 @@ pub fn router() -> Router<AppState> {
         .route("/api/archives", get(api_archives))
         .route("/api/search", get(api_search))
         .route("/s3/*path", get(serve_s3_file))
+        // Debug routes
+        .route("/debug/queue", get(debug_queue))
+        .route("/debug/reset-skipped", post(debug_reset_skipped))
 }
 
 // ========== HTML Routes ==========
@@ -126,7 +134,16 @@ async fn archive_detail(State(state): State<AppState>, Path(id): Path<i64>) -> R
         }
     };
 
-    let html = templates::render_archive_detail(&archive, &link, &artifacts);
+    let occurrences = match get_link_occurrences_with_posts(state.db.pool(), archive.link_id).await
+    {
+        Ok(o) => o,
+        Err(e) => {
+            tracing::error!("Failed to fetch link occurrences: {e}");
+            Vec::new()
+        }
+    };
+
+    let html = templates::render_archive_detail(&archive, &link, &artifacts, &occurrences);
     Html(html).into_response()
 }
 
@@ -166,6 +183,117 @@ async fn rearchive(State(state): State<AppState>, Path(id): Path<i64>) -> Respon
 
     // Redirect back to archive detail page
     axum::response::Redirect::to(&format!("/archive/{id}")).into_response()
+}
+
+/// Handler for toggling NSFW status (POST /archive/:id/toggle-nsfw).
+async fn toggle_nsfw(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
+    match toggle_archive_nsfw(state.db.pool(), id).await {
+        Ok(new_status) => {
+            tracing::info!(archive_id = id, is_nsfw = new_status, "Toggled NSFW status");
+            axum::response::Redirect::to(&format!("/archive/{id}")).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to toggle NSFW status: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to toggle NSFW").into_response()
+        }
+    }
+}
+
+/// Handler for deleting an archive (POST /archive/:id/delete).
+async fn delete_archive_handler(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
+    // Get the archive first to log what we're deleting
+    let archive = match get_archive(state.db.pool(), id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, "Archive not found").into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch archive for deletion: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    // Don't allow deletion if currently processing
+    if archive.status == "processing" {
+        return (
+            StatusCode::CONFLICT,
+            "Cannot delete archive while processing",
+        )
+            .into_response();
+    }
+
+    if let Err(e) = delete_archive(state.db.pool(), id).await {
+        tracing::error!("Failed to delete archive: {e}");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to delete archive",
+        )
+            .into_response();
+    }
+
+    tracing::info!(archive_id = id, "Archive deleted");
+
+    // Redirect to home page since archive no longer exists
+    axum::response::Redirect::to("/").into_response()
+}
+
+/// Handler for retrying a single skipped archive (POST /archive/:id/retry-skipped).
+async fn retry_skipped(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
+    match reset_single_skipped_archive(state.db.pool(), id).await {
+        Ok(true) => {
+            tracing::info!(archive_id = id, "Reset skipped archive for retry");
+            axum::response::Redirect::to(&format!("/archive/{id}")).into_response()
+        }
+        Ok(false) => (StatusCode::BAD_REQUEST, "Archive is not in skipped status").into_response(),
+        Err(e) => {
+            tracing::error!("Failed to reset skipped archive: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to reset archive").into_response()
+        }
+    }
+}
+
+// ========== Debug Routes ==========
+
+const MAX_RETRIES: i32 = 3;
+
+/// Handler for debug queue page (GET /debug/queue).
+async fn debug_queue(State(state): State<AppState>) -> Response {
+    let stats = match get_queue_stats(state.db.pool(), MAX_RETRIES).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("Failed to get queue stats: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    let recent_failures = match get_recent_failed_archives(state.db.pool(), 20).await {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!("Failed to get recent failures: {e}");
+            Vec::new()
+        }
+    };
+
+    let html = templates::render_debug_queue(&stats, &recent_failures);
+    Html(html).into_response()
+}
+
+/// Handler for resetting all skipped archives (POST /debug/reset-skipped).
+async fn debug_reset_skipped(State(state): State<AppState>) -> Response {
+    match reset_skipped_archives(state.db.pool()).await {
+        Ok(count) => {
+            tracing::info!(count, "Reset all skipped archives");
+            axum::response::Redirect::to("/debug/queue").into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to reset skipped archives: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to reset archives",
+            )
+                .into_response()
+        }
+    }
 }
 
 /// Path parameters for archive comparison.

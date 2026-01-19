@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use async_trait::async_trait;
 use regex::Regex;
+use tracing::debug;
 
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::{ytdlp, CookieOptions};
@@ -53,8 +54,67 @@ impl SiteHandler for YouTubeHandler {
         work_dir: &Path,
         cookies: &CookieOptions<'_>,
     ) -> Result<ArchiveResult> {
-        ytdlp::download(url, work_dir, cookies).await
+        let mut result = ytdlp::download(url, work_dir, cookies).await?;
+
+        // Store video_id in metadata for predictable S3 path
+        if let Some(video_id) = extract_video_id(url) {
+            debug!(video_id = %video_id, "Extracted YouTube video ID");
+            result.video_id = Some(video_id);
+        }
+
+        Ok(result)
     }
+}
+
+/// Extract video ID from YouTube URL.
+///
+/// Supports various YouTube URL formats:
+/// - `youtube.com/watch?v=VIDEO_ID`
+/// - `youtu.be/VIDEO_ID`
+/// - `youtube.com/shorts/VIDEO_ID`
+/// - `youtube.com/live/VIDEO_ID`
+/// - `youtube.com/embed/VIDEO_ID`
+pub fn extract_video_id(url: &str) -> Option<String> {
+    // Pattern for standard watch URLs: youtube.com/watch?v=VIDEO_ID
+    if url.contains("watch?") || url.contains("watch/?") {
+        if let Some(v_param) = url.split('?').nth(1) {
+            for param in v_param.split('&') {
+                if let Some(video_id) = param.strip_prefix("v=") {
+                    let video_id = video_id.split('&').next().unwrap_or(video_id);
+                    return Some(video_id.to_string());
+                }
+            }
+        }
+        return None;
+    }
+
+    // Pattern for youtu.be/VIDEO_ID
+    if url.contains("youtu.be/") {
+        if let Some(path) = url.split("youtu.be/").nth(1) {
+            let video_id = path.split('?').next().unwrap_or(path);
+            let video_id = video_id.split('/').next().unwrap_or(video_id);
+            if !video_id.is_empty() {
+                return Some(video_id.to_string());
+            }
+        }
+        return None;
+    }
+
+    // Pattern for shorts/VIDEO_ID, live/VIDEO_ID, embed/VIDEO_ID
+    for prefix in ["shorts/", "live/", "embed/"] {
+        if url.contains(prefix) {
+            if let Some(path) = url.split(prefix).nth(1) {
+                let video_id = path.split('?').next().unwrap_or(path);
+                let video_id = video_id.split('/').next().unwrap_or(video_id);
+                if !video_id.is_empty() {
+                    return Some(video_id.to_string());
+                }
+            }
+            return None;
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -73,5 +133,77 @@ mod tests {
 
         assert!(!handler.can_handle("https://example.com/"));
         assert!(!handler.can_handle("https://reddit.com/"));
+    }
+
+    #[test]
+    fn test_extract_video_id_watch() {
+        // Standard watch URLs
+        assert_eq!(
+            extract_video_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
+            Some("dQw4w9WgXcQ".to_string())
+        );
+        assert_eq!(
+            extract_video_id("https://youtube.com/watch?v=abc123"),
+            Some("abc123".to_string())
+        );
+        // With additional parameters
+        assert_eq!(
+            extract_video_id("https://www.youtube.com/watch?v=xyz789&t=30s"),
+            Some("xyz789".to_string())
+        );
+        assert_eq!(
+            extract_video_id("https://www.youtube.com/watch?list=PLxyz&v=abc123"),
+            Some("abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_video_id_youtu_be() {
+        assert_eq!(
+            extract_video_id("https://youtu.be/dQw4w9WgXcQ"),
+            Some("dQw4w9WgXcQ".to_string())
+        );
+        assert_eq!(
+            extract_video_id("https://youtu.be/abc123?t=30"),
+            Some("abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_video_id_shorts() {
+        assert_eq!(
+            extract_video_id("https://www.youtube.com/shorts/abc123"),
+            Some("abc123".to_string())
+        );
+        assert_eq!(
+            extract_video_id("https://youtube.com/shorts/xyz789?feature=share"),
+            Some("xyz789".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_video_id_live() {
+        assert_eq!(
+            extract_video_id("https://www.youtube.com/live/abc123"),
+            Some("abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_video_id_embed() {
+        assert_eq!(
+            extract_video_id("https://www.youtube.com/embed/abc123"),
+            Some("abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_video_id_invalid() {
+        assert_eq!(extract_video_id("https://example.com/video"), None);
+        assert_eq!(extract_video_id("https://youtube.com/"), None);
+        assert_eq!(
+            extract_video_id("https://www.youtube.com/channel/xyz"),
+            None
+        );
     }
 }
