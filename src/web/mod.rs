@@ -54,9 +54,12 @@ pub async fn serve(config: Config, db: Database) -> Result<()> {
         .await
         .context("Failed to bind web server")?;
 
-    axum::serve(listener, app)
-        .await
-        .context("Web server error")?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .context("Web server error")?;
 
     Ok(())
 }

@@ -8,6 +8,7 @@ pub mod backup;
 pub mod config;
 pub mod db;
 pub mod handlers;
+pub mod ipfs;
 pub mod rss;
 pub mod s3;
 pub mod wayback;

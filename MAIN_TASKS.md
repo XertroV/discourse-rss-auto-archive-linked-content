@@ -230,6 +230,33 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 
 ---
 
+## Phase 10: IPFS Integration
+
+### IPFS Pinning
+- [x] Add IPFS client module for local daemon communication
+- [x] Add IPFS configuration (daemon URL, enabled flag, gateway URLs)
+- [x] Add `ipfs_cid` field to archives table
+- [x] Pin archived content to local IPFS daemon after S3 upload
+- [x] Store IPFS CID in database
+- [x] Generate public gateway URLs (ipfs.io, cloudflare-ipfs.com, dweb.link)
+- [x] Update archive detail template to show IPFS links
+- [x] Write unit tests for IPFS client
+- [x] Handle IPFS daemon unavailability gracefully
+
+## Phase 11: Manual Submission
+
+### Submission Form
+- [x] Create IP-based rate limiter (database-backed)
+- [x] Add submission routes (GET /submit, POST /submit)
+- [x] Create submission form template
+- [x] Validate submitted URLs (URL format validation)
+- [x] Create pending submissions table in database
+- [x] Queue submissions for archiving
+- [x] Add submission success/error templates
+- [ ] Write integration tests for submission flow
+
+---
+
 ## Discovered Tasks
 
 Add new tasks here as they are discovered during development:

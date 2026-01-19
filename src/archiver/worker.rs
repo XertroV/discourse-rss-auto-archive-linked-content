@@ -10,10 +10,11 @@ use super::rate_limiter::DomainRateLimiter;
 use crate::config::Config;
 use crate::db::{
     get_failed_archives_for_retry, get_link, get_pending_archives, reset_archive_for_retry,
-    set_archive_complete, set_archive_failed, set_archive_processing, set_archive_skipped,
-    update_link_last_archived, Database,
+    set_archive_complete, set_archive_failed, set_archive_ipfs_cid, set_archive_processing,
+    set_archive_skipped, update_link_last_archived, Database,
 };
 use crate::handlers::HANDLERS;
+use crate::ipfs::IpfsClient;
 use crate::s3::S3Client;
 
 const MAX_RETRIES: i32 = 3;
@@ -23,19 +24,21 @@ pub struct ArchiveWorker {
     config: Config,
     db: Database,
     s3: S3Client,
+    ipfs: IpfsClient,
     semaphore: Arc<Semaphore>,
     domain_limiter: Arc<DomainRateLimiter>,
 }
 
 impl ArchiveWorker {
     /// Create a new archive worker.
-    pub fn new(config: Config, db: Database, s3: S3Client) -> Self {
+    pub fn new(config: Config, db: Database, s3: S3Client, ipfs: IpfsClient) -> Self {
         let semaphore = Arc::new(Semaphore::new(config.worker_concurrency));
         let domain_limiter = Arc::new(DomainRateLimiter::new(config.per_domain_concurrency));
         Self {
             config,
             db,
             s3,
+            ipfs,
             semaphore,
             domain_limiter,
         }
@@ -89,6 +92,7 @@ impl ArchiveWorker {
             let permit = self.semaphore.clone().acquire_owned().await?;
             let db = self.db.clone();
             let s3 = self.s3.clone();
+            let ipfs = self.ipfs.clone();
             let config = self.config.clone();
             let domain_limiter = Arc::clone(&self.domain_limiter);
 
@@ -97,7 +101,7 @@ impl ArchiveWorker {
                 // Acquire domain-specific permit
                 let _domain_permit = domain_limiter.acquire(&domain).await;
                 debug!(archive_id = archive.id, domain = %domain, "Acquired domain permit");
-                process_archive(&db, &s3, &config, archive.id, archive.link_id).await
+                process_archive(&db, &s3, &ipfs, &config, archive.id, archive.link_id).await
             });
 
             handles.push(handle);
@@ -140,11 +144,12 @@ impl ArchiveWorker {
 async fn process_archive(
     db: &Database,
     s3: &S3Client,
+    ipfs: &IpfsClient,
     config: &Config,
     archive_id: i64,
     link_id: i64,
 ) {
-    if let Err(e) = process_archive_inner(db, s3, config, archive_id, link_id).await {
+    if let Err(e) = process_archive_inner(db, s3, ipfs, config, archive_id, link_id).await {
         error!(archive_id, "Archive failed: {e:#}");
         if let Err(e2) = set_archive_failed(db.pool(), archive_id, &format!("{e:#}")).await {
             error!(archive_id, "Failed to mark archive as failed: {e2:#}");
@@ -155,6 +160,7 @@ async fn process_archive(
 async fn process_archive_inner(
     db: &Database,
     s3: &S3Client,
+    ipfs: &IpfsClient,
     config: &Config,
     archive_id: i64,
     link_id: i64,
@@ -191,6 +197,7 @@ async fn process_archive_inner(
     let s3_prefix = format!("{}{}/", config.s3_prefix, link_id);
     let mut primary_key = None;
     let mut thumb_key = None;
+    let mut primary_local_path = None;
 
     if let Some(ref primary) = result.primary_file {
         let local_path = work_dir.join(primary);
@@ -198,6 +205,7 @@ async fn process_archive_inner(
             let key = format!("{s3_prefix}media/{primary}");
             s3.upload_file(&local_path, &key).await?;
             primary_key = Some(key);
+            primary_local_path = Some(local_path);
         }
     }
 
@@ -217,6 +225,37 @@ async fn process_archive_inner(
             .await?;
     }
 
+    // Pin to IPFS if enabled
+    let ipfs_cid = if ipfs.is_enabled() {
+        // Try to pin the primary file to IPFS
+        if let Some(ref local_path) = primary_local_path {
+            match ipfs.pin_file(local_path).await {
+                Ok(cid) => {
+                    info!(archive_id, cid = %cid, "Pinned to IPFS");
+                    Some(cid)
+                }
+                Err(e) => {
+                    warn!(archive_id, error = %e, "Failed to pin to IPFS, continuing without IPFS");
+                    None
+                }
+            }
+        } else {
+            // Try to pin the work directory if no primary file
+            match ipfs.pin_directory(&work_dir).await {
+                Ok(cid) => {
+                    info!(archive_id, cid = %cid, "Pinned directory to IPFS");
+                    Some(cid)
+                }
+                Err(e) => {
+                    warn!(archive_id, error = %e, "Failed to pin directory to IPFS");
+                    None
+                }
+            }
+        }
+    } else {
+        None
+    };
+
     // Mark as complete
     set_archive_complete(
         db.pool(),
@@ -230,6 +269,11 @@ async fn process_archive_inner(
     )
     .await?;
 
+    // Store IPFS CID if we have one
+    if let Some(ref cid) = ipfs_cid {
+        set_archive_ipfs_cid(db.pool(), archive_id, cid).await?;
+    }
+
     // Update link last archived timestamp
     update_link_last_archived(db.pool(), link_id).await?;
 
@@ -238,7 +282,7 @@ async fn process_archive_inner(
         warn!(archive_id, "Failed to clean up work directory: {e}");
     }
 
-    info!(archive_id, url = %link.normalized_url, "Archive complete");
+    info!(archive_id, url = %link.normalized_url, ipfs_cid = ?ipfs_cid, "Archive complete");
 
     Ok(())
 }
