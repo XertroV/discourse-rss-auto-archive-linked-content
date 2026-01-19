@@ -8,6 +8,7 @@ use axum::Router;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
+use super::diff;
 use super::feeds;
 use super::templates;
 use super::AppState;
@@ -27,6 +28,7 @@ pub fn router() -> Router<AppState> {
         .route("/search", get(search))
         .route("/submit", get(submit_form).post(submit_url))
         .route("/archive/{id}", get(archive_detail))
+        .route("/compare/{id1}/{id2}", get(compare_archives))
         .route("/post/{guid}", get(post_detail))
         .route("/site/{site}", get(site_list))
         .route("/stats", get(stats))
@@ -112,6 +114,80 @@ async fn archive_detail(State(state): State<AppState>, Path(id): Path<i64>) -> R
     };
 
     let html = templates::render_archive_detail(&archive, &link);
+    Html(html).into_response()
+}
+
+/// Path parameters for archive comparison.
+#[derive(Debug, Deserialize)]
+pub struct CompareParams {
+    id1: i64,
+    id2: i64,
+}
+
+async fn compare_archives(
+    State(state): State<AppState>,
+    Path(params): Path<CompareParams>,
+) -> Response {
+    // Fetch both archives
+    let archive1 = match get_archive(state.db.pool(), params.id1).await {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                format!("Archive {} not found", params.id1),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch archive {}: {e}", params.id1);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    let archive2 = match get_archive(state.db.pool(), params.id2).await {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                format!("Archive {} not found", params.id2),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch archive {}: {e}", params.id2);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    // Fetch associated links for display
+    let link1 = match get_link(state.db.pool(), archive1.link_id).await {
+        Ok(Some(l)) => l,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, "Link not found").into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch link: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    let link2 = match get_link(state.db.pool(), archive2.link_id).await {
+        Ok(Some(l)) => l,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, "Link not found").into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch link: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    // Compute diff on content_text
+    let text1 = archive1.content_text.as_deref().unwrap_or("");
+    let text2 = archive2.content_text.as_deref().unwrap_or("");
+    let diff_result = diff::compute_diff(text1, text2);
+
+    let html = templates::render_comparison(&archive1, &link1, &archive2, &link2, &diff_result);
     Html(html).into_response()
 }
 

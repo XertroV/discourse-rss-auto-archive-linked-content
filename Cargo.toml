@@ -68,6 +68,9 @@ urlencoding = "2"
 # Compression
 zstd = "0.13"
 
+# Text diffing
+similar = "2"
+
 [dev-dependencies]
 tempfile = "3"
 wiremock = "0.6"

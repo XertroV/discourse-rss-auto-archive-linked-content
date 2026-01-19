@@ -324,12 +324,12 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Test all pages in dark mode
 
 ### Archive Comparison
-- [ ] Add similar crate for text diffing
-- [ ] Create comparison route /compare/{id1}/{id2}
-- [ ] Implement side-by-side diff view
-- [ ] Highlight additions/deletions
-- [ ] Show timestamp comparison
-- [ ] Create diff template
+- [x] Add similar crate for text diffing
+- [x] Create comparison route /compare/{id1}/{id2}
+- [x] Implement side-by-side diff view
+- [x] Highlight additions/deletions
+- [x] Show timestamp comparison
+- [x] Create diff template
 
 ### Bulk Export
 - [ ] Create export route /export/{site}
