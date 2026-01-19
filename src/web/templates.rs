@@ -1,4 +1,4 @@
-use crate::db::{Archive, ArchiveDisplay, Link, Post};
+use crate::db::{Archive, ArchiveArtifact, ArchiveDisplay, Link, Post};
 use crate::web::diff::DiffResult;
 
 /// Base HTML layout.
@@ -175,7 +175,11 @@ pub fn render_search(query: &str, archives: &[ArchiveDisplay], page: u32) -> Str
 }
 
 /// Render archive detail page.
-pub fn render_archive_detail(archive: &Archive, link: &Link) -> String {
+pub fn render_archive_detail(
+    archive: &Archive,
+    link: &Link,
+    artifacts: &[ArchiveArtifact],
+) -> String {
     let title = archive
         .content_title
         .as_deref()
@@ -244,6 +248,85 @@ pub fn render_archive_detail(archive: &Archive, link: &Link) -> String {
         content.push_str("</section>");
     }
 
+    // Embedded HTML preview (collapsible) for webpage archives
+    if let Some(ref primary_key) = archive.s3_key_primary {
+        if primary_key.ends_with("raw.html") || primary_key.ends_with("view.html") {
+            // Find the view.html artifact, or fall back to raw.html
+            let view_key = artifacts
+                .iter()
+                .find(|a| a.s3_key.ends_with("view.html"))
+                .map(|a| &a.s3_key)
+                .or_else(|| {
+                    artifacts
+                        .iter()
+                        .find(|a| a.s3_key.ends_with("raw.html"))
+                        .map(|a| &a.s3_key)
+                });
+
+            if let Some(embed_key) = view_key {
+                content.push_str(&format!(
+                    r#"<section class="embedded-preview">
+                        <details>
+                            <summary><h2 style="display: inline;">Embedded Preview</h2></summary>
+                            <div class="iframe-container">
+                                <iframe src="/s3/{}" sandbox="allow-same-origin" loading="lazy" title="Archived webpage preview"></iframe>
+                            </div>
+                        </details>
+                    </section>"#,
+                    html_escape(embed_key)
+                ));
+            }
+        }
+    }
+
+    // Archived Files section (list of all artifacts)
+    if !artifacts.is_empty() {
+        content.push_str("<section><h2>Archived Files</h2>");
+        content.push_str(r#"<table class="artifacts-table"><thead><tr><th>Type</th><th>File</th><th>Size</th><th>Download</th></tr></thead><tbody>"#);
+
+        for artifact in artifacts {
+            let kind_display = artifact_kind_display(&artifact.kind);
+            let filename = artifact
+                .s3_key
+                .rsplit('/')
+                .next()
+                .unwrap_or(&artifact.s3_key);
+            let size_display = artifact
+                .size_bytes
+                .map(format_bytes)
+                .unwrap_or_else(|| "Unknown".to_string());
+
+            content.push_str(&format!(
+                r#"<tr>
+                    <td><span class="artifact-kind artifact-kind-{}">{}</span></td>
+                    <td><code>{}</code></td>
+                    <td>{}</td>
+                    <td><a href="/s3/{}" download title="Download {}">{}</a></td>
+                </tr>"#,
+                html_escape(&artifact.kind),
+                html_escape(&kind_display),
+                html_escape(filename),
+                html_escape(&size_display),
+                html_escape(&artifact.s3_key),
+                html_escape(filename),
+                download_icon()
+            ));
+        }
+
+        content.push_str("</tbody></table>");
+
+        // Calculate total size
+        let total_size: i64 = artifacts.iter().filter_map(|a| a.size_bytes).sum();
+        if total_size > 0 {
+            content.push_str(&format!(
+                r#"<p class="total-size"><strong>Total Size:</strong> {}</p>"#,
+                format_bytes(total_size)
+            ));
+        }
+
+        content.push_str("</section>");
+    }
+
     if let Some(ref wayback) = archive.wayback_url {
         content.push_str(&format!(
             "<section><h2>Wayback Machine</h2><p><a href=\"{}\">View on Wayback Machine</a></p></section>",
@@ -300,6 +383,26 @@ pub fn render_archive_detail(archive: &Archive, link: &Link) -> String {
     ));
 
     base_layout(title, &content)
+}
+
+/// Convert artifact kind to human-readable display string.
+fn artifact_kind_display(kind: &str) -> &'static str {
+    match kind {
+        "raw_html" => "HTML",
+        "screenshot" => "Screenshot",
+        "pdf" => "PDF",
+        "video" => "Video",
+        "thumb" => "Thumbnail",
+        "metadata" => "Metadata",
+        "image" => "Image",
+        "subtitles" => "Subtitles",
+        _ => "File",
+    }
+}
+
+/// Return a download icon SVG.
+fn download_icon() -> &'static str {
+    r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>"#
 }
 
 /// Render site list page.
@@ -736,9 +839,84 @@ fn html_escape(s: &str) -> String {
 }
 
 /// Render archive banner for HTML files (archive.today style).
+/// Includes inline CSS for offline viewing.
 pub fn render_archive_banner(archive: &Archive, link: &Link) -> String {
-    let mut banner = String::from(
-        r#"<div id="archive-banner" class="archive-banner">
+    // Inline CSS for the archive banner to ensure it renders correctly offline
+    let inline_css = r#"<style>
+.archive-banner {
+    border: 2px solid #4a90e2;
+    border-radius: 4px;
+    margin: 0 0 1rem 0;
+    padding: 0;
+    background-color: #f8f9fa;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    position: relative;
+    z-index: 9999;
+}
+.archive-banner details { border: none; margin: 0; padding: 0; }
+.archive-banner summary {
+    padding: 10px 15px;
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    user-select: none;
+    background-color: #e8f0f8;
+    border-bottom: 1px solid #4a90e2;
+}
+.archive-banner summary::-webkit-details-marker { display: none; }
+.archive-banner summary::marker { display: none; }
+.archive-banner .banner-icon { font-size: 16px; }
+.archive-banner .banner-text { flex: 1; font-weight: 500; color: #333; }
+.archive-banner .banner-toggle { font-size: 12px; color: #666; transition: transform 0.2s; }
+.archive-banner details[open] .banner-toggle { transform: rotate(180deg); }
+.archive-banner .banner-content { padding: 15px; background-color: #ffffff; }
+.archive-banner .banner-row {
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e0e0e0;
+    color: #333;
+}
+.archive-banner .banner-row:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+.archive-banner .banner-row strong { color: #333; margin-right: 8px; }
+.archive-banner .banner-row a { color: #4a90e2; text-decoration: none; }
+.archive-banner .banner-row a:hover { text-decoration: underline; }
+.archive-banner .banner-links {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #e0e0e0;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.archive-banner .banner-link {
+    display: inline-block;
+    padding: 6px 12px;
+    background-color: #4a90e2;
+    color: white;
+    border-radius: 3px;
+    text-decoration: none;
+    font-size: 13px;
+    transition: background-color 0.2s;
+}
+.archive-banner .banner-link:hover { background-color: #357abd; text-decoration: none; }
+@media (prefers-color-scheme: dark) {
+    .archive-banner { background-color: #1a1a1a; border-color: #5a9ff0; }
+    .archive-banner summary { background-color: #2a2a2a; border-bottom-color: #5a9ff0; }
+    .archive-banner .banner-text { color: #e0e0e0; }
+    .archive-banner .banner-toggle { color: #999; }
+    .archive-banner .banner-content { background-color: #1a1a1a; }
+    .archive-banner .banner-row { border-bottom-color: #333; color: #e0e0e0; }
+    .archive-banner .banner-row strong { color: #e0e0e0; }
+    .archive-banner .banner-links { border-top-color: #333; }
+}
+</style>"#;
+
+    let mut banner = format!(
+        r#"{inline_css}<div id="archive-banner" class="archive-banner">
             <details>
                 <summary>
                     <span class="banner-icon">📦</span>

@@ -15,9 +15,10 @@ use super::AppState;
 use crate::db::{
     count_archives_by_status, count_links, count_posts, count_submissions_from_ip_last_hour,
     create_pending_archive, get_archive, get_archive_by_link_id, get_archives_by_domain_display,
-    get_archives_for_post_display, get_link, get_link_by_normalized_url, get_post_by_guid,
-    get_recent_archives, get_recent_archives_display, insert_link, insert_submission,
-    search_archives, search_archives_display, submission_exists_for_url, NewLink, NewSubmission,
+    get_archives_for_post_display, get_artifacts_for_archive, get_link, get_link_by_normalized_url,
+    get_post_by_guid, get_recent_archives, get_recent_archives_display, insert_link,
+    insert_submission, search_archives, search_archives_display, submission_exists_for_url,
+    NewLink, NewSubmission,
 };
 use crate::handlers::normalize_url;
 
@@ -115,7 +116,15 @@ async fn archive_detail(State(state): State<AppState>, Path(id): Path<i64>) -> R
         }
     };
 
-    let html = templates::render_archive_detail(&archive, &link);
+    let artifacts = match get_artifacts_for_archive(state.db.pool(), id).await {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!("Failed to fetch artifacts: {e}");
+            Vec::new()
+        }
+    };
+
+    let html = templates::render_archive_detail(&archive, &link, &artifacts);
     Html(html).into_response()
 }
 

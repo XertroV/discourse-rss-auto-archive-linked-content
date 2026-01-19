@@ -406,5 +406,22 @@ Add new tasks here as they are discovered during development:
 - [x] Fix path parameter syntax for axum 0.7 (use `:param` not `{param}`)
 - [x] Add integration tests for /archive/:id and /post/:guid routes
 
+### Archive Media Caching & Display
+- [x] Cache filesize of archived media in database (archive_artifacts.size_bytes)
+- [x] Insert artifact records when uploading files to S3 (primary, thumb, metadata, screenshot, PDF)
+- [x] Show archived content list on /archive/:id page with direct links and file sizes
+- [x] Display total size of all artifacts for an archive
+- [x] Show embedded webpage preview (collapsible iframe) for HTML archives
+- [x] Fix extra_files upload in worker - handlers can return extra files but they weren't uploaded
+- [x] Embed CSS in archive banner for offline viewing (inline styles in view.html)
+
+### HTML/PDF Archiving Workflow (reviewed - see notes)
+Current status: PDFs and screenshots work well offline. HTML archives need external CSS/images to render fully.
+Known gaps (for future work):
+- [ ] Embed external CSS inline in HTML archives for offline viewing
+- [ ] Embed/download referenced images for HTML archives
+- [ ] Support font embedding for archived webpages
+- [ ] Create self-contained HTML option with all resources embedded
+
 ### Future Improvements
 - [ ] Upgrade axum from 0.7 to 0.8 (breaking change: path syntax changes from `:param` to `{param}`)
