@@ -77,24 +77,20 @@ pub async fn create_complete_html(
     // Isolate mode - prevents external requests when viewing the saved file
     cmd.arg("-I");
 
-    // Include CSS (always)
-    cmd.arg("-s");
+    // NOTE: In monolith v3.0+, flags were inverted to be exclusion flags.
+    // By default, monolith includes CSS, images, fonts, JS, and frames.
+    // We use flags to EXCLUDE what we don't want.
 
-    // Include images (always)
-    cmd.arg("-i");
+    // CSS is included by default (no flag needed)
+    // Images are included by default (no flag needed)
+    // Fonts are included by default (no flag needed)
+    // Frames/iframes are included by default (no flag needed)
 
-    // Include fonts (always)
-    cmd.arg("-f");
-
-    // Include JavaScript (configurable - some sites need it, but it can also cause issues)
-    // NOTE: monolith v2.8.3 supports `-j` to include JS, but does not accept `-J`.
-    // To exclude JS, simply omit `-j`.
-    if config.include_js {
+    // JavaScript handling (configurable - some sites need it, but it can also cause issues)
+    // In v3.0+, JS is included by default. Use `-j` to EXCLUDE it.
+    if !config.include_js {
         cmd.arg("-j");
     }
-
-    // Include iframes
-    cmd.arg("-F");
 
     // Set a reasonable timeout for network requests (in seconds)
     cmd.arg("-t").arg("30");
