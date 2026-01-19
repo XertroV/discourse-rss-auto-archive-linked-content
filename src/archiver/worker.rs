@@ -603,7 +603,7 @@ async fn process_archive_inner(
                             let complete_key = format!("{s3_prefix}media/complete.html");
                             let metadata = tokio::fs::metadata(&complete_path).await.ok();
                             let size_bytes = metadata.map(|m| m.len() as i64);
-                            if let Err(e) = s3.upload_file(&complete_path, &complete_key).await {
+                            if let Err(e) = s3.upload_file(&complete_path, &complete_key, Some(archive_id)).await {
                                 warn!(archive_id, error = %e, "Failed to upload complete.html");
                             } else {
                                 debug!(archive_id, key = %complete_key, "Uploaded complete.html");
