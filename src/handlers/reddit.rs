@@ -37,6 +37,11 @@ static SHORTLINK_PATTERN: std::sync::LazyLock<Regex> =
 static SUBREDDIT_PATTERN: std::sync::LazyLock<Regex> =
     std::sync::LazyLock::new(|| Regex::new(r"/r/([a-zA-Z0-9_]+)").unwrap());
 
+/// Pattern to extract Reddit post ID from URL.
+/// Matches URLs like /comments/1q98p8v/ or /comments/1q98p8v/title/
+static POST_ID_PATTERN: std::sync::LazyLock<Regex> =
+    std::sync::LazyLock::new(|| Regex::new(r"/comments/([a-zA-Z0-9]+)").unwrap());
+
 /// Known NSFW subreddit name patterns (case-insensitive prefixes/patterns).
 const NSFW_SUBREDDIT_PATTERNS: &[&str] = &[
     "nsfw",
@@ -248,17 +253,36 @@ impl SiteHandler for RedditHandler {
             }
         }
 
-        // Add detected media URLs to extra_files for downloading
+        // Download detected images and add to extra_files
         if let Some(ref media) = media {
-            // Store image URLs in metadata for later download
             if !media.image_urls.is_empty() {
-                let metadata = serde_json::json!({
-                    "detected_images": media.image_urls,
-                    "detected_video": media.video_url,
-                    "detected_thumbnail": media.thumbnail_url,
-                });
-                result.metadata_json = Some(metadata.to_string());
+                let downloaded = download_reddit_images(&media.image_urls, work_dir).await;
+                if !downloaded.is_empty() {
+                    result.extra_files.extend(downloaded.clone());
+                    // If no primary file yet (no video), use first image as primary
+                    if result.primary_file.is_none()
+                        || result.primary_file.as_deref() == Some("raw.html")
+                    {
+                        if let Some(first_image) = downloaded.first() {
+                            result.primary_file = Some(first_image.clone());
+                            result.content_type = "image".to_string();
+                        }
+                    }
+                }
             }
+            // Store detected media info in metadata
+            let metadata = serde_json::json!({
+                "detected_images": media.image_urls,
+                "detected_video": media.video_url,
+                "detected_thumbnail": media.thumbnail_url,
+                "post_id": extract_post_id(archive_url),
+            });
+            result.metadata_json = Some(metadata.to_string());
+        }
+
+        // Extract and set Reddit post ID for deduplication
+        if let Some(post_id) = extract_post_id(archive_url) {
+            result.video_id = Some(format!("reddit_{post_id}"));
         }
 
         // If Reddit explicitly marks the post as NSFW/over18, always persist NSFW=true.
@@ -787,7 +811,10 @@ fn is_nsfw_subreddit(url: &str) -> bool {
         if let Some(subreddit) = caps.get(1) {
             let subreddit_lower = subreddit.as_str().to_lowercase();
 
-            if NSFW_SUBREDDIT_EXEMPTIONS.iter().any(|s| s == &subreddit_lower) {
+            if NSFW_SUBREDDIT_EXEMPTIONS
+                .iter()
+                .any(|s| s == &subreddit_lower)
+            {
                 return false;
             }
 
@@ -816,6 +843,88 @@ fn is_reddit_definitely_nsfw(html: &str) -> bool {
         // Some pages may include explicit HTML attributes.
         || s.contains("data-over18=\"true\"")
         || s.contains("data-nsfw=\"true\"")
+}
+
+/// Extract Reddit post ID from URL.
+///
+/// Returns the post ID (e.g., "1q98p8v") from URLs like:
+/// - https://old.reddit.com/r/subreddit/comments/1q98p8v/title/
+/// - https://reddit.com/r/subreddit/comments/1q98p8v/
+pub fn extract_post_id(url: &str) -> Option<String> {
+    POST_ID_PATTERN
+        .captures(url)
+        .and_then(|caps| caps.get(1))
+        .map(|m| m.as_str().to_string())
+}
+
+/// Download Reddit images from detected URLs.
+///
+/// Returns a list of filenames that were successfully downloaded.
+async fn download_reddit_images(image_urls: &[String], work_dir: &Path) -> Vec<String> {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(error = %e, "Failed to build HTTP client for image download");
+            return vec![];
+        }
+    };
+
+    let mut downloaded = Vec::new();
+
+    for (idx, url) in image_urls.iter().enumerate() {
+        // Skip non-Reddit image URLs
+        if !url.contains("redd.it") && !url.contains("redditmedia") {
+            continue;
+        }
+
+        // Determine filename from URL or use index
+        let filename = url
+            .rsplit('/')
+            .next()
+            .unwrap_or("image.jpg")
+            .split('?')
+            .next()
+            .unwrap_or("image.jpg");
+
+        // Add index prefix to avoid collisions
+        let filename = format!("reddit_img_{idx}_{filename}");
+        let output_path = work_dir.join(&filename);
+
+        match client
+            .get(url)
+            .header("User-Agent", ARCHIVAL_USER_AGENT)
+            .send()
+            .await
+        {
+            Ok(response) => {
+                if response.status().is_success() {
+                    match response.bytes().await {
+                        Ok(bytes) => {
+                            if let Err(e) = tokio::fs::write(&output_path, &bytes).await {
+                                warn!(url = %url, error = %e, "Failed to write image file");
+                            } else {
+                                debug!(url = %url, filename = %filename, size = bytes.len(), "Downloaded Reddit image");
+                                downloaded.push(filename);
+                            }
+                        }
+                        Err(e) => {
+                            warn!(url = %url, error = %e, "Failed to read image data");
+                        }
+                    }
+                } else {
+                    debug!(url = %url, status = %response.status(), "Image download returned non-success status");
+                }
+            }
+            Err(e) => {
+                warn!(url = %url, error = %e, "Failed to download image");
+            }
+        }
+    }
+
+    downloaded
 }
 
 /// Check if URL is a direct media URL (i.redd.it, v.redd.it, preview.redd.it).
