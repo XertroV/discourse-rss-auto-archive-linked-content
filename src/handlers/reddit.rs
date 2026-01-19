@@ -58,6 +58,42 @@ const NSFW_SUBREDDIT_PATTERNS: &[&str] = &[
     "tits",
 ];
 
+/// Default subreddits exempt from the basic name-pattern NSFW heuristic.
+///
+/// This only affects `is_nsfw_subreddit()` (subreddit-name keyword matching). Explicit Reddit
+/// `over18`/NSFW signals can still mark content NSFW.
+const DEFAULT_NSFW_SUBREDDIT_EXEMPTIONS: &[&str] = &["twoxchromosomes"];
+
+/// Additional exemptions can be provided via `REDDIT_NSFW_SUBREDDIT_EXEMPTIONS`.
+///
+/// Format: comma-separated subreddit names (case-insensitive), e.g.
+/// `TwoXChromosomes, some_subreddit, r/AnotherOne`
+static NSFW_SUBREDDIT_EXEMPTIONS: std::sync::LazyLock<Vec<String>> =
+    std::sync::LazyLock::new(|| {
+        let mut v: Vec<String> = DEFAULT_NSFW_SUBREDDIT_EXEMPTIONS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        if let Ok(extra) = std::env::var("REDDIT_NSFW_SUBREDDIT_EXEMPTIONS") {
+            for item in extra.split(',') {
+                let item = item.trim();
+                if item.is_empty() {
+                    continue;
+                }
+                let item = item.strip_prefix("r/").unwrap_or(item);
+                let lowered = item.to_lowercase();
+                if !lowered.is_empty() {
+                    v.push(lowered);
+                }
+            }
+        }
+
+        v.sort();
+        v.dedup();
+        v
+    });
+
 /// Extracted media from Reddit page.
 #[derive(Debug, Default)]
 struct RedditMedia {
@@ -153,7 +189,7 @@ impl SiteHandler for RedditHandler {
         // Use final URL for downstream tooling when available.
         let archive_url = final_url.as_deref().unwrap_or(&normalized_url);
 
-        // Check if the subreddit name suggests NSFW content
+        // Check if the subreddit name suggests NSFW content (heuristic)
         let subreddit_nsfw = is_nsfw_subreddit(archive_url);
 
         // Try yt-dlp for video/media content (only if we detected video)
@@ -225,20 +261,19 @@ impl SiteHandler for RedditHandler {
             }
         }
 
-        // Set NSFW status from subreddit detection or HTML content
-        if result.is_nsfw.is_none() && subreddit_nsfw {
+        // If Reddit explicitly marks the post as NSFW/over18, always persist NSFW=true.
+        // This overrides any earlier value (including Some(false)).
+        let definitely_nsfw = html_content
+            .as_deref()
+            .map(is_reddit_definitely_nsfw)
+            .unwrap_or(false);
+
+        if definitely_nsfw {
+            result.is_nsfw = Some(true);
+            result.nsfw_source = Some("reddit_over18".to_string());
+        } else if result.is_nsfw.is_none() && subreddit_nsfw {
             result.is_nsfw = Some(true);
             result.nsfw_source = Some("subreddit".to_string());
-        }
-
-        // Check HTML for NSFW indicators
-        if result.is_nsfw.is_none() {
-            if let Some(ref html) = html_content {
-                if html.contains("over18") || html.contains("nsfw") || html.contains("NSFW") {
-                    result.is_nsfw = Some(true);
-                    result.nsfw_source = Some("html".to_string());
-                }
-            }
         }
 
         // Set final URL if discovered
@@ -742,12 +777,36 @@ fn is_nsfw_subreddit(url: &str) -> bool {
     if let Some(caps) = SUBREDDIT_PATTERN.captures(url) {
         if let Some(subreddit) = caps.get(1) {
             let subreddit_lower = subreddit.as_str().to_lowercase();
+
+            if NSFW_SUBREDDIT_EXEMPTIONS.iter().any(|s| s == &subreddit_lower) {
+                return false;
+            }
+
             return NSFW_SUBREDDIT_PATTERNS
                 .iter()
                 .any(|pattern| subreddit_lower.contains(pattern));
         }
     }
     false
+}
+
+fn is_reddit_definitely_nsfw(html: &str) -> bool {
+    // Be conservative: only treat explicit Reddit flags as definitive.
+    // (Avoid keyword scanning which is prone to false positives.)
+    let s = html.to_ascii_lowercase();
+
+    // Common JSON flags in Reddit pages.
+    s.contains("\"over18\":true")
+        || s.contains("\"over18\": true")
+        || s.contains("\"isnsfw\":true")
+        || s.contains("\"isnsfw\": true")
+        || s.contains("\"is_nsfw\":true")
+        || s.contains("\"is_nsfw\": true")
+        || s.contains("\"nsfw\":true")
+        || s.contains("\"nsfw\": true")
+        // Some pages may include explicit HTML attributes.
+        || s.contains("data-over18=\"true\"")
+        || s.contains("data-nsfw=\"true\"")
 }
 
 /// Resolve a redd.it short URL to full Reddit URL.
@@ -869,10 +928,23 @@ mod tests {
         assert!(!is_nsfw_subreddit("https://reddit.com/r/technology/"));
         assert!(!is_nsfw_subreddit("https://reddit.com/r/worldnews/"));
 
+        // Exemptions
+        assert!(!is_nsfw_subreddit(
+            "https://old.reddit.com/r/TwoXChromosomes/comments/1q98p8v/debunking_lesbian_domestic_violence_data/nyvkjv5/"
+        ));
+
         // Edge cases - non-subreddit URLs
         assert!(!is_nsfw_subreddit("https://reddit.com/user/someone"));
         assert!(!is_nsfw_subreddit("https://i.redd.it/image.jpg"));
         assert!(!is_nsfw_subreddit("https://reddit.com/"));
         assert!(!is_nsfw_subreddit("https://www.reddit.com"));
+    }
+
+    #[test]
+    fn test_is_reddit_definitely_nsfw() {
+        assert!(is_reddit_definitely_nsfw("{\"over18\":true}"));
+        assert!(is_reddit_definitely_nsfw("data-over18=\"true\""));
+        assert!(is_reddit_definitely_nsfw("{\"isNsfw\": true}"));
+        assert!(!is_reddit_definitely_nsfw("this is not nsfw, just text"));
     }
 }
