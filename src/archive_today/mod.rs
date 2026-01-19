@@ -206,7 +206,7 @@ fn is_archive_url(url: &str) -> bool {
                 if !is_excluded
                     && first_part.len() >= 5
                     && first_part.len() <= 10
-                    && first_part.chars().all(|c| c.is_alphanumeric())
+                    && first_part.chars().all(char::is_alphanumeric)
                 {
                     return true;
                 }

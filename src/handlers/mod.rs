@@ -17,10 +17,8 @@ pub use normalize::normalize_url;
 pub use registry::HandlerRegistry;
 pub use traits::{ArchiveResult, SiteHandler};
 
-use once_cell::sync::Lazy;
-
 /// Global handler registry.
-pub static HANDLERS: Lazy<HandlerRegistry> = Lazy::new(|| {
+pub static HANDLERS: std::sync::LazyLock<HandlerRegistry> = std::sync::LazyLock::new(|| {
     let mut registry = HandlerRegistry::new();
     registry.register(Box::new(reddit::RedditHandler::new()));
     registry.register(Box::new(youtube::YouTubeHandler::new()));

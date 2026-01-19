@@ -115,21 +115,18 @@ pub async fn poll_once(client: &reqwest::Client, config: &Config, db: &Database)
             published_at,
         };
 
-        let post_id = match existing {
-            Some(post) => {
-                // Check if content changed
-                if post.content_hash.as_deref() != Some(&content_hash) {
-                    debug!(guid = %guid, "Post content changed, updating");
-                    update_post(db.pool(), post.id, &new_post).await?;
-                }
-                post.id
+        let post_id = if let Some(post) = existing {
+            // Check if content changed
+            if post.content_hash.as_deref() != Some(&content_hash) {
+                debug!(guid = %guid, "Post content changed, updating");
+                update_post(db.pool(), post.id, &new_post).await?;
             }
-            None => {
-                debug!(guid = %guid, "New post found");
-                let id = insert_post(db.pool(), &new_post).await?;
-                new_count += 1;
-                id
-            }
+            post.id
+        } else {
+            debug!(guid = %guid, "New post found");
+            let id = insert_post(db.pool(), &new_post).await?;
+            new_count += 1;
+            id
         };
 
         // Extract and process links
@@ -171,17 +168,16 @@ async fn process_single_link(
     // Check if we already have this link
     let existing_link = get_link_by_normalized_url(db.pool(), &normalized).await?;
 
-    let link_id = match existing_link {
-        Some(existing) => existing.id,
-        None => {
-            let new_link = NewLink {
-                original_url: link.url.clone(),
-                normalized_url: normalized.clone(),
-                canonical_url: None,
-                domain: domain.clone(),
-            };
-            insert_link(db.pool(), &new_link).await?
-        }
+    let link_id = if let Some(existing) = existing_link {
+        existing.id
+    } else {
+        let new_link = NewLink {
+            original_url: link.url.clone(),
+            normalized_url: normalized.clone(),
+            canonical_url: None,
+            domain: domain.clone(),
+        };
+        insert_link(db.pool(), &new_link).await?
     };
 
     // Check if this occurrence already exists

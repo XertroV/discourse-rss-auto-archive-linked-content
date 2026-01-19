@@ -2,13 +2,12 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use super::traits::{ArchiveResult, SiteHandler};
 
-static PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
     vec![
         Regex::new(r"^https?://bsky\.app/profile/[^/]+/post/[a-zA-Z0-9]+").unwrap(),
         Regex::new(r"^https?://bsky\.social/profile/[^/]+/post/[a-zA-Z0-9]+").unwrap(),
@@ -16,7 +15,7 @@ static PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
 });
 
 // Regex to extract handle and post ID from URL
-static URL_PARSER: Lazy<Regex> = Lazy::new(|| {
+static URL_PARSER: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
     Regex::new(r"^https?://bsky\.(app|social)/profile/([^/]+)/post/([a-zA-Z0-9]+)").unwrap()
 });
 
@@ -159,10 +158,7 @@ impl BlueskyHandler {
 
     /// Resolve a handle to a DID
     async fn resolve_handle(&self, handle: &str) -> Result<String> {
-        let url = format!(
-            "{}/com.atproto.identity.resolveHandle?handle={}",
-            BSKY_API_BASE, handle
-        );
+        let url = format!("{BSKY_API_BASE}/com.atproto.identity.resolveHandle?handle={handle}");
 
         let response: ResolveHandleResponse = self
             .client
@@ -181,7 +177,7 @@ impl BlueskyHandler {
 
     /// Fetch a post thread by AT URI
     async fn get_post(&self, did: &str, post_id: &str) -> Result<Post> {
-        let at_uri = format!("at://{}/app.bsky.feed.post/{}", did, post_id);
+        let at_uri = format!("at://{did}/app.bsky.feed.post/{post_id}");
         let url = format!(
             "{}/app.bsky.feed.getPostThread?uri={}",
             BSKY_API_BASE,
@@ -219,16 +215,15 @@ impl BlueskyHandler {
             .headers()
             .get("content-type")
             .and_then(|ct| ct.to_str().ok())
-            .map(|ct| match ct {
+            .map_or("jpg", |ct| match ct {
                 "image/jpeg" => "jpg",
                 "image/png" => "png",
                 "image/gif" => "gif",
                 "image/webp" => "webp",
                 _ => "jpg",
-            })
-            .unwrap_or("jpg");
+            });
 
-        let filename = format!("image_{}.{}", index, ext);
+        let filename = format!("image_{index}.{ext}");
         let file_path = work_dir.join(&filename);
 
         let bytes = response

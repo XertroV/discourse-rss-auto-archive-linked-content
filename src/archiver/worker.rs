@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -80,12 +80,11 @@ impl ArchiveWorker {
 
         for archive in pending {
             // Get the link to determine domain for rate limiting
-            let link = match get_link(self.db.pool(), archive.link_id).await? {
-                Some(l) => l,
-                None => {
-                    warn!(archive_id = archive.id, "Link not found, skipping");
-                    continue;
-                }
+            let link = if let Some(l) = get_link(self.db.pool(), archive.link_id).await? {
+                l
+            } else {
+                warn!(archive_id = archive.id, "Link not found, skipping");
+                continue;
             };
 
             let domain = link.domain.clone();
@@ -101,7 +100,7 @@ impl ArchiveWorker {
                 // Acquire domain-specific permit
                 let _domain_permit = domain_limiter.acquire(&domain).await;
                 debug!(archive_id = archive.id, domain = %domain, "Acquired domain permit");
-                process_archive(&db, &s3, &ipfs, &config, archive.id, archive.link_id).await
+                process_archive(&db, &s3, &ipfs, &config, archive.id, archive.link_id).await;
             });
 
             handles.push(handle);
@@ -289,6 +288,6 @@ async fn process_archive_inner(
 
 /// Create a work directory for an archive job.
 #[allow(dead_code)]
-fn create_work_dir(base: &PathBuf, archive_id: i64) -> PathBuf {
+fn create_work_dir(base: &Path, archive_id: i64) -> PathBuf {
     base.join(format!("archive_{archive_id}"))
 }

@@ -1,7 +1,10 @@
 use anyhow::{Context, Result};
 use sqlx::SqlitePool;
 
-use super::models::*;
+use super::models::{
+    Archive, ArchiveArtifact, Link, LinkOccurrence, NewLink, NewLinkOccurrence, NewPost,
+    NewSubmission, Post, Submission,
+};
 
 // ========== Posts ==========
 

@@ -223,8 +223,7 @@ async fn submit_url(
             if count >= i64::from(rate_limit) {
                 let html = templates::render_submit_form(
                     Some(&format!(
-                        "Rate limit exceeded. Maximum {} submissions per hour.",
-                        rate_limit
+                        "Rate limit exceeded. Maximum {rate_limit} submissions per hour."
                     )),
                     None,
                 );
@@ -246,12 +245,11 @@ async fn submit_url(
     }
 
     // Parse and validate URL
-    let parsed_url = match url::Url::parse(url) {
-        Ok(u) => u,
-        Err(_) => {
-            let html = templates::render_submit_form(Some("Invalid URL format"), None);
-            return Html(html).into_response();
-        }
+    let parsed_url = if let Ok(u) = url::Url::parse(url) {
+        u
+    } else {
+        let html = templates::render_submit_form(Some("Invalid URL format"), None);
+        return Html(html).into_response();
     };
 
     // Only allow http/https

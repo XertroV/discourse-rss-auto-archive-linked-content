@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 # Build stage
 FROM rust:1.85-bookworm AS builder
 
@@ -9,23 +10,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy manifests first for better caching
+# Copy all source files - no dummy file tricks
 COPY Cargo.toml Cargo.lock ./
-
-# Create dummy source files to build dependencies
-RUN mkdir src && \
-    echo 'fn main() {}' > src/main.rs && \
-    echo 'pub fn lib() {}' > src/lib.rs
-
-# Build dependencies only
-RUN cargo build --release && \
-    rm -rf src target/release/deps/discourse*
-
-# Copy actual source code
 COPY src ./src
 
-# Build the application
-RUN cargo build --release
+# Build the application using BuildKit cache mounts for cargo registry and target
+# This caches dependencies between builds without any fragile dummy file workarounds
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo build --release && \
+    cp target/release/discourse-link-archiver /usr/local/bin/
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -53,7 +48,7 @@ RUN useradd -r -s /bin/false -m -d /app archiver
 WORKDIR /app
 
 # Copy binary from builder stage
-COPY --from=builder /app/target/release/discourse-link-archiver /usr/local/bin/
+COPY --from=builder /usr/local/bin/discourse-link-archiver /usr/local/bin/
 
 # Create data directories (including ACME certificate cache)
 RUN mkdir -p /app/data/tmp /app/data/acme_cache && chown -R archiver:archiver /app

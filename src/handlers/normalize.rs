@@ -42,7 +42,7 @@ pub fn normalize_url(url: &str) -> String {
         return url.to_string();
     }
 
-    let mut normalized = parsed.clone();
+    let mut normalized = parsed;
 
     // Force HTTPS
     if normalized.scheme() == "http" {

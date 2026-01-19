@@ -3,14 +3,13 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use once_cell::sync::Lazy;
 use regex::Regex;
 use tracing::debug;
 
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::ytdlp;
 
-static PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
     vec![
         Regex::new(r"^https?://(www\.)?reddit\.com/").unwrap(),
         Regex::new(r"^https?://old\.reddit\.com/").unwrap(),
@@ -23,14 +22,14 @@ static PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     ]
 });
 
-static SHORTLINK_PATTERN: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^https?://redd\.it/[a-zA-Z0-9]+$").unwrap());
+static SHORTLINK_PATTERN: std::sync::LazyLock<Regex> =
+    std::sync::LazyLock::new(|| Regex::new(r"^https?://redd\.it/[a-zA-Z0-9]+$").unwrap());
 
 pub struct RedditHandler;
 
 impl RedditHandler {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 }

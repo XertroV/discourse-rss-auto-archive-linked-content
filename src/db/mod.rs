@@ -51,7 +51,7 @@ impl Database {
 
     /// Get a reference to the connection pool.
     #[must_use]
-    pub fn pool(&self) -> &SqlitePool {
+    pub const fn pool(&self) -> &SqlitePool {
         &self.pool
     }
 }
