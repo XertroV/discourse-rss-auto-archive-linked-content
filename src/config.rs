@@ -109,6 +109,10 @@ pub struct Config {
     pub pdf_enabled: bool,
     pub pdf_paper_width: f64,
     pub pdf_paper_height: f64,
+
+    // Content Deduplication
+    pub dedup_enabled: bool,
+    pub dedup_similarity_threshold: u32,
 }
 
 /// Configuration file structure (all fields optional, loaded from TOML).
@@ -145,6 +149,8 @@ pub struct FileConfig {
     pub screenshot: ScreenshotCaptureConfig,
     #[serde(default)]
     pub pdf: PdfConfig,
+    #[serde(default)]
+    pub dedup: DedupConfig,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -266,6 +272,13 @@ pub struct PdfConfig {
     pub enabled: Option<bool>,
     pub paper_width: Option<f64>,
     pub paper_height: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct DedupConfig {
+    pub enabled: Option<bool>,
+    pub similarity_threshold: Option<u32>,
 }
 
 /// Log output format.
@@ -532,6 +545,13 @@ impl Config {
             pdf_paper_height: parse_env_f64(
                 "PDF_PAPER_HEIGHT",
                 fc.pdf.paper_height.unwrap_or(11.69),
+            )?,
+
+            // Content Deduplication
+            dedup_enabled: parse_env_bool("DEDUP_ENABLED", fc.dedup.enabled.unwrap_or(true))?,
+            dedup_similarity_threshold: parse_env_u32(
+                "DEDUP_SIMILARITY_THRESHOLD",
+                fc.dedup.similarity_threshold.unwrap_or(10),
             )?,
         })
     }
