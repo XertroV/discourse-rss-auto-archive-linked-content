@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
+use super::rate_limiter::DomainRateLimiter;
 use crate::config::Config;
 use crate::db::{
     get_failed_archives_for_retry, get_link, get_pending_archives, reset_archive_for_retry,
@@ -23,17 +24,20 @@ pub struct ArchiveWorker {
     db: Database,
     s3: S3Client,
     semaphore: Arc<Semaphore>,
+    domain_limiter: Arc<DomainRateLimiter>,
 }
 
 impl ArchiveWorker {
     /// Create a new archive worker.
     pub fn new(config: Config, db: Database, s3: S3Client) -> Self {
         let semaphore = Arc::new(Semaphore::new(config.worker_concurrency));
+        let domain_limiter = Arc::new(DomainRateLimiter::new(config.per_domain_concurrency));
         Self {
             config,
             db,
             s3,
             semaphore,
+            domain_limiter,
         }
     }
 
@@ -72,13 +76,27 @@ impl ArchiveWorker {
         let mut handles = Vec::new();
 
         for archive in pending {
+            // Get the link to determine domain for rate limiting
+            let link = match get_link(self.db.pool(), archive.link_id).await? {
+                Some(l) => l,
+                None => {
+                    warn!(archive_id = archive.id, "Link not found, skipping");
+                    continue;
+                }
+            };
+
+            let domain = link.domain.clone();
             let permit = self.semaphore.clone().acquire_owned().await?;
             let db = self.db.clone();
             let s3 = self.s3.clone();
             let config = self.config.clone();
+            let domain_limiter = Arc::clone(&self.domain_limiter);
 
             let handle = tokio::spawn(async move {
-                let _permit = permit;
+                let _global_permit = permit;
+                // Acquire domain-specific permit
+                let _domain_permit = domain_limiter.acquire(&domain).await;
+                debug!(archive_id = archive.id, domain = %domain, "Acquired domain permit");
                 process_archive(&db, &s3, &config, archive.id, archive.link_id).await
             });
 

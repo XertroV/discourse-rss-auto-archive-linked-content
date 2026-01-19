@@ -36,12 +36,12 @@ async fn run() -> Result<()> {
     // Ensure data directories exist
     tokio::fs::create_dir_all(&config.work_dir)
         .await
-        .with_context(|| format!("Failed to create work directory: {:?}", config.work_dir))?;
+        .with_context(|| format!("Failed to create work directory: {}", config.work_dir.display()))?;
 
     if let Some(parent) = config.database_path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
-            .with_context(|| format!("Failed to create database directory: {parent:?}"))?;
+            .with_context(|| format!("Failed to create database directory: {}", parent.display()))?;
     }
 
     // Initialize database
@@ -108,11 +108,26 @@ fn init_tracing() -> Result<()> {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,discourse_link_archiver=debug"));
 
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(tracing_subscriber::fmt::layer())
-        .try_init()
-        .map_err(|e| anyhow::anyhow!("Failed to initialize tracing: {e}"))?;
+    // Check if JSON logging is requested
+    let use_json = std::env::var("LOG_FORMAT")
+        .map(|v| matches!(v.to_lowercase().as_str(), "json" | "structured"))
+        .unwrap_or(false);
+
+    if use_json {
+        // Structured JSON logging for production
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(tracing_subscriber::fmt::layer().json())
+            .try_init()
+            .map_err(|e| anyhow::anyhow!("Failed to initialize tracing: {e}"))?;
+    } else {
+        // Pretty-printed logging for development
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(tracing_subscriber::fmt::layer())
+            .try_init()
+            .map_err(|e| anyhow::anyhow!("Failed to initialize tracing: {e}"))?;
+    }
 
     Ok(())
 }

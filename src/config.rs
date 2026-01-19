@@ -60,6 +60,19 @@ pub struct Config {
     pub backup_enabled: bool,
     pub backup_interval_hours: u64,
     pub backup_retention_count: usize,
+
+    // Logging
+    pub log_format: LogFormat,
+}
+
+/// Log output format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogFormat {
+    /// Pretty-printed human-readable logs (default)
+    #[default]
+    Pretty,
+    /// Structured JSON logs for production
+    Json,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,6 +129,9 @@ impl Config {
             backup_enabled: parse_env_bool("BACKUP_ENABLED", true)?,
             backup_interval_hours: parse_env_u64("BACKUP_INTERVAL_HOURS", 24)?,
             backup_retention_count: parse_env_usize("BACKUP_RETENTION_COUNT", 30)?,
+
+            // Logging
+            log_format: parse_log_format(&env_or_default("LOG_FORMAT", "pretty"))?,
         })
     }
 
@@ -229,6 +245,17 @@ fn parse_archive_mode(value: &str) -> Result<ArchiveMode, ConfigError> {
         _ => Err(ConfigError::InvalidValue {
             name: "ARCHIVE_MODE".to_string(),
             message: format!("must be 'deletable' or 'all', got '{value}'"),
+        }),
+    }
+}
+
+fn parse_log_format(value: &str) -> Result<LogFormat, ConfigError> {
+    match value.to_lowercase().as_str() {
+        "pretty" | "text" | "human" => Ok(LogFormat::Pretty),
+        "json" | "structured" => Ok(LogFormat::Json),
+        _ => Err(ConfigError::InvalidValue {
+            name: "LOG_FORMAT".to_string(),
+            message: format!("must be 'pretty' or 'json', got '{value}'"),
         }),
     }
 }
