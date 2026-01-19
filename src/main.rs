@@ -109,7 +109,7 @@ async fn run() -> Result<()> {
     // Start archive worker in background
     let worker_config = config.clone();
     let worker_db = db.clone();
-    let worker_s3 = s3_client;
+    let worker_s3 = s3_client.clone();
     let worker_ipfs = ipfs_client;
     let worker = ArchiveWorker::new(worker_config, worker_db, worker_s3, worker_ipfs);
 
@@ -126,8 +126,9 @@ async fn run() -> Result<()> {
     // Start web server in background
     let web_config = config.clone();
     let web_db = db.clone();
+    let web_s3 = s3_client;
     let web_handle = tokio::spawn(async move {
-        if let Err(e) = web::serve(web_config, web_db).await {
+        if let Err(e) = web::serve(web_config, web_db, web_s3).await {
             error!("Web server error: {e:#}");
         }
     });

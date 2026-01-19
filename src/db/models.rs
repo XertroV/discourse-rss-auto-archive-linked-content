@@ -177,6 +177,10 @@ pub struct ArchiveArtifact {
     pub size_bytes: Option<i64>,
     pub sha256: Option<String>,
     pub created_at: String,
+    /// Perceptual hash for image/video content (for deduplication)
+    pub perceptual_hash: Option<String>,
+    /// If this artifact is a duplicate, points to the original artifact
+    pub duplicate_of_artifact_id: Option<i64>,
 }
 
 /// Data for inserting a new post.

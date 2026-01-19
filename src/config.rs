@@ -600,7 +600,10 @@ impl Config {
             if cookies_path.is_dir() {
                 return Err(ConfigError::InvalidValue {
                     name: "cookies_file_path".to_string(),
-                    message: format!("Cookies path is a directory, not a file: {}", cookies_path.display()),
+                    message: format!(
+                        "Cookies path is a directory, not a file: {}",
+                        cookies_path.display()
+                    ),
                 });
             }
         }

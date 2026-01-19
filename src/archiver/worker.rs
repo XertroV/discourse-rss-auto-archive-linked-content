@@ -276,7 +276,12 @@ fn inject_archive_banner(html: &str, banner: &str) -> String {
         // No body tag, inject at start of document
         // Try to find </head> or <html> to inject after
         if let Some(head_end_pos) = html.find("</head>") {
-            format!("{}{}{}", &html[..head_end_pos + 7], banner, &html[head_end_pos + 7..])
+            format!(
+                "{}{}{}",
+                &html[..head_end_pos + 7],
+                banner,
+                &html[head_end_pos + 7..]
+            )
         } else if let Some(html_pos) = html.find("<html") {
             // Find end of opening html tag
             let html_end = if let Some(close_pos) = html[html_pos..].find('>') {
@@ -354,7 +359,17 @@ async fn process_archive_inner(
 
             // If this is an HTML file (raw.html), create view.html with archive banner
             if primary == "raw.html" {
-                match create_view_html(db, archive_id, link_id, &local_path, &work_dir, s3, &s3_prefix).await {
+                match create_view_html(
+                    db,
+                    archive_id,
+                    link_id,
+                    &local_path,
+                    &work_dir,
+                    s3,
+                    &s3_prefix,
+                )
+                .await
+                {
                     Ok(_) => {
                         debug!(archive_id, "Created view.html with archive banner");
                     }

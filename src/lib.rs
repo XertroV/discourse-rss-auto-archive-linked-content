@@ -34,6 +34,7 @@ pub mod backup;
 pub mod config;
 pub mod constants;
 pub mod db;
+pub mod dedup;
 pub mod handlers;
 pub mod ipfs;
 pub mod rss;
