@@ -128,9 +128,8 @@ fn maybe_adjust_chromium_user_data_dir_spec(spec: &str) -> String {
 
     // Chromium stores cookies DB either directly in the profile dir as `Cookies`,
     // or in `Network/Cookies` for newer versions.
-    let cookies_db_present = |dir: &Path| {
-        dir.join("Cookies").is_file() || dir.join("Network").join("Cookies").is_file()
-    };
+    let cookies_db_present =
+        |dir: &Path| dir.join("Cookies").is_file() || dir.join("Network").join("Cookies").is_file();
 
     if cookies_db_present(profile_path) {
         return spec.to_string();
