@@ -33,6 +33,7 @@ pub fn router() -> Router<AppState> {
         .route("/site/:site", get(site_list))
         .route("/stats", get(stats))
         .route("/healthz", get(health))
+        .route("/favicon.ico", get(favicon))
         .route("/feed.rss", get(feed_rss))
         .route("/feed.atom", get(feed_atom))
         .route("/api/archives", get(api_archives))
@@ -261,6 +262,17 @@ async fn stats(State(state): State<AppState>) -> Response {
 
 async fn health() -> &'static str {
     "OK"
+}
+
+async fn favicon() -> Response {
+    // Return a simple SVG favicon (box emoji)
+    let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📦</text></svg>"#;
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "image/svg+xml")],
+        svg,
+    )
+        .into_response()
 }
 
 // ========== Submission Routes ==========

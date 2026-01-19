@@ -63,6 +63,9 @@ WORKDIR /app
 # Copy binary from builder stage
 COPY --from=builder /usr/local/bin/discourse-link-archiver /usr/local/bin/
 
+# Copy static files directory
+COPY --chown=archiver:archiver static ./static
+
 # Create data directories (including ACME certificate cache)
 RUN mkdir -p /app/data/tmp /app/data/acme_cache && chown -R archiver:archiver /app
 

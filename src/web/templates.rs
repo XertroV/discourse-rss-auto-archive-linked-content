@@ -12,6 +12,7 @@ fn base_layout(title: &str, content: &str) -> String {
     <meta name="color-scheme" content="light dark">
     <title>{title} - Discourse Link Archiver</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>">
     <link rel="alternate" type="application/rss+xml" title="Archive RSS Feed" href="/feed.rss">
     <link rel="alternate" type="application/atom+xml" title="Archive Atom Feed" href="/feed.atom">
     <style>
@@ -28,9 +29,19 @@ fn base_layout(title: &str, content: &str) -> String {
                 document.documentElement.setAttribute('data-theme', 'dark');
             }}
             // NSFW preference - default to hidden
-            var nsfwEnabled = localStorage.getItem('nsfw_enabled') === 'true';
-            if (!nsfwEnabled) {{
-                document.body.classList.add('nsfw-hidden');
+            // Wait for DOM to be ready before accessing body
+            if (document.body) {{
+                var nsfwEnabled = localStorage.getItem('nsfw_enabled') === 'true';
+                if (!nsfwEnabled) {{
+                    document.body.classList.add('nsfw-hidden');
+                }}
+            }} else {{
+                document.addEventListener('DOMContentLoaded', function() {{
+                    var nsfwEnabled = localStorage.getItem('nsfw_enabled') === 'true';
+                    if (!nsfwEnabled) {{
+                        document.body.classList.add('nsfw-hidden');
+                    }}
+                }});
             }}
         }})();
     </script>
