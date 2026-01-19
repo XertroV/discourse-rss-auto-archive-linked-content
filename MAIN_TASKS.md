@@ -207,12 +207,12 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Install yt-dlp, gallery-dl, ffmpeg in image
 - [x] Create docker-compose.yml
 - [x] Add MinIO service for local testing
-- [ ] Document Docker deployment
+- [x] Document Docker deployment
 
 ### Native Linux
 - [x] Create install_dependencies.sh script
 - [x] Create systemd service file
-- [ ] Document manual installation steps
+- [x] Document manual installation steps
 
 ### Configuration
 - [ ] Create config.example.toml
@@ -224,9 +224,9 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [ ] Achieve >80% code coverage on core logic
 - [ ] Run load testing on web UI
 - [ ] Profile memory usage during archive processing
-- [ ] Fix any clippy warnings
+- [x] Fix any clippy warnings
 - [ ] Ensure all public APIs are documented
-- [ ] Update README with final instructions
+- [x] Update README with final instructions
 
 ---
 
