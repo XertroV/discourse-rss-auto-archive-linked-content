@@ -19,7 +19,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 
 ### Configuration
 - [x] Implement config loading from environment variables
-- [ ] Add config.toml file support as alternative
+- [x] Add config.toml file support as alternative
 - [x] Validate configuration on startup
 - [x] Write unit tests for config parsing
 
@@ -48,7 +48,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Implement polling loop with configurable interval
 - [x] Add adaptive polling (decay interval when no new content)
 - [x] Write unit tests for RSS parsing
-- [ ] Write integration test for poll cycle
+- [x] Write integration test for poll cycle
 
 ### Link Extraction
 - [x] Parse HTML with scraper crate
@@ -197,7 +197,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 
 ### Integration Tests
 - [x] Test all routes return expected status codes
-- [ ] Test search returns relevant results
+- [x] Test search returns relevant results
 - [ ] Test pagination works correctly
 
 ## Phase 8: Deployment
@@ -215,7 +215,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Document manual installation steps
 
 ### Configuration
-- [ ] Create config.example.toml
+- [x] Create config.example.toml
 - [x] Document all environment variables
 - [x] Add validation for required config
 

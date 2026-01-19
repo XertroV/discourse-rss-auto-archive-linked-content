@@ -1,0 +1,107 @@
+# Discourse Link Archiver Configuration
+# Copy this file to config.toml and customize for your deployment.
+# Environment variables take precedence over values in this file.
+
+[rss]
+# URL to the Discourse RSS feed (required)
+url = "https://forum.example.com/posts.rss"
+# How often to poll the RSS feed (seconds)
+poll_interval_secs = 60
+# How long to cache feed entries (seconds)
+cache_window_secs = 3600
+
+[database]
+# Path to SQLite database file
+path = "./data/archive.sqlite"
+
+[s3]
+# S3 bucket name (required)
+bucket = "my-archive-bucket"
+# S3 region
+region = "us-east-1"
+# S3-compatible endpoint (optional, for MinIO, R2, etc.)
+# endpoint = "http://localhost:9000"
+# Prefix for S3 keys
+prefix = "archives/"
+
+[workers]
+# Number of concurrent archive workers
+concurrency = 4
+# Max concurrent requests per domain
+per_domain_concurrency = 1
+# Temporary working directory for downloads
+work_dir = "./data/tmp"
+# Path to yt-dlp executable
+yt_dlp_path = "yt-dlp"
+# Path to gallery-dl executable
+gallery_dl_path = "gallery-dl"
+# Path to cookies.txt file for authenticated downloads (optional)
+# cookies_file_path = "./cookies.txt"
+
+[archive]
+# Archive mode: "deletable" (only archive sites known for deleting content) or "all"
+mode = "deletable"
+# Whether to archive links that only appear in quotes
+quote_only_links = false
+
+[web]
+# Web server host
+host = "0.0.0.0"
+# Web server port
+port = 8080
+
+[tls]
+# Enable automatic HTTPS with Let's Encrypt
+enabled = false
+# Domain names for TLS certificate
+domains = ["archive.example.com"]
+# Contact email for Let's Encrypt notifications (recommended)
+contact_email = "admin@example.com"
+# Directory to cache ACME certificates
+cache_dir = "./data/acme_cache"
+# Use Let's Encrypt staging environment for testing
+use_staging = false
+# HTTPS port
+https_port = 443
+
+[wayback]
+# Enable Wayback Machine submissions
+enabled = true
+# Maximum submissions per minute
+rate_limit_per_min = 5
+
+[archive_today]
+# Enable archive.today submissions
+enabled = false
+# Maximum submissions per minute
+rate_limit_per_min = 3
+
+[backup]
+# Enable automatic database backups to S3
+enabled = true
+# Backup interval in hours
+interval_hours = 24
+# Number of backups to retain
+retention_count = 30
+
+[logging]
+# Log format: "pretty" or "json"
+format = "pretty"
+
+[ipfs]
+# Enable IPFS pinning
+enabled = false
+# IPFS daemon API URL
+api_url = "http://127.0.0.1:5001"
+# IPFS gateway URLs for public access
+gateway_urls = [
+    "https://ipfs.io/ipfs/",
+    "https://cloudflare-ipfs.com/ipfs/",
+    "https://dweb.link/ipfs/"
+]
+
+[submission]
+# Enable manual URL submission form
+enabled = true
+# Maximum submissions per hour per IP address
+rate_limit_per_hour = 60
