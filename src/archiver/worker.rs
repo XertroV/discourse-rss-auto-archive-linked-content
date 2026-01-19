@@ -304,7 +304,7 @@ async fn create_view_html(
 
     // Upload view.html to S3
     let view_key = format!("{s3_prefix}media/view.html");
-    s3.upload_file(&view_html_path, &view_key)
+    s3.upload_file(&view_html_path, &view_key, Some(archive_id))
         .await
         .context("Failed to upload view.html")?;
 
@@ -512,7 +512,7 @@ async fn process_archive_inner(
 
             // Upload to S3 only if not a duplicate
             if duplicate_of.is_none() {
-                s3.upload_file(&local_path, &key).await?;
+                s3.upload_file(&local_path, &key, Some(archive_id)).await?;
                 primary_key = Some(key.clone());
                 primary_local_path = Some(local_path.clone());
             }
@@ -649,7 +649,7 @@ async fn process_archive_inner(
 
             // Upload only if not a duplicate
             if duplicate_of.is_none() {
-                s3.upload_file(&local_path, &key).await?;
+                s3.upload_file(&local_path, &key, Some(archive_id)).await?;
                 thumb_key = Some(key.clone());
             }
 
@@ -706,7 +706,7 @@ async fn process_archive_inner(
                 .first_or_octet_stream()
                 .to_string();
 
-            if let Err(e) = s3.upload_file(&local_path, &key).await {
+            if let Err(e) = s3.upload_file(&local_path, &key, Some(archive_id)).await {
                 warn!(archive_id, file = %extra_file, error = %e, "Failed to upload extra file");
                 continue;
             }

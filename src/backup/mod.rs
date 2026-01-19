@@ -101,7 +101,7 @@ impl BackupManager {
         // Step 3: Upload to S3
         let s3_key = format!("{}{}", self.s3_prefix, backup_name);
         self.s3_client
-            .upload_file(&compressed_path, &s3_key)
+            .upload_file(&compressed_path, &s3_key, None)
             .await
             .context("S3 upload failed")?;
 

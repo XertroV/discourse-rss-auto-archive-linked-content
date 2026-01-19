@@ -59,7 +59,12 @@ impl S3Client {
     /// # Errors
     ///
     /// Returns an error if the upload fails.
-    pub async fn upload_file(&self, local_path: &Path, s3_key: &str) -> Result<()> {
+    pub async fn upload_file(
+        &self,
+        local_path: &Path,
+        s3_key: &str,
+        archive_id: Option<i64>,
+    ) -> Result<()> {
         let content = tokio::fs::read(local_path)
             .await
             .context("Failed to read file for upload")?;
@@ -68,7 +73,7 @@ impl S3Client {
             .first_or_octet_stream()
             .to_string();
 
-        debug!(key = %s3_key, content_type = %content_type, "Uploading file to S3");
+        debug!(archive_id, key = %s3_key, content_type = %content_type, "Uploading file to S3");
 
         self.bucket
             .put_object_with_content_type(s3_key, &content, &content_type)
