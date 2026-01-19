@@ -74,6 +74,34 @@ impl SiteHandler for GenericHandler {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("text/html");
 
+        // Handle PDF files - download directly without processing
+        if content_type.contains("application/pdf") {
+            let pdf_bytes = response.bytes().await.context("Failed to read PDF data")?;
+
+            // Extract filename from URL for title
+            let filename = url
+                .split('/')
+                .last()
+                .unwrap_or("document.pdf")
+                .split('?')
+                .next()
+                .unwrap_or("document.pdf")
+                .to_string();
+
+            // Save PDF file
+            let pdf_path = work_dir.join(&filename);
+            tokio::fs::write(&pdf_path, &pdf_bytes)
+                .await
+                .context("Failed to write PDF file")?;
+
+            return Ok(ArchiveResult {
+                title: Some(filename.clone()),
+                content_type: "pdf".to_string(),
+                primary_file: Some(filename),
+                ..Default::default()
+            });
+        }
+
         // Only process HTML content
         if !content_type.contains("text/html") {
             return Ok(ArchiveResult {
