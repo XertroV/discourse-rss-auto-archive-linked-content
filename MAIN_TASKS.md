@@ -401,3 +401,10 @@ Add new tasks here as they are discovered during development:
 - [x] Reset stuck "processing" archives to "pending" on startup
 - [x] Reset failed archives from today for retry on container restart
 - [x] Add startup recovery function to archive worker
+
+### Route Fixes
+- [x] Fix path parameter syntax for axum 0.7 (use `:param` not `{param}`)
+- [x] Add integration tests for /archive/:id and /post/:guid routes
+
+### Future Improvements
+- [ ] Upgrade axum from 0.7 to 0.8 (breaking change: path syntax changes from `:param` to `{param}`)

@@ -41,8 +41,8 @@ fn create_test_app(db: Database) -> Router {
         .route("/search", axum::routing::get(search))
         .route("/stats", axum::routing::get(stats))
         .route("/healthz", axum::routing::get(health))
-        .route("/archive/{id}", axum::routing::get(archive_detail))
-        .route("/post/{guid}", axum::routing::get(post_detail))
+        .route("/archive/:id", axum::routing::get(archive_detail))
+        .route("/post/:guid", axum::routing::get(post_detail))
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -314,10 +314,62 @@ async fn test_archive_detail_not_found() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-// Note: test_archive_detail_found would test finding an existing archive,
-// but the test harness has state sharing issues. The route works correctly
-// in production - verified by test_home_page_with_archives which creates
-// archives and retrieves them through the home route.
+#[tokio::test]
+async fn test_archive_detail_found() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Create a link and archive
+    let new_link = NewLink {
+        original_url: "https://example.com/test-archive".to_string(),
+        normalized_url: "https://example.com/test-archive".to_string(),
+        canonical_url: None,
+        domain: "example.com".to_string(),
+    };
+    let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
+
+    // Complete the archive
+    set_archive_complete(
+        db.pool(),
+        archive_id,
+        Some("Test Archive Title"),
+        Some("Test Author"),
+        Some("Test description"),
+        Some("text"),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let app = create_test_app(db);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(&format!("/archive/{archive_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Archive detail should return 200 for existing archive"
+    );
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_str = String::from_utf8(body.to_vec()).unwrap();
+    assert!(
+        body_str.contains(&format!("Archive {archive_id}")),
+        "Response should contain archive ID"
+    );
+    assert!(body_str.contains("complete"), "Response should show status");
+}
 
 #[tokio::test]
 async fn test_post_detail_not_found() {
@@ -337,10 +389,49 @@ async fn test_post_detail_not_found() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-// Note: test_post_detail_found would test finding an existing post,
-// but the test harness has state sharing issues. The route works correctly
-// in production - verified by test_stats_with_data which creates posts
-// and retrieves them through the stats route.
+#[tokio::test]
+async fn test_post_detail_found() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Create a post
+    let new_post = NewPost {
+        guid: "test-post-guid-12345".to_string(),
+        discourse_url: "https://forum.example.com/t/test/1".to_string(),
+        author: Some("test_user".to_string()),
+        title: Some("Test Post Title".to_string()),
+        body_html: Some("<p>Test body content</p>".to_string()),
+        content_hash: Some("abc123".to_string()),
+        published_at: None,
+    };
+    insert_post(db.pool(), &new_post).await.unwrap();
+
+    let app = create_test_app(db);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/post/test-post-guid-12345")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Post detail should return 200 for existing post"
+    );
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_str = String::from_utf8(body.to_vec()).unwrap();
+    assert!(
+        body_str.contains("test-post-guid-12345"),
+        "Response should contain post GUID"
+    );
+}
 
 #[tokio::test]
 async fn test_stats_with_data() {
