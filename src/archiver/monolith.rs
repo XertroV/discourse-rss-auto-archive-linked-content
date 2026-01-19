@@ -123,24 +123,44 @@ pub async fn create_complete_html(
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
 
-        let stdout_trim = stdout.trim();
-        let stderr_trim = stderr.trim();
+        // Limit output size for logging but preserve as much error context as possible
+        // Max 2000 chars per stream to avoid excessive log spam while keeping useful details
+        const MAX_OUTPUT_LEN: usize = 2000;
+        let stdout_trimmed = if stdout.len() > MAX_OUTPUT_LEN {
+            format!(
+                "{}...[truncated {} more chars]",
+                &stdout[..MAX_OUTPUT_LEN],
+                stdout.len() - MAX_OUTPUT_LEN
+            )
+        } else {
+            stdout.trim().to_string()
+        };
+        let stderr_trimmed = if stderr.len() > MAX_OUTPUT_LEN {
+            format!(
+                "{}...[truncated {} more chars]",
+                &stderr[..MAX_OUTPUT_LEN],
+                stderr.len() - MAX_OUTPUT_LEN
+            )
+        } else {
+            stderr.trim().to_string()
+        };
 
         // Log warning but don't fail - monolith can fail on some pages but still produce useful output
         if !output_path.exists() {
             anyhow::bail!(
-                "Monolith failed with exit code {:?}. stderr: {} stdout: {}",
+                "Monolith failed with exit code {:?}.\nInput: {}\nStderr:\n{}\nStdout:\n{}",
                 output.status.code(),
-                stderr_trim,
-                stdout_trim
+                input,
+                stderr_trimmed,
+                stdout_trimmed
             );
         }
         warn!(
             input = %input,
             exit_code = ?output.status.code(),
-            stderr = %stderr_trim,
-            stdout = %stdout_trim,
-            "Monolith completed with warnings"
+            stderr = %stderr_trimmed,
+            stdout = %stdout_trimmed,
+            "Monolith completed with warnings but produced output file"
         );
     }
 
