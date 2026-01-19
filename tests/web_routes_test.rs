@@ -42,6 +42,7 @@ fn create_test_app(db: Database) -> Router {
         .route("/stats", axum::routing::get(stats))
         .route("/healthz", axum::routing::get(health))
         .route("/archive/:id", axum::routing::get(archive_detail))
+        .route("/archive/:id/rearchive", axum::routing::post(rearchive))
         .route("/post/:guid", axum::routing::get(post_detail))
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
@@ -147,6 +148,45 @@ async fn archive_detail(
     axum::response::Html(html).into_response()
 }
 
+/// Handler for re-archiving an archive (POST /archive/:id/rearchive).
+///
+/// Mirrors the real web route behavior: resets the archive to pending state.
+async fn rearchive(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    use discourse_link_archiver::db::{get_archive, reset_archive_for_rearchive};
+
+    let archive = match get_archive(state.db.pool(), id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, "Archive not found").into_response();
+        }
+        Err(_) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    if archive.status == "processing" {
+        return (
+            StatusCode::CONFLICT,
+            "Archive is currently being processed. Please wait.",
+        )
+            .into_response();
+    }
+
+    if let Err(_) = reset_archive_for_rearchive(state.db.pool(), id).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to reset archive",
+        )
+            .into_response();
+    }
+
+    axum::response::Redirect::to(&format!("/archive/{id}")).into_response()
+}
+
 async fn post_detail(
     axum::extract::State(state): axum::extract::State<AppState>,
     axum::extract::Path(guid): axum::extract::Path<String>,
@@ -178,6 +218,50 @@ async fn setup_db() -> (Database, TempDir) {
         .await
         .expect("Failed to create database");
     (db, temp_dir)
+}
+
+#[tokio::test]
+async fn test_rearchive_failed_archive_with_no_artifacts() {
+    use discourse_link_archiver::db::{get_archive, set_archive_failed};
+
+    let (db, _temp_dir) = setup_db().await;
+
+    // Create a link + archive with a failed status (no artifacts inserted)
+    let new_link = NewLink {
+        original_url: "https://reddit.com/r/test/comments/abc123/test".to_string(),
+        normalized_url: "https://reddit.com/r/test/comments/abc123/test".to_string(),
+        canonical_url: None,
+        domain: "reddit.com".to_string(),
+    };
+    let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
+    set_archive_failed(db.pool(), archive_id, "boom").await.unwrap();
+
+    let app = create_test_app(db.clone());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(&format!("/archive/{archive_id}/rearchive"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        response.status().is_redirection(),
+        "rearchive should redirect on success"
+    );
+
+    let updated = get_archive(db.pool(), archive_id)
+        .await
+        .unwrap()
+        .expect("archive should still exist");
+    assert_eq!(updated.status, "pending");
+    assert!(updated.error_message.is_none());
+    assert_eq!(updated.retry_count, 0);
 }
 
 #[tokio::test]

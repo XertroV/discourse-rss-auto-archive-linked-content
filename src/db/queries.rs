@@ -1356,10 +1356,15 @@ pub async fn delete_archive(pool: &SqlitePool, id: i64) -> Result<()> {
 /// attempts, and deletes associated artifacts. The archive will be processed
 /// fresh through the full pipeline (including redirect handling).
 pub async fn reset_archive_for_rearchive(pool: &SqlitePool, id: i64) -> Result<()> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("Failed to begin reset transaction")?;
+
     // Delete existing artifacts for this archive
     sqlx::query("DELETE FROM archive_artifacts WHERE archive_id = ?")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .context("Failed to delete artifacts")?;
 
@@ -1389,9 +1394,11 @@ pub async fn reset_archive_for_rearchive(pool: &SqlitePool, id: i64) -> Result<(
         ",
     )
     .bind(id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await
     .context("Failed to reset archive")?;
+
+    tx.commit().await.context("Failed to commit reset")?;
 
     Ok(())
 }
