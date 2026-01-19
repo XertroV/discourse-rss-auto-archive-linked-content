@@ -116,6 +116,26 @@ impl S3Client {
         }
     }
 
+    /// Get metadata for an S3 object (size, content-type).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the object does not exist or the request fails.
+    pub async fn get_object_metadata(&self, s3_key: &str) -> Result<(i64, String)> {
+        let (head, _) = self
+            .bucket
+            .head_object(s3_key)
+            .await
+            .context("Failed to get object metadata")?;
+
+        let size = head.content_length.unwrap_or(0);
+        let content_type = head
+            .content_type
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+
+        Ok((size, content_type))
+    }
+
     /// Get the public URL for an object.
     #[must_use]
     pub fn get_public_url(&self, s3_key: &str) -> String {

@@ -175,11 +175,9 @@ impl SiteHandler for RedditHandler {
 
         // Extract media URLs and final URL from HTML if successful
         let (html_content, media, final_url) = match &html_result {
-            Ok((html, media, final_url)) => (
-                Some(html.clone()),
-                Some(media.clone()),
-                final_url.clone(),
-            ),
+            Ok((html, media, final_url)) => {
+                (Some(html.clone()), Some(media.clone()), final_url.clone())
+            }
             Err(e) => {
                 warn!("Failed to fetch Reddit HTML: {e}");
                 (None, None, None)
@@ -427,8 +425,8 @@ async fn fetch_html_with_chromium_profile(
     // user-data-dir to a per-archive temp directory and run Chromium against the copy.
     let user_data_dir =
         clone_chromium_user_data_dir(work_dir, &source_user_data_dir, profile_dir.as_deref())
-        .await
-        .context("Failed to clone Chromium user-data-dir for Reddit HTML fetch")?;
+            .await
+            .context("Failed to clone Chromium user-data-dir for Reddit HTML fetch")?;
 
     let chrome_path =
         std::env::var("SCREENSHOT_CHROME_PATH").unwrap_or_else(|_| "chromium".to_string());

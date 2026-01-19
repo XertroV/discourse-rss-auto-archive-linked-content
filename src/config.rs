@@ -613,6 +613,7 @@ impl Config {
             cookies_from_browser: self.yt_dlp_cookies_from_browser.clone(),
             work_dir: self.work_dir.clone(),
             enabled: self.screenshot_enabled,
+            cookies_file_path: self.cookies_file_path.clone(),
         }
     }
 

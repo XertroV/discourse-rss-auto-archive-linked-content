@@ -9,10 +9,7 @@ use std::path::{Path, PathBuf};
 /// - `chromium+basictext:/path::container` (container suffix is ignored)
 #[must_use]
 pub fn chromium_user_data_and_profile_from_spec(spec: &str) -> (PathBuf, Option<String>) {
-    let path_part = spec
-        .split_once(':')
-        .map(|(_, rest)| rest)
-        .unwrap_or(spec);
+    let path_part = spec.split_once(':').map(|(_, rest)| rest).unwrap_or(spec);
 
     let profile_raw = path_part
         .split_once("::")
@@ -21,9 +18,8 @@ pub fn chromium_user_data_and_profile_from_spec(spec: &str) -> (PathBuf, Option<
 
     let p = PathBuf::from(profile_raw);
 
-    let cookies_db_present = |dir: &Path| {
-        dir.join("Cookies").is_file() || dir.join("Network").join("Cookies").is_file()
-    };
+    let cookies_db_present =
+        |dir: &Path| dir.join("Cookies").is_file() || dir.join("Network").join("Cookies").is_file();
 
     // If they point at a profile dir directly (Default/), use its parent as user-data-dir.
     if cookies_db_present(&p) {

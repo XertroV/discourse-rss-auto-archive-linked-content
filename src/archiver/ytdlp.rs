@@ -252,3 +252,103 @@ pub async fn is_available() -> bool {
         .map(|s| s.success())
         .unwrap_or(false)
 }
+
+/// Fetch metadata only without downloading the video.
+///
+/// This is useful when we already have the video file and just need the title/author info.
+/// Uses `yt-dlp --dump-single-json` to get metadata.
+pub async fn fetch_metadata_only(url: &str, cookies: &CookieOptions<'_>) -> Result<ArchiveResult> {
+    let mut args = vec![
+        "-4".to_string(),
+        "--no-playlist".to_string(),
+        "--dump-single-json".to_string(),
+        "--no-download".to_string(),
+        "--quiet".to_string(),
+    ];
+
+    // Prefer browser profile over cookies file (fresher cookies)
+    let mut cookie_method_used = false;
+
+    if let Some(spec) = cookies.browser_profile {
+        let spec = maybe_adjust_chromium_user_data_dir_spec(spec);
+        debug!(spec = %spec, "Using cookies from browser profile for metadata fetch");
+        args.push("--cookies-from-browser".to_string());
+        args.push(spec);
+        cookie_method_used = true;
+    }
+
+    if !cookie_method_used {
+        if let Some(cookies_path) = cookies.cookies_file {
+            if cookies_path.exists() && !cookies_path.is_dir() {
+                debug!(path = %cookies_path.display(), "Using cookies file for metadata fetch");
+                args.push("--cookies".to_string());
+                args.push(cookies_path.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    args.push(url.to_string());
+
+    debug!(url = %url, "Fetching metadata with yt-dlp");
+
+    let output = Command::new("yt-dlp")
+        .args(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("Failed to spawn yt-dlp for metadata")?
+        .wait_with_output()
+        .await
+        .context("Failed to wait for yt-dlp metadata fetch")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("yt-dlp metadata fetch failed: {stderr}");
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Parse the JSON output
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+        let title = json.get("title").and_then(|v| v.as_str()).map(String::from);
+        let author = json
+            .get("uploader")
+            .or_else(|| json.get("channel"))
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let text = json
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        // Extract NSFW status from age_limit field
+        let (is_nsfw, nsfw_source) =
+            if let Some(age_limit) = json.get("age_limit").and_then(serde_json::Value::as_i64) {
+                if age_limit >= 18 {
+                    (Some(true), Some("metadata".to_string()))
+                } else {
+                    (None, None)
+                }
+            } else {
+                (None, None)
+            };
+
+        Ok(ArchiveResult {
+            title,
+            author,
+            text,
+            content_type: "video".to_string(),
+            is_nsfw,
+            nsfw_source,
+            metadata_json: Some(stdout.to_string()),
+            ..Default::default()
+        })
+    } else {
+        // If JSON parsing fails, return a minimal result
+        warn!(url = %url, "Failed to parse yt-dlp metadata JSON");
+        Ok(ArchiveResult {
+            content_type: "video".to_string(),
+            ..Default::default()
+        })
+    }
+}

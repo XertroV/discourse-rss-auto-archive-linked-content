@@ -16,8 +16,8 @@ use crate::db::{
     count_archives_by_status, count_links, count_posts, count_submissions_from_ip_last_hour,
     create_pending_archive, delete_archive, get_archive, get_archive_by_link_id,
     get_archives_by_domain_display, get_archives_for_post_display, get_artifacts_for_archive,
-    get_link, get_link_by_normalized_url, get_link_occurrences_with_posts, get_post_by_guid,
-    get_queue_stats, get_recent_archives_display, get_recent_archives_filtered,
+    get_jobs_for_archive, get_link, get_link_by_normalized_url, get_link_occurrences_with_posts,
+    get_post_by_guid, get_queue_stats, get_recent_archives_display, get_recent_archives_filtered,
     get_recent_archives_with_filters, get_recent_failed_archives, insert_link, insert_submission,
     reset_archive_for_rearchive, reset_single_skipped_archive, reset_skipped_archives,
     search_archives_display, search_archives_filtered, submission_exists_for_url,
@@ -143,7 +143,15 @@ async fn archive_detail(State(state): State<AppState>, Path(id): Path<i64>) -> R
         }
     };
 
-    let html = templates::render_archive_detail(&archive, &link, &artifacts, &occurrences);
+    let jobs = match get_jobs_for_archive(state.db.pool(), archive.id).await {
+        Ok(j) => j,
+        Err(e) => {
+            tracing::error!("Failed to fetch archive jobs: {e}");
+            Vec::new()
+        }
+    };
+
+    let html = templates::render_archive_detail(&archive, &link, &artifacts, &occurrences, &jobs);
     Html(html).into_response()
 }
 

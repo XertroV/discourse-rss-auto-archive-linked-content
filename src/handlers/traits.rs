@@ -33,6 +33,8 @@ pub struct ArchiveResult {
     pub final_url: Option<String>,
     /// Video ID for content like YouTube (for predictable S3 paths).
     pub video_id: Option<String>,
+    /// HTTP status code from the original page fetch (200, 404, 401, etc.).
+    pub http_status_code: Option<u16>,
 }
 
 impl Default for ArchiveResult {
@@ -50,6 +52,7 @@ impl Default for ArchiveResult {
             nsfw_source: None,
             final_url: None,
             video_id: None,
+            http_status_code: None,
         }
     }
 }

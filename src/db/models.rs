@@ -127,6 +127,8 @@ pub struct Archive {
     pub next_retry_at: Option<String>,
     /// When the last archive attempt was made.
     pub last_attempt_at: Option<String>,
+    /// HTTP status code from the original page fetch (200, 404, 401, etc.).
+    pub http_status_code: Option<i32>,
 }
 
 impl Archive {
@@ -303,4 +305,148 @@ pub struct NewSubmission {
     pub url: String,
     pub normalized_url: String,
     pub submitted_by_ip: String,
+}
+
+/// Job type for archive jobs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArchiveJobType {
+    /// Fetch HTML content from the URL
+    FetchHtml,
+    /// Download video using yt-dlp
+    YtDlp,
+    /// Download images using gallery-dl
+    GalleryDl,
+    /// Capture screenshot
+    Screenshot,
+    /// Generate PDF
+    Pdf,
+    /// Generate MHTML
+    Mhtml,
+    /// Generate monolith HTML
+    Monolith,
+    /// Upload to S3
+    S3Upload,
+    /// Submit to Wayback Machine
+    Wayback,
+    /// Submit to Archive.today
+    ArchiveToday,
+    /// Pin to IPFS
+    Ipfs,
+}
+
+impl ArchiveJobType {
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::FetchHtml => "fetch_html",
+            Self::YtDlp => "yt_dlp",
+            Self::GalleryDl => "gallery_dl",
+            Self::Screenshot => "screenshot",
+            Self::Pdf => "pdf",
+            Self::Mhtml => "mhtml",
+            Self::Monolith => "monolith",
+            Self::S3Upload => "s3_upload",
+            Self::Wayback => "wayback",
+            Self::ArchiveToday => "archive_today",
+            Self::Ipfs => "ipfs",
+        }
+    }
+
+    #[must_use]
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "fetch_html" => Some(Self::FetchHtml),
+            "yt_dlp" => Some(Self::YtDlp),
+            "gallery_dl" => Some(Self::GalleryDl),
+            "screenshot" => Some(Self::Screenshot),
+            "pdf" => Some(Self::Pdf),
+            "mhtml" => Some(Self::Mhtml),
+            "monolith" => Some(Self::Monolith),
+            "s3_upload" => Some(Self::S3Upload),
+            "wayback" => Some(Self::Wayback),
+            "archive_today" => Some(Self::ArchiveToday),
+            "ipfs" => Some(Self::Ipfs),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn display_name(&self) -> &'static str {
+        match self {
+            Self::FetchHtml => "Fetch HTML",
+            Self::YtDlp => "Video Download (yt-dlp)",
+            Self::GalleryDl => "Gallery Download",
+            Self::Screenshot => "Screenshot",
+            Self::Pdf => "PDF Generation",
+            Self::Mhtml => "MHTML Archive",
+            Self::Monolith => "Monolith HTML",
+            Self::S3Upload => "S3 Upload",
+            Self::Wayback => "Wayback Machine",
+            Self::ArchiveToday => "Archive.today",
+            Self::Ipfs => "IPFS",
+        }
+    }
+}
+
+/// Job status for archive jobs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ArchiveJobStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Skipped,
+}
+
+impl ArchiveJobStatus {
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Skipped => "skipped",
+        }
+    }
+
+    #[must_use]
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "pending" => Some(Self::Pending),
+            "running" => Some(Self::Running),
+            "completed" => Some(Self::Completed),
+            "failed" => Some(Self::Failed),
+            "skipped" => Some(Self::Skipped),
+            _ => None,
+        }
+    }
+}
+
+/// A single job/step in the archiving process.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ArchiveJob {
+    pub id: i64,
+    pub archive_id: i64,
+    pub job_type: String,
+    pub status: String,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub error_message: Option<String>,
+    pub metadata: Option<String>,
+    pub created_at: String,
+}
+
+impl ArchiveJob {
+    #[must_use]
+    pub fn job_type_enum(&self) -> Option<ArchiveJobType> {
+        ArchiveJobType::from_str(&self.job_type)
+    }
+
+    #[must_use]
+    pub fn status_enum(&self) -> Option<ArchiveJobStatus> {
+        ArchiveJobStatus::from_str(&self.status)
+    }
 }
