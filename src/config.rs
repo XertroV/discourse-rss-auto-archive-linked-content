@@ -38,6 +38,7 @@ pub struct Config {
     pub rss_url: String,
     pub poll_interval: Duration,
     pub cache_window: Duration,
+    pub rss_max_pages: usize,
 
     // Database
     pub database_path: PathBuf,
@@ -176,6 +177,7 @@ pub struct RssConfig {
     pub url: Option<String>,
     pub poll_interval_secs: Option<u64>,
     pub cache_window_secs: Option<u64>,
+    pub max_pages: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -429,6 +431,7 @@ impl Config {
                 "CACHE_WINDOW_SECS",
                 fc.rss.cache_window_secs.unwrap_or(3600),
             )?),
+            rss_max_pages: parse_env_usize("RSS_MAX_PAGES", fc.rss.max_pages.unwrap_or(1))?,
 
             // Database
             database_path: PathBuf::from(get_string(
@@ -842,6 +845,7 @@ impl Config {
             rss_url: "https://example.com/posts.rss".to_string(),
             poll_interval: Duration::from_secs(60),
             cache_window: Duration::from_secs(3600),
+            rss_max_pages: 1,
             database_path: PathBuf::from("./test.db"),
             s3_bucket: "test-bucket".to_string(),
             s3_region: "us-east-1".to_string(),

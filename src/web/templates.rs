@@ -131,7 +131,10 @@ pub fn render_home(archives: &[ArchiveDisplay], recent_failed_count: usize) -> S
     )
 }
 
-pub fn render_recent_failed_archives(archives: &[ArchiveDisplay], recent_failed_count: usize) -> String {
+pub fn render_recent_failed_archives(
+    archives: &[ArchiveDisplay],
+    recent_failed_count: usize,
+) -> String {
     render_recent_archives_page(
         "Recent Failed Archives",
         "Failed Archives",
@@ -141,7 +144,10 @@ pub fn render_recent_failed_archives(archives: &[ArchiveDisplay], recent_failed_
     )
 }
 
-pub fn render_recent_all_archives(archives: &[ArchiveDisplay], recent_failed_count: usize) -> String {
+pub fn render_recent_all_archives(
+    archives: &[ArchiveDisplay],
+    recent_failed_count: usize,
+) -> String {
     render_recent_archives_page(
         "All Recent Archives",
         "All Archives",
@@ -206,7 +212,10 @@ fn render_recent_archives_page(
 ) -> String {
     let mut content = String::new();
     content.push_str(&format!("<h1>{}</h1>", html_escape(heading)));
-    content.push_str(&render_recent_archives_tabs(active_tab, recent_failed_count));
+    content.push_str(&render_recent_archives_tabs(
+        active_tab,
+        recent_failed_count,
+    ));
 
     if archives.is_empty() {
         content.push_str("<p>No archives yet.</p>");
@@ -575,7 +584,8 @@ pub fn render_archive_detail(
 
         // MHTML link
         if let Some(mhtml) = mhtml_artifact {
-            let download_name = suggested_download_filename(&link.domain, archive.id, &mhtml.s3_key);
+            let download_name =
+                suggested_download_filename(&link.domain, archive.id, &mhtml.s3_key);
             content.push_str(&format!(
                 r#"<div class="capture-item">
                     <h4>MHTML Archive</h4>
@@ -615,7 +625,8 @@ pub fn render_archive_detail(
                 .rsplit('/')
                 .next()
                 .unwrap_or(&artifact.s3_key);
-            let download_name = suggested_download_filename(&link.domain, archive.id, &artifact.s3_key);
+            let download_name =
+                suggested_download_filename(&link.domain, archive.id, &artifact.s3_key);
             let size_display = artifact
                 .size_bytes
                 .map_or_else(|| "Unknown".to_string(), format_bytes);
@@ -1022,7 +1033,7 @@ fn suggested_download_filename(domain: &str, archive_id: i64, s3_key: &str) -> S
 fn sanitize_filename_component(s: &str) -> String {
     s.chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' ) {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
                 c
             } else {
                 '_'

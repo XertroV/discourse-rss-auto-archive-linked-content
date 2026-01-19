@@ -61,8 +61,57 @@ pub async fn poll_loop(config: Config, db: Database) {
 ///
 /// Returns an error if the RSS feed cannot be fetched or parsed.
 pub async fn poll_once(client: &reqwest::Client, config: &Config, db: &Database) -> Result<usize> {
+    let mut total_new_count = 0;
+
+    // Fetch multiple pages if configured
+    for page in 0..config.rss_max_pages {
+        let page_new_count = fetch_and_process_page(client, config, db, page).await?;
+        total_new_count += page_new_count;
+
+        // If we got fewer new posts than expected, no need to fetch more pages
+        // (we've likely reached the end of new content)
+        if page_new_count == 0 {
+            debug!(page, "No new posts on this page, stopping pagination");
+            break;
+        }
+
+        // Add a small delay between pages to be polite
+        if page + 1 < config.rss_max_pages {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+
+    Ok(total_new_count)
+}
+
+/// Fetch and process a single page of the RSS feed.
+///
+/// # Errors
+///
+/// Returns an error if the RSS feed cannot be fetched or parsed.
+async fn fetch_and_process_page(
+    client: &reqwest::Client,
+    config: &Config,
+    db: &Database,
+    page: usize,
+) -> Result<usize> {
+    // Build URL with page parameter
+    let url = if page == 0 {
+        config.rss_url.clone()
+    } else {
+        // Add page parameter to URL
+        let separator = if config.rss_url.contains('?') {
+            "&"
+        } else {
+            "?"
+        };
+        format!("{}{separator}page={page}", config.rss_url)
+    };
+
+    trace!(url = %url, page, "Fetching RSS feed page");
+
     let response = client
-        .get(&config.rss_url)
+        .get(&url)
         .header("User-Agent", ARCHIVER_HONEST_USER_AGENT)
         .send()
         .await

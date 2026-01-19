@@ -67,10 +67,7 @@ async fn home(State(state): State<AppState>) -> Response {
         }
     };
 
-    let recent_failed_count = all_recent
-        .iter()
-        .filter(|a| a.status == "failed")
-        .count();
+    let recent_failed_count = all_recent.iter().filter(|a| a.status == "failed").count();
 
     // Home page: show pending + processing + complete, but not failed.
     // Skipped is intentionally excluded to keep the page focused.
@@ -92,10 +89,7 @@ async fn recent_failed_archives(State(state): State<AppState>) -> Response {
         }
     };
 
-    let recent_failed_count = all_recent
-        .iter()
-        .filter(|a| a.status == "failed")
-        .count();
+    let recent_failed_count = all_recent.iter().filter(|a| a.status == "failed").count();
 
     let failed: Vec<_> = all_recent
         .into_iter()
@@ -115,10 +109,7 @@ async fn recent_all_archives(State(state): State<AppState>) -> Response {
         }
     };
 
-    let recent_failed_count = all_recent
-        .iter()
-        .filter(|a| a.status == "failed")
-        .count();
+    let recent_failed_count = all_recent.iter().filter(|a| a.status == "failed").count();
 
     let html = templates::render_recent_all_archives(&all_recent, recent_failed_count);
     Html(html).into_response()
@@ -973,7 +964,7 @@ fn suggest_content_disposition_filename(s3_key: &str) -> Option<String> {
     name = name
         .chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' ) {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
                 c
             } else {
                 '_'
