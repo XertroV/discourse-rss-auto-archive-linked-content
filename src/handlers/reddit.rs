@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::process::Stdio;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -365,7 +366,8 @@ async fn fetch_html_with_chromium_profile(
     // Chromium will refuse to start if the same user-data-dir is in use (e.g. the cookie-browser
     // container is running and has the profile open). To avoid lock contention, copy the
     // user-data-dir to a per-archive temp directory and run Chromium against the copy.
-    let user_data_dir = clone_chromium_user_data_dir(work_dir, &source_user_data_dir)
+    let user_data_dir =
+        clone_chromium_user_data_dir(work_dir, &source_user_data_dir, profile_dir.as_deref())
         .await
         .context("Failed to clone Chromium user-data-dir for Reddit HTML fetch")?;
 
@@ -410,7 +412,11 @@ async fn fetch_html_with_chromium_profile(
     Ok(html.to_string())
 }
 
-async fn clone_chromium_user_data_dir(work_dir: &Path, source: &std::path::Path) -> Result<std::path::PathBuf> {
+async fn clone_chromium_user_data_dir(
+    work_dir: &Path,
+    source: &std::path::Path,
+    profile_dir: Option<&str>,
+) -> Result<std::path::PathBuf> {
     let dest = work_dir.join("chromium-user-data");
 
     // Clean up any previous attempt (best-effort). Work dirs are per-archive, but retries can
@@ -420,18 +426,39 @@ async fn clone_chromium_user_data_dir(work_dir: &Path, source: &std::path::Path)
         .await
         .context("Failed to create chromium-user-data dir")?;
 
-    // Use `cp -a` to preserve Chromium's expected directory layout and permissions.
-    // Copying from a read-only mount is fine; the destination must be writable.
-    let status = Command::new("cp")
+    // Prefer `cp -a` to preserve Chromium's expected layout.
+    // However, the shared cookie volume may contain files that are not readable by the
+    // archiver user (e.g. root-owned 0600). In that case `cp` fails early; we fall back to a
+    // best-effort copy that skips unreadable files.
+    let cp_output = Command::new("cp")
         .arg("-a")
         .arg(format!("{}/.", source.display()))
         .arg(&dest)
-        .status()
-        .await
-        .context("Failed to execute cp -a for Chromium profile copy")?;
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .await;
 
-    if !status.success() {
-        anyhow::bail!("cp -a failed with status: {status}");
+    match cp_output {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            warn!(
+                status = %output.status,
+                source = %source.display(),
+                stderr = %stderr.trim(),
+                "cp -a failed while cloning Chromium profile; falling back to best-effort copy"
+            );
+            copy_dir_best_effort(source, &dest).await?;
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                source = %source.display(),
+                "Failed to spawn cp -a for Chromium profile copy; falling back to best-effort copy"
+            );
+            copy_dir_best_effort(source, &dest).await?;
+        }
     }
 
     // Remove singleton lock/socket artifacts so Chromium doesn't think the copied profile is
@@ -440,7 +467,83 @@ async fn clone_chromium_user_data_dir(work_dir: &Path, source: &std::path::Path)
         let _ = tokio::fs::remove_file(dest.join(name)).await;
     }
 
+    // Validate that the clone contains the critical cookie materials.
+    // `Local State` (in user-data-dir root) is commonly required to decrypt cookies.
+    let local_state = dest.join("Local State");
+    if !local_state.is_file() {
+        anyhow::bail!(
+            "Cloned Chromium profile is missing 'Local State'. This usually means the shared cookies volume has restrictive permissions (root-owned 0600 files).\n\nFix (recommended):\n  docker compose --profile manual exec cookie-browser bash -lc 'chmod -R a+rX /cookies/chromium-profile'\n\nOr run cookie-browser as a non-root user that matches the archiver container UID/GID."
+        );
+    }
+
+    // Cookies DB must also be present and readable.
+    let profile_name = profile_dir.unwrap_or("Default");
+    let cookie_db_candidates = [
+        dest.join(profile_name).join("Cookies"),
+        dest.join(profile_name).join("Network").join("Cookies"),
+        dest.join("Default").join("Cookies"),
+        dest.join("Default").join("Network").join("Cookies"),
+    ];
+    let has_cookie_db = cookie_db_candidates.iter().any(|p| p.is_file());
+    if !has_cookie_db {
+        anyhow::bail!(
+            "Cloned Chromium profile does not contain a readable Cookies database. This usually means the shared cookies volume has restrictive permissions.\n\nFix (recommended):\n  docker compose --profile manual exec cookie-browser bash -lc 'chmod -R a+rX /cookies/chromium-profile'\n\nAlternative: use COOKIES_FILE_PATH with an exported Netscape cookies.txt."
+        );
+    }
+
     Ok(dest)
+}
+
+async fn copy_dir_best_effort(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
+    // Async recursion is not allowed without boxing; use an explicit stack.
+    let mut stack = vec![(src.to_path_buf(), dst.to_path_buf())];
+
+    while let Some((src_dir, dst_dir)) = stack.pop() {
+        tokio::fs::create_dir_all(&dst_dir)
+            .await
+            .context("Failed to create destination directory")?;
+
+        let mut entries = match tokio::fs::read_dir(&src_dir).await {
+            Ok(rd) => rd,
+            Err(e) => {
+                return Err(anyhow::Error::new(e)).context(format!(
+                    "Failed to read Chromium user-data-dir: {}",
+                    src_dir.display()
+                ));
+            }
+        };
+
+        while let Some(entry) = entries.next_entry().await? {
+            let src_path = entry.path();
+            let dst_path = dst_dir.join(entry.file_name());
+            let file_type = entry.file_type().await?;
+
+            if file_type.is_dir() {
+                stack.push((src_path, dst_path));
+                continue;
+            }
+
+            if file_type.is_file() {
+                match tokio::fs::copy(&src_path, &dst_path).await {
+                    Ok(_) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                        debug!(
+                            path = %src_path.display(),
+                            "Skipping unreadable Chromium profile file"
+                        );
+                    }
+                    Err(e) => {
+                        return Err(anyhow::Error::new(e)).context(format!(
+                            "Failed to copy Chromium profile file: {}",
+                            src_path.display()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn chromium_user_data_and_profile_from_spec(spec: &str) -> (std::path::PathBuf, Option<String>) {
