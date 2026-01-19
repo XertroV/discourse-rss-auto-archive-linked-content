@@ -426,7 +426,38 @@ Implemented:
 - [x] Screenshot capture (screenshot.png via headless Chrome)
 - [x] PDF generation (page.pdf via headless Chrome)
 
+### Video Archiving Improvements
+
+#### Stage 1: Safety Measures & Quality Selection (Complete)
+- [x] Add YOUTUBE_MAX_DURATION_SECONDS config (default: 60 minutes, configurable up to 3 hours)
+- [x] Add YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS config (default: 2 hours)
+- [x] Implement pre-flight metadata check before download (fetch duration without downloading)
+- [x] Add timeout wrapper around yt-dlp download to prevent hung workers
+- [x] Implement adaptive quality selection based on video characteristics:
+  - [x] Short videos (<10 min): native resolution if ≤1920x1080, else 1080p
+  - [x] Long videos with low bitrate (<500 KB/s, highly compressed): 1080p
+  - [x] Long videos with normal bitrate: 720p for storage efficiency
+- [x] Add config parameter to SiteHandler trait and update all handlers
+- [x] Update S3Client with copy_object method for deduplication (uses download+re-upload fallback until Stage 2)
+- [x] Document Stage 2 plan in STAGE2_STREAMING_UPLOAD.md
+
+#### Stage 2: Streaming Upload (Planned)
+See STAGE2_STREAMING_UPLOAD.md for full details:
+- [ ] Add aws-sdk-s3 dependency for multipart upload support
+- [ ] Implement multipart streaming upload (5MB chunks) to eliminate memory constraints
+- [ ] Add server-side S3 copy using aws-sdk-s3 CopyObject operation
+- [ ] Enable support for unlimited video lengths (no memory limit)
+- [ ] Add progress tracking for large file uploads
+- [ ] Test with MinIO, Cloudflare R2, and AWS S3
+- [ ] Keep rust-s3 for simple operations or remove after migration
+
 ### Future Improvements
+- [ ] Replace video file duplication with database-backed reference system:
+  - [ ] Store one copy in S3 at archive path (e.g., archives/123/media/video.mp4)
+  - [ ] Add video_id → S3 path mapping table in database
+  - [ ] Look up existing S3 path when duplicate video_id encountered
+  - [ ] Eliminate redundant storage on S3 (like a symlink/hardlink system)
+- [ ] Request largest RSS feed size via GET parameters
 - [ ] Upgrade axum from 0.7 to 0.8 (breaking change: path syntax changes from `:param` to `{param}`)
 - [x] Archive failed log messages should include domain (e.g., `domain=old.reddit.com`) similar to `archive_id`
 

@@ -560,7 +560,7 @@ async fn process_archive_inner(
             browser_profile: config.yt_dlp_cookies_from_browser.as_deref(),
         };
         let result = handler
-            .archive(&link.normalized_url, &work_dir, &cookies)
+            .archive(&link.normalized_url, &work_dir, &cookies, config)
             .await
             .context("Handler archive failed")?;
         (result, false)
@@ -1200,10 +1200,8 @@ async fn copy_video_to_predictable_path(
         return Ok(target_key);
     }
 
-    // Download from source and re-upload to target
-    // (S3 copy requires bucket policy, so we do download + upload for compatibility)
-    let (data, content_type) = s3.download_file(source_key).await?;
-    s3.upload_bytes(&data, &target_key, &content_type).await?;
+    // Use S3 server-side copy (more efficient than download + re-upload)
+    s3.copy_object(source_key, &target_key).await?;
 
     info!(
         video_id = %video_id,

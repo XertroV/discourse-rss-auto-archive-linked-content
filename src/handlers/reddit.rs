@@ -154,10 +154,11 @@ impl SiteHandler for RedditHandler {
         url: &str,
         work_dir: &Path,
         cookies: &CookieOptions<'_>,
+        config: &crate::config::Config,
     ) -> Result<ArchiveResult> {
         // Check if this is a direct media URL (i.redd.it, v.redd.it, preview.redd.it)
         if is_direct_media_url(url) {
-            return archive_direct_media(url, work_dir, cookies).await;
+            return archive_direct_media(url, work_dir, cookies, config).await;
         }
 
         // Resolve redd.it shortlinks first
@@ -208,7 +209,7 @@ impl SiteHandler for RedditHandler {
             .unwrap_or(false);
         let ytdlp_result = if has_video {
             debug!(url = %archive_url, "Running yt-dlp for detected Reddit video");
-            match ytdlp::download(archive_url, work_dir, cookies).await {
+            match ytdlp::download(archive_url, work_dir, cookies, config).await {
                 Ok(result) => Some(result),
                 Err(e) => {
                     debug!("yt-dlp failed for Reddit video: {e}");
@@ -939,11 +940,12 @@ async fn archive_direct_media(
     url: &str,
     work_dir: &Path,
     cookies: &CookieOptions<'_>,
+    config: &crate::config::Config,
 ) -> Result<ArchiveResult> {
     // For v.redd.it videos, use yt-dlp
     if url.contains("://v.redd.it/") {
         debug!(url = %url, "Downloading v.redd.it video via yt-dlp");
-        return ytdlp::download(url, work_dir, cookies).await;
+        return ytdlp::download(url, work_dir, cookies, config).await;
     }
 
     // For i.redd.it and preview.redd.it images, download directly

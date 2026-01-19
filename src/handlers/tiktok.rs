@@ -50,6 +50,7 @@ impl SiteHandler for TikTokHandler {
         url: &str,
         work_dir: &Path,
         cookies: &CookieOptions<'_>,
+        config: &crate::config::Config,
     ) -> Result<ArchiveResult> {
         // Resolve short URLs first
         let resolved_url = if url.contains("vm.tiktok.com") {
@@ -60,7 +61,7 @@ impl SiteHandler for TikTokHandler {
             url.to_string()
         };
 
-        ytdlp::download(&resolved_url, work_dir, cookies).await
+        ytdlp::download(&resolved_url, work_dir, cookies, config).await
     }
 }
 
