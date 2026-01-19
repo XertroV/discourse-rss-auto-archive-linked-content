@@ -238,7 +238,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Add `ipfs_cid` field to archives table
 - [x] Pin archived content to local IPFS daemon after S3 upload
 - [x] Store IPFS CID in database
-- [x] Generate public gateway URLs (ipfs.io, cloudflare-ipfs.com, dweb.link)
+- [x] Generate public gateway URLs (ipfs.io, dweb.link, gateway.pinata.cloud)
 - [x] Update archive detail template to show IPFS links
 - [x] Write unit tests for IPFS client
 - [x] Handle IPFS daemon unavailability gracefully

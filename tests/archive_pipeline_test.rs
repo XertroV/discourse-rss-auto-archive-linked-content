@@ -63,6 +63,8 @@ fn create_test_config(work_dir: &std::path::Path) -> Config {
         pdf_enabled: false,
         pdf_paper_width: 8.27,
         pdf_paper_height: 11.69,
+        dedup_enabled: false,
+        dedup_similarity_threshold: 10,
     }
 }
 

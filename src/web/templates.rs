@@ -405,15 +405,11 @@ pub fn render_archive_detail(
             cid = html_escape(ipfs_cid)
         ));
         content.push_str(&format!(
-            "<li><a href=\"https://cloudflare-ipfs.com/ipfs/{cid}\" target=\"_blank\" rel=\"noopener\">Cloudflare IPFS</a></li>",
-            cid = html_escape(ipfs_cid)
-        ));
-        content.push_str(&format!(
             "<li><a href=\"https://dweb.link/ipfs/{cid}\" target=\"_blank\" rel=\"noopener\">dweb.link</a></li>",
             cid = html_escape(ipfs_cid)
         ));
         content.push_str(&format!(
-            "<li><a href=\"https://gateway.pinata.cloud/ipfs/{cid}\" target=\"_blank\" rel=\"noopener\">Pinata</a></li>",
+            "<li><a href=\"https://gateway.pinata.cloud/ipfs/{cid}\" target=\"_blank\" rel=\"noopener\">gateway.pinata.cloud</a></li>",
             cid = html_escape(ipfs_cid)
         ));
         content.push_str("</ul></section>");

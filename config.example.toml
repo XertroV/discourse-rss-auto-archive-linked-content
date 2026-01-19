@@ -104,8 +104,8 @@ api_url = "http://127.0.0.1:5001"
 # IPFS gateway URLs for public access
 gateway_urls = [
     "https://ipfs.io/ipfs/",
-    "https://cloudflare-ipfs.com/ipfs/",
-    "https://dweb.link/ipfs/"
+    "https://dweb.link/ipfs/",
+    "https://gateway.pinata.cloud/ipfs/"
 ]
 
 [submission]

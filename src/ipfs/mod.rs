@@ -329,7 +329,8 @@ mod tests {
             ipfs_api_url: "http://127.0.0.1:5001".to_string(),
             ipfs_gateway_urls: vec![
                 "https://ipfs.io/ipfs/".to_string(),
-                "https://cloudflare-ipfs.com/ipfs/".to_string(),
+                "https://dweb.link/ipfs/".to_string(),
+                "https://gateway.pinata.cloud/ipfs/".to_string(),
             ],
             submission_enabled: true,
             submission_rate_limit_per_hour: 10,
@@ -341,13 +342,16 @@ mod tests {
             pdf_enabled: false,
             pdf_paper_width: 8.27,
             pdf_paper_height: 11.69,
+            dedup_enabled: false,
+            dedup_similarity_threshold: 10,
         };
 
         let client = IpfsClient::new(&config);
         let urls = client.gateway_urls("QmTest123");
 
-        assert_eq!(urls.len(), 2);
+        assert_eq!(urls.len(), 3);
         assert_eq!(urls[0], "https://ipfs.io/ipfs/QmTest123");
-        assert_eq!(urls[1], "https://cloudflare-ipfs.com/ipfs/QmTest123");
+        assert_eq!(urls[1], "https://dweb.link/ipfs/QmTest123");
+        assert_eq!(urls[2], "https://gateway.pinata.cloud/ipfs/QmTest123");
     }
 }

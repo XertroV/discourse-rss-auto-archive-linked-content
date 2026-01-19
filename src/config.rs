@@ -504,8 +504,8 @@ impl Config {
                 .unwrap_or_else(|| {
                     vec![
                         "https://ipfs.io/ipfs/".to_string(),
-                        "https://cloudflare-ipfs.com/ipfs/".to_string(),
                         "https://dweb.link/ipfs/".to_string(),
+                        "https://gateway.pinata.cloud/ipfs/".to_string(),
                     ]
                 }),
 
