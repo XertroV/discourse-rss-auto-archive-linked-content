@@ -9,13 +9,17 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use chromiumoxide::browser::{Browser, BrowserConfig};
+use chromiumoxide::cdp::browser_protocol::network::{
+    CookieParam, SetCookiesParams, TimeSinceEpoch,
+};
 use chromiumoxide::cdp::browser_protocol::page::{
-    CaptureSnapshotFormat, CaptureSnapshotParams, PrintToPdfParams,
+    CaptureScreenshotFormat, CaptureSnapshotFormat, CaptureSnapshotParams, PrintToPdfParams,
 };
 use chromiumoxide::page::ScreenshotParams;
 use futures_util::StreamExt;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
+use url::Url;
 
 use crate::chromium_profile::chromium_user_data_and_profile_from_spec;
 use crate::fs_utils::copy_dir_best_effort;
@@ -47,6 +51,8 @@ pub struct ScreenshotConfig {
     pub work_dir: PathBuf,
     /// Whether screenshot capture is enabled.
     pub enabled: bool,
+    /// Path to cookies file in Netscape format (for authenticated captures).
+    pub cookies_file_path: Option<PathBuf>,
 }
 
 impl Default for ScreenshotConfig {
@@ -59,6 +65,7 @@ impl Default for ScreenshotConfig {
             cookies_from_browser: None,
             work_dir: PathBuf::from("./data/tmp"),
             enabled: false,
+            cookies_file_path: None,
         }
     }
 }
@@ -297,11 +304,38 @@ impl ScreenshotService {
 
         debug!(url = %url, "Capturing screenshot");
 
-        // Create a new page
+        // Create a new page (start with about:blank to inject cookies first)
         let page = browser
-            .new_page(url)
+            .new_page("about:blank")
             .await
             .context("Failed to create new page")?;
+
+        // Inject cookies if configured
+        if let Some(ref cookies_path) = self.config.cookies_file_path {
+            if cookies_path.exists() {
+                match load_cookies_for_url(cookies_path, url).await {
+                    Ok(cookies) if !cookies.is_empty() => {
+                        match SetCookiesParams::builder().cookies(cookies).build() {
+                            Ok(set_cookies) => {
+                                if let Err(e) = page.execute(set_cookies).await {
+                                    warn!(url = %url, error = %e, "Failed to set cookies");
+                                } else {
+                                    debug!(url = %url, "Cookies injected successfully");
+                                }
+                            }
+                            Err(e) => {
+                                warn!(url = %url, error = %e, "Failed to build SetCookiesParams")
+                            }
+                        }
+                    }
+                    Ok(_) => debug!(url = %url, "No matching cookies found"),
+                    Err(e) => warn!(url = %url, error = %e, "Failed to load cookies"),
+                }
+            }
+        }
+
+        // Navigate to the actual URL
+        page.goto(url).await.context("Failed to navigate to URL")?;
 
         // Wait for the page to load
         page.wait_for_navigation()
@@ -311,10 +345,14 @@ impl ScreenshotService {
         // Give the page a bit more time to render dynamic content
         tokio::time::sleep(Duration::from_millis(500)).await;
 
-        // Capture full page screenshot using the high-level API
-        let screenshot_params = ScreenshotParams::builder().full_page(true).build();
+        // Capture full page screenshot using webp format for better compression
+        let screenshot_params = ScreenshotParams::builder()
+            .full_page(true)
+            .format(CaptureScreenshotFormat::Webp)
+            .quality(85) // Good balance of quality vs size
+            .build();
 
-        let png_data = page
+        let webp_data = page
             .screenshot(screenshot_params)
             .await
             .context("Failed to capture screenshot")?;
@@ -324,9 +362,9 @@ impl ScreenshotService {
             warn!("Failed to close page: {e}");
         }
 
-        debug!(url = %url, size = png_data.len(), "Screenshot captured");
+        debug!(url = %url, size = webp_data.len(), "Screenshot captured (webp)");
 
-        Ok(png_data)
+        Ok(webp_data)
     }
 
     /// Capture a screenshot and save it to a file.
@@ -353,11 +391,38 @@ impl ScreenshotService {
 
         debug!(url = %url, "Generating PDF");
 
-        // Create a new page
+        // Create a new page (start with about:blank to inject cookies first)
         let page = browser
-            .new_page(url)
+            .new_page("about:blank")
             .await
             .context("Failed to create new page")?;
+
+        // Inject cookies if configured
+        if let Some(ref cookies_path) = self.config.cookies_file_path {
+            if cookies_path.exists() {
+                match load_cookies_for_url(cookies_path, url).await {
+                    Ok(cookies) if !cookies.is_empty() => {
+                        match SetCookiesParams::builder().cookies(cookies).build() {
+                            Ok(set_cookies) => {
+                                if let Err(e) = page.execute(set_cookies).await {
+                                    warn!(url = %url, error = %e, "Failed to set cookies for PDF");
+                                } else {
+                                    debug!(url = %url, "Cookies injected for PDF capture");
+                                }
+                            }
+                            Err(e) => {
+                                warn!(url = %url, error = %e, "Failed to build SetCookiesParams for PDF")
+                            }
+                        }
+                    }
+                    Ok(_) => debug!(url = %url, "No matching cookies found for PDF"),
+                    Err(e) => warn!(url = %url, error = %e, "Failed to load cookies for PDF"),
+                }
+            }
+        }
+
+        // Navigate to the actual URL
+        page.goto(url).await.context("Failed to navigate to URL")?;
 
         // Wait for the page to load
         page.wait_for_navigation()
@@ -414,11 +479,38 @@ impl ScreenshotService {
 
         debug!(url = %url, "Capturing MHTML");
 
-        // Create a new page
+        // Create a new page (start with about:blank to inject cookies first)
         let page = browser
-            .new_page(url)
+            .new_page("about:blank")
             .await
             .context("Failed to create new page")?;
+
+        // Inject cookies if configured
+        if let Some(ref cookies_path) = self.config.cookies_file_path {
+            if cookies_path.exists() {
+                match load_cookies_for_url(cookies_path, url).await {
+                    Ok(cookies) if !cookies.is_empty() => {
+                        match SetCookiesParams::builder().cookies(cookies).build() {
+                            Ok(set_cookies) => {
+                                if let Err(e) = page.execute(set_cookies).await {
+                                    warn!(url = %url, error = %e, "Failed to set cookies for MHTML");
+                                } else {
+                                    debug!(url = %url, "Cookies injected for MHTML capture");
+                                }
+                            }
+                            Err(e) => {
+                                warn!(url = %url, error = %e, "Failed to build SetCookiesParams for MHTML")
+                            }
+                        }
+                    }
+                    Ok(_) => debug!(url = %url, "No matching cookies found for MHTML"),
+                    Err(e) => warn!(url = %url, error = %e, "Failed to load cookies for MHTML"),
+                }
+            }
+        }
+
+        // Navigate to the actual URL
+        page.goto(url).await.context("Failed to navigate to URL")?;
 
         // Wait for the page to load
         page.wait_for_navigation()
@@ -544,6 +636,84 @@ async fn clone_chromium_user_data_dir_for_service(
     }
 
     Ok(dest)
+}
+
+/// Load cookies from a URL for a specific domain.
+async fn load_cookies_for_url(cookies_file: &Path, url: &str) -> Result<Vec<CookieParam>> {
+    // Parse the URL to get domain
+    let parsed_url = Url::parse(url).context("Failed to parse URL")?;
+    let domain = parsed_url.host_str().unwrap_or("");
+
+    // Read the cookies file
+    let content = tokio::fs::read_to_string(cookies_file)
+        .await
+        .context("Failed to read cookies file")?;
+
+    let mut cookies = Vec::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+
+        // Skip comments and empty lines
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        // Netscape format: domain, include_subdomains, path, secure, expires, name, value
+        let fields: Vec<&str> = line.split('\t').collect();
+        if fields.len() < 7 {
+            continue;
+        }
+
+        let cookie_domain = fields[0].trim_start_matches('.');
+        let path = fields[2];
+        let secure = fields[3].to_lowercase() == "true";
+        let expires: Option<f64> = fields[4].parse().ok();
+        let name = fields[5];
+        let value = fields[6];
+
+        // Check if cookie applies to this domain
+        let domain_matches = cookie_domain == domain
+            || cookie_domain.ends_with(&format!(".{domain}"))
+            || domain.ends_with(&format!(".{cookie_domain}"))
+            || domain.ends_with(cookie_domain);
+
+        if domain_matches {
+            let mut builder = CookieParam::builder()
+                .name(name.to_string())
+                .value(value.to_string())
+                .domain(format!(".{cookie_domain}"))
+                .path(path.to_string())
+                .secure(secure)
+                .http_only(false);
+
+            // Set expiration if valid
+            if let Some(exp) = expires {
+                if exp > 0.0 {
+                    builder = builder.expires(TimeSinceEpoch::new(exp));
+                }
+            }
+
+            match builder.build() {
+                Ok(cookie) => cookies.push(cookie),
+                Err(e) => {
+                    warn!(
+                        name = %name,
+                        error = %e,
+                        "Failed to build cookie"
+                    );
+                }
+            }
+        }
+    }
+
+    debug!(
+        count = cookies.len(),
+        domain = %domain,
+        "Loaded cookies for domain"
+    );
+
+    Ok(cookies)
 }
 
 impl Drop for ScreenshotService {

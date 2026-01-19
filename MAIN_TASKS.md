@@ -460,3 +460,31 @@ See STAGE2_STREAMING_UPLOAD.md for full details:
 - [ ] Request largest RSS feed size via GET parameters
 - [ ] Upgrade axum from 0.7 to 0.8 (breaking change: path syntax changes from `:param` to `{param}`)
 - [x] Archive failed log messages should include domain (e.g., `domain=old.reddit.com`) similar to `archive_id`
+
+## Phase 14: Archive Page & Job Tracking Improvements
+
+### Archive Page Display
+- [x] Show screenshots on archive page (with status indication if missing/failed)
+- [x] Open external/archived resource links in new tab (target=_blank)
+- [x] Hide content immediately when NSFW toggled off on NSFW archive page
+
+### Archive Method Improvements
+- [x] Add cookie support for screenshot/PDF/MHTML capture (Chromium-based)
+- [x] Save and show HTTP status code for archived pages (404, 401, 200, etc.)
+- [x] Fix untitled YouTube videos issue (may be due to existing S3 video)
+- [x] Add artifact and size tracking for cached YouTube videos
+- [x] Save yt-dlp metadata JSON alongside video at videos/<video_id>.json
+
+### Job Tracking System
+- [x] Track archive jobs/steps and show on archive page (collapsible section)
+- [x] Auto-collapse job details if all succeeded
+- [x] Database schema for archive_jobs table with job_type, status, timestamps, error
+- [ ] Only run yt-dlp on Reddit/Twitter if video is present
+- [ ] Design maintainable approach for job tracking and conditional tool execution
+
+### Additional Improvements (Phase 14b)
+- [x] Screenshots use webp format instead of png (better compression)
+- [x] Plaintext content is collapsible with size info (default collapsed)
+- [x] NSFW detection for Reddit posts/comments (metadata-based, not just subreddit)
+- [x] Handle direct Reddit media URLs (i.redd.it images, v.redd.it videos)
+- [x] More specific NSFW HTML detection (avoid false positives from user comments)

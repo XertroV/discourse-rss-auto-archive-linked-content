@@ -43,6 +43,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 6).await?;
     }
 
+    if current_version < 7 {
+        debug!("Running migration v7");
+        run_migration_v7(pool).await?;
+        set_schema_version(pool, 7).await?;
+    }
+
     Ok(())
 }
 
@@ -398,6 +404,53 @@ async fn run_migration_v6(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to create perceptual_hash index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v7(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v7: adding HTTP status code and archive jobs tracking");
+
+    // Add http_status_code column to archives table
+    // Stores the HTTP response status code (200, 404, 401, etc.)
+    sqlx::query("ALTER TABLE archives ADD COLUMN http_status_code INTEGER")
+        .execute(pool)
+        .await
+        .context("Failed to add http_status_code column")?;
+
+    // Create archive_jobs table for tracking individual archiving steps
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS archive_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            archive_id INTEGER NOT NULL REFERENCES archives(id) ON DELETE CASCADE,
+            job_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            started_at TEXT,
+            completed_at TEXT,
+            error_message TEXT,
+            metadata TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create archive_jobs table")?;
+
+    // Index for querying jobs by archive
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_archive_jobs_archive_id ON archive_jobs(archive_id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create archive_jobs archive_id index")?;
+
+    // Index for querying jobs by status
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_archive_jobs_status ON archive_jobs(status)")
+        .execute(pool)
+        .await
+        .context("Failed to create archive_jobs status index")?;
 
     Ok(())
 }

@@ -1,5 +1,6 @@
 use crate::db::{
-    Archive, ArchiveArtifact, ArchiveDisplay, Link, LinkOccurrenceWithPost, Post, QueueStats,
+    Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, Link, LinkOccurrenceWithPost, Post,
+    QueueStats,
 };
 use crate::web::diff::DiffResult;
 
@@ -182,6 +183,7 @@ pub fn render_archive_detail(
     link: &Link,
     artifacts: &[ArchiveArtifact],
     occurrences: &[LinkOccurrenceWithPost],
+    jobs: &[ArchiveJob],
 ) -> String {
     let title = archive
         .content_title
@@ -198,7 +200,15 @@ pub fn render_archive_detail(
 
     // Show NSFW warning if applicable
     if archive.is_nsfw {
-        content.push_str(r#"<div class="nsfw-warning"><strong>Warning:</strong> This archive contains content marked as NSFW (Not Safe For Work).</div>"#);
+        content.push_str(r#"<div class="nsfw-warning" data-nsfw="true"><strong>Warning:</strong> This archive contains content marked as NSFW (Not Safe For Work).</div>"#);
+        // Add a hidden message that shows when NSFW filter is active
+        content.push_str(
+            r#"<div class="nsfw-hidden-message" data-nsfw-hidden="true">
+            <h2>NSFW Content Hidden</h2>
+            <p>This archive contains NSFW content that is currently hidden.</p>
+            <p>Click the <strong>18+</strong> button in the header to view this content.</p>
+        </div>"#,
+        );
     }
 
     // Format status with icon
@@ -215,14 +225,38 @@ pub fn render_archive_detail(
         ),
     };
 
+    // Add data-nsfw attribute if this is NSFW content
+    let nsfw_attr = if archive.is_nsfw {
+        r#" data-nsfw="true""#
+    } else {
+        ""
+    };
+
+    // Format HTTP status code with color
+    let http_status_display = archive
+        .http_status_code
+        .map(|code| {
+            let (class, emoji) = match code {
+                200..=299 => ("http-status-success", "✓"),
+                301 | 302 | 303 | 307 | 308 => ("http-status-redirect", "↻"),
+                400..=499 => ("http-status-client-error", "✗"),
+                500..=599 => ("http-status-server-error", "⚠"),
+                _ => ("http-status-unknown", "?"),
+            };
+            format!(
+                r#"<br><strong>HTTP Status:</strong> <span class="{class}">{emoji} {code}</span>"#
+            )
+        })
+        .unwrap_or_default();
+
     content.push_str(&format!(
         r#"<h1>{}{nsfw_badge}</h1>
-        <article>
+        <article{nsfw_attr}>
             <header>
                 <p class="meta">
                     <strong>Status:</strong> {}<br>
-                    <strong>Original URL:</strong> <a href="{}">{}</a><br>
-                    <strong>Domain:</strong> {}<br>
+                    <strong>Original URL:</strong> <a href="{}" target="_blank" rel="noopener">{}</a><br>
+                    <strong>Domain:</strong> {}{}<br>
                     <strong>Archived:</strong> {}
                 </p>
             </header>"#,
@@ -231,7 +265,9 @@ pub fn render_archive_detail(
         html_escape(&link.normalized_url),
         html_escape(&link.normalized_url),
         html_escape(&link.domain),
-        archive.archived_at.as_deref().unwrap_or("pending")
+        http_status_display,
+        archive.archived_at.as_deref().unwrap_or("pending"),
+        nsfw_attr = nsfw_attr
     ));
 
     // Show error details for failed/skipped archives
@@ -314,8 +350,17 @@ pub fn render_archive_detail(
     }
 
     if let Some(ref text) = archive.content_text {
+        let text_size = text.len();
+        let size_display = if text_size >= 1024 {
+            format!("{:.1} KB", text_size as f64 / 1024.0)
+        } else {
+            format!("{} bytes", text_size)
+        };
         content.push_str(&format!(
-            "<section><h2>Content</h2><p>{}</p></section>",
+            r#"<section class="content-text-section"><details>
+            <summary><h2 style="display: inline;">Plaintext Content</h2> <span class="text-size">({size_display})</span></summary>
+            <pre class="content-text">{}</pre>
+            </details></section>"#,
             html_escape(text)
         ));
     }
@@ -334,7 +379,7 @@ pub fn render_archive_detail(
                 archive.s3_key_thumb.as_deref(),
             ));
             content.push_str(&format!(
-                r#"<p><a href="/s3/{}" class="media-download" download>
+                r#"<p><a href="/s3/{}" class="media-download" download target="_blank" rel="noopener">
                     <span>Download</span>
                 </a></p>"#,
                 html_escape(primary_key)
@@ -392,6 +437,82 @@ pub fn render_archive_detail(
                 ));
             }
         }
+    }
+
+    // Screenshot preview section (if screenshot exists)
+    let screenshot_artifact = artifacts.iter().find(|a| a.kind == "screenshot");
+    let pdf_artifact = artifacts.iter().find(|a| a.kind == "pdf");
+    let mhtml_artifact = artifacts.iter().find(|a| a.kind == "mhtml");
+
+    // Show screenshot/captures section if any capture artifacts exist
+    if screenshot_artifact.is_some() || pdf_artifact.is_some() || mhtml_artifact.is_some() {
+        content.push_str(&format!(
+            r#"<section class="captures-section"{nsfw_attr}><h2>Page Captures</h2>"#,
+            nsfw_attr = nsfw_attr
+        ));
+        content.push_str(r#"<div class="captures-grid">"#);
+
+        // Screenshot preview
+        if let Some(screenshot) = screenshot_artifact {
+            content.push_str(&format!(
+                r#"<div class="capture-item">
+                    <h4>Screenshot</h4>
+                    <a href="/s3/{}" target="_blank" rel="noopener">
+                        <img src="/s3/{}" alt="Page screenshot" class="screenshot-preview" loading="lazy">
+                    </a>
+                    <p class="capture-meta">{}</p>
+                </div>"#,
+                html_escape(&screenshot.s3_key),
+                html_escape(&screenshot.s3_key),
+                screenshot
+                    .size_bytes
+                    .map_or_else(|| "Unknown size".to_string(), format_bytes)
+            ));
+        }
+
+        // PDF link
+        if let Some(pdf) = pdf_artifact {
+            content.push_str(&format!(
+                r#"<div class="capture-item">
+                    <h4>PDF Document</h4>
+                    <a href="/s3/{}" target="_blank" rel="noopener" class="capture-link">
+                        <span class="capture-icon">📄</span>
+                        <span>View PDF</span>
+                    </a>
+                    <p class="capture-meta">{}</p>
+                </div>"#,
+                html_escape(&pdf.s3_key),
+                pdf.size_bytes
+                    .map_or_else(|| "Unknown size".to_string(), format_bytes)
+            ));
+        }
+
+        // MHTML link
+        if let Some(mhtml) = mhtml_artifact {
+            content.push_str(&format!(
+                r#"<div class="capture-item">
+                    <h4>MHTML Archive</h4>
+                    <a href="/s3/{}" download class="capture-link">
+                        <span class="capture-icon">📦</span>
+                        <span>Download MHTML</span>
+                    </a>
+                    <p class="capture-meta">{}</p>
+                </div>"#,
+                html_escape(&mhtml.s3_key),
+                mhtml
+                    .size_bytes
+                    .map_or_else(|| "Unknown size".to_string(), format_bytes)
+            ));
+        }
+
+        content.push_str("</div></section>");
+    } else if archive.status == "complete" {
+        // Archive completed but no captures - indicate this
+        content.push_str(r#"<section class="captures-section captures-missing">
+            <h2>Page Captures</h2>
+            <p class="captures-note">No screenshot, PDF, or MHTML captures were generated for this archive.
+            These captures may be disabled in the server configuration, or the page may have failed to render.</p>
+        </section>"#);
     }
 
     // Archived Files section (list of all artifacts)
@@ -479,7 +600,7 @@ pub fn render_archive_detail(
 
     if let Some(ref wayback) = archive.wayback_url {
         content.push_str(&format!(
-            "<section><h2>Wayback Machine</h2><p><a href=\"{}\">View on Wayback Machine</a></p></section>",
+            r#"<section><h2>Wayback Machine</h2><p><a href="{}" target="_blank" rel="noopener">View on Wayback Machine</a></p></section>"#,
             html_escape(wayback)
         ));
     }
@@ -545,6 +666,83 @@ pub fn render_archive_detail(
         }
 
         content.push_str("</tbody></table></section>");
+    }
+
+    // Archive jobs section (collapsible, open if any job failed)
+    if !jobs.is_empty() {
+        let all_succeeded = jobs
+            .iter()
+            .all(|j| j.status == "completed" || j.status == "skipped");
+        let open_attr = if all_succeeded { "" } else { " open" };
+
+        content.push_str(&format!(
+            r#"<section class="archive-jobs"><details{}>
+            <summary><h2 style="display: inline;">Archive Jobs ({})</h2></summary>"#,
+            open_attr,
+            jobs.len()
+        ));
+
+        content.push_str(r#"<table class="jobs-table"><thead><tr><th>Job</th><th>Status</th><th>Started</th><th>Completed</th><th>Details</th></tr></thead><tbody>"#);
+
+        for job in jobs {
+            let job_type_display = match job.job_type.as_str() {
+                "fetch_html" => "Fetch HTML",
+                "yt_dlp" => "yt-dlp",
+                "gallery_dl" => "gallery-dl",
+                "screenshot" => "Screenshot",
+                "pdf" => "PDF",
+                "mhtml" => "MHTML",
+                "monolith" => "Monolith",
+                "s3_upload" => "S3 Upload",
+                "wayback" => "Wayback Machine",
+                "archive_today" => "Archive.today",
+                "ipfs" => "IPFS",
+                other => other,
+            };
+
+            let (status_class, status_icon) = match job.status.as_str() {
+                "completed" => ("job-completed", "✓"),
+                "failed" => ("job-failed", "✗"),
+                "running" => ("job-running", "⟳"),
+                "pending" => ("job-pending", "⏳"),
+                "skipped" => ("job-skipped", "⊘"),
+                _ => ("", ""),
+            };
+
+            let started = job.started_at.as_deref().unwrap_or("—");
+            let completed = job.completed_at.as_deref().unwrap_or("—");
+
+            let details = if let Some(ref error) = job.error_message {
+                format!(
+                    r#"<span class="job-error" title="{}">{}</span>"#,
+                    html_escape(error),
+                    html_escape(&error.chars().take(50).collect::<String>())
+                )
+            } else if let Some(ref meta) = job.metadata {
+                format!(r#"<code class="job-meta">{}</code>"#, html_escape(meta))
+            } else {
+                "—".to_string()
+            };
+
+            content.push_str(&format!(
+                r#"<tr>
+                    <td>{}</td>
+                    <td class="{}">{} {}</td>
+                    <td>{}</td>
+                    <td>{}</td>
+                    <td>{}</td>
+                </tr>"#,
+                job_type_display,
+                status_class,
+                status_icon,
+                html_escape(&job.status),
+                html_escape(started),
+                html_escape(completed),
+                details
+            ));
+        }
+
+        content.push_str("</tbody></table></details></section>");
     }
 
     // Collapsible debug info section
@@ -781,7 +979,7 @@ pub fn render_post_detail(post: &Post, archives: &[ArchiveDisplay]) -> String {
                 <p class="meta">
                     <strong>Author:</strong> {}<br>
                     <strong>Published:</strong> {}<br>
-                    <strong>Source:</strong> <a href="{}">{}</a>
+                    <strong>Source:</strong> <a href="{}" target="_blank" rel="noopener">{}</a>
                 </p>
             </header>"#,
         html_escape(title),
