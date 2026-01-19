@@ -1,4 +1,4 @@
-use crate::db::{Archive, Link, Post};
+use crate::db::{Archive, ArchiveDisplay, Link, Post};
 use crate::web::diff::DiffResult;
 
 /// Base HTML layout.
@@ -206,22 +206,24 @@ fn base_layout(title: &str, content: &str) -> String {
 }
 
 /// Render home page with recent archives.
-pub fn render_home(archives: &[Archive]) -> String {
+pub fn render_home(archives: &[ArchiveDisplay]) -> String {
     let mut content = String::from("<h1>Recent Archives</h1>");
 
     if archives.is_empty() {
         content.push_str("<p>No archives yet.</p>");
     } else {
+        content.push_str(r#"<div class="archive-grid">"#);
         for archive in archives {
-            content.push_str(&render_archive_card(archive));
+            content.push_str(&render_archive_card_display(archive));
         }
+        content.push_str("</div>");
     }
 
     base_layout("Home", &content)
 }
 
 /// Render search results page.
-pub fn render_search(query: &str, archives: &[Archive], page: u32) -> String {
+pub fn render_search(query: &str, archives: &[ArchiveDisplay], page: u32) -> String {
     let mut content = String::from("<h1>Search Archives</h1>");
 
     content.push_str(&format!(
@@ -240,9 +242,11 @@ pub fn render_search(query: &str, archives: &[Archive], page: u32) -> String {
         ));
     }
 
+    content.push_str(r#"<div class="archive-grid">"#);
     for archive in archives {
-        content.push_str(&render_archive_card(archive));
+        content.push_str(&render_archive_card_display(archive));
     }
+    content.push_str("</div>");
 
     // Pagination
     if archives.len() >= 20 {
@@ -387,15 +391,17 @@ pub fn render_archive_detail(archive: &Archive, link: &Link) -> String {
 }
 
 /// Render site list page.
-pub fn render_site_list(site: &str, archives: &[Archive], page: u32) -> String {
+pub fn render_site_list(site: &str, archives: &[ArchiveDisplay], page: u32) -> String {
     let mut content = format!("<h1>Archives from {}</h1>", html_escape(site));
 
     if archives.is_empty() {
         content.push_str("<p>No archives from this site.</p>");
     } else {
+        content.push_str(r#"<div class="archive-grid">"#);
         for archive in archives {
-            content.push_str(&render_archive_card(archive));
+            content.push_str(&render_archive_card_display(archive));
         }
+        content.push_str("</div>");
 
         if archives.len() >= 20 {
             content.push_str(&format!(
@@ -438,7 +444,7 @@ pub fn render_stats(status_counts: &[(String, i64)], link_count: i64, post_count
 }
 
 /// Render post detail page showing all archives from a post.
-pub fn render_post_detail(post: &Post, archives: &[Archive]) -> String {
+pub fn render_post_detail(post: &Post, archives: &[ArchiveDisplay]) -> String {
     let title = post.title.as_deref().unwrap_or("Untitled Post");
 
     let mut content = format!(
@@ -467,9 +473,11 @@ pub fn render_post_detail(post: &Post, archives: &[Archive]) -> String {
             "<p>Found {} archived link(s) from this post.</p>",
             archives.len()
         ));
+        content.push_str(r#"<div class="archive-grid">"#);
         for archive in archives {
-            content.push_str(&render_archive_card(archive));
+            content.push_str(&render_archive_card_display(archive));
         }
+        content.push_str("</div>");
     }
 
     content.push_str("</section></article>");
@@ -523,6 +531,83 @@ fn render_archive_card(archive: &Archive) -> String {
         archive.status,
         archive.archived_at.as_deref().unwrap_or("pending"),
         type_badge = type_badge
+    )
+}
+
+/// Render an archive card with link info (for display in lists).
+fn render_archive_card_display(archive: &ArchiveDisplay) -> String {
+    let title = archive.content_title.as_deref().unwrap_or("Untitled");
+    let content_type = archive.content_type.as_deref().unwrap_or("unknown");
+
+    // NSFW data attribute for filtering
+    let nsfw_attr = if archive.is_nsfw {
+        r#" data-nsfw="true""#
+    } else {
+        ""
+    };
+
+    // NSFW badge
+    let nsfw_badge = if archive.is_nsfw {
+        r#"<span class="nsfw-badge">NSFW</span>"#
+    } else {
+        ""
+    };
+
+    // Content type badge with appropriate styling
+    let type_badge = match content_type {
+        "video" => r#"<span class="media-type-badge media-type-video">Video</span>"#.to_string(),
+        "audio" => r#"<span class="media-type-badge media-type-audio">Audio</span>"#.to_string(),
+        "image" | "gallery" => {
+            r#"<span class="media-type-badge media-type-image">Image</span>"#.to_string()
+        }
+        "text" | "thread" => {
+            r#"<span class="media-type-badge media-type-text">Text</span>"#.to_string()
+        }
+        _ => format!(
+            r#"<span class="media-type-badge">{}</span>"#,
+            html_escape(content_type)
+        ),
+    };
+
+    // Format the archived timestamp for display
+    let archived_time = archive.archived_at.as_deref().unwrap_or("pending");
+
+    // Author line (if present)
+    let author_line = archive
+        .content_author
+        .as_deref()
+        .map(|author| format!(r#"<span class="author">by {}</span>"#, html_escape(author)))
+        .unwrap_or_default();
+
+    // Truncate URL for display (show domain + path up to 50 chars)
+    let display_url = if archive.original_url.len() > 60 {
+        format!("{}...", &archive.original_url[..57])
+    } else {
+        archive.original_url.clone()
+    };
+
+    format!(
+        r#"<article class="archive-card"{nsfw_attr}>
+            <h3><a href="/archive/{id}">{title}</a>{nsfw_badge}</h3>
+            <p class="archive-url"><a href="{url}" target="_blank" rel="noopener" title="{url}">{display_url}</a></p>
+            <p class="meta">
+                <span class="status-{status}">{status}</span>
+                {type_badge}
+                <a href="/site/{domain}" class="domain-badge">{domain}</a>
+                {author_line}
+            </p>
+            <p class="archive-time">{archived_time}</p>
+        </article>"#,
+        id = archive.id,
+        title = html_escape(title),
+        nsfw_badge = nsfw_badge,
+        url = html_escape(&archive.original_url),
+        display_url = html_escape(&display_url),
+        status = archive.status,
+        type_badge = type_badge,
+        domain = html_escape(&archive.domain),
+        author_line = author_line,
+        archived_time = archived_time
     )
 }
 

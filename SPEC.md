@@ -351,7 +351,7 @@ Alternative/complementary to Wayback Machine:
 Browser-based page rendering for visual archive:
 - Use `chromiumoxide` or `headless_chrome` crate
 - Capture full-page screenshots as PNG
-- Configurable viewport size (default: 1280x800)
+- Configurable viewport size (default: 1280x3000)
 - Wait for page load completion
 - Store in S3 under `archives/{link_id}/render/screenshot.png`
 - Optional: Capture at multiple viewport sizes (mobile, tablet, desktop)
@@ -360,7 +360,7 @@ Configuration:
 ```bash
 SCREENSHOT_ENABLED=true
 SCREENSHOT_VIEWPORT_WIDTH=1280
-SCREENSHOT_VIEWPORT_HEIGHT=800
+SCREENSHOT_VIEWPORT_HEIGHT=3000
 CHROMIUM_PATH=/usr/bin/chromium
 ```
 

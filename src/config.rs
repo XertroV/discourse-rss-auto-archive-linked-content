@@ -16,6 +16,12 @@ pub enum ConfigError {
         #[source]
         source: std::num::ParseIntError,
     },
+    #[error("failed to parse {name} as float: {source}")]
+    ParseFloat {
+        name: String,
+        #[source]
+        source: std::num::ParseFloatError,
+    },
     #[error("failed to parse {name} as boolean: {value}")]
     ParseBool { name: String, value: String },
     #[error("failed to read config file: {0}")]
@@ -97,6 +103,11 @@ pub struct Config {
     pub screenshot_viewport_height: u32,
     pub screenshot_timeout_secs: u64,
     pub screenshot_chrome_path: Option<String>,
+
+    // PDF Generation
+    pub pdf_enabled: bool,
+    pub pdf_paper_width: f64,
+    pub pdf_paper_height: f64,
 }
 
 /// Configuration file structure (all fields optional, loaded from TOML).
@@ -131,6 +142,8 @@ pub struct FileConfig {
     pub submission: SubmissionConfig,
     #[serde(default)]
     pub screenshot: ScreenshotCaptureConfig,
+    #[serde(default)]
+    pub pdf: PdfConfig,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -243,6 +256,14 @@ pub struct ScreenshotCaptureConfig {
     pub viewport_height: Option<u32>,
     pub timeout_secs: Option<u64>,
     pub chrome_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct PdfConfig {
+    pub enabled: Option<bool>,
+    pub paper_width: Option<f64>,
+    pub paper_height: Option<f64>,
 }
 
 /// Log output format.
@@ -492,7 +513,7 @@ impl Config {
             )?,
             screenshot_viewport_height: parse_env_u32(
                 "SCREENSHOT_VIEWPORT_HEIGHT",
-                fc.screenshot.viewport_height.unwrap_or(800),
+                fc.screenshot.viewport_height.unwrap_or(3000),
             )?,
             screenshot_timeout_secs: parse_env_u64(
                 "SCREENSHOT_TIMEOUT_SECS",
@@ -500,6 +521,14 @@ impl Config {
             )?,
             screenshot_chrome_path: optional_env("SCREENSHOT_CHROME_PATH")
                 .or(fc.screenshot.chrome_path),
+
+            // PDF Generation
+            pdf_enabled: parse_env_bool("PDF_ENABLED", fc.pdf.enabled.unwrap_or(false))?,
+            pdf_paper_width: parse_env_f64("PDF_PAPER_WIDTH", fc.pdf.paper_width.unwrap_or(8.27))?,
+            pdf_paper_height: parse_env_f64(
+                "PDF_PAPER_HEIGHT",
+                fc.pdf.paper_height.unwrap_or(11.69),
+            )?,
         })
     }
 
@@ -512,6 +541,16 @@ impl Config {
             page_timeout: std::time::Duration::from_secs(self.screenshot_timeout_secs),
             chrome_path: self.screenshot_chrome_path.clone(),
             enabled: self.screenshot_enabled,
+        }
+    }
+
+    /// Create a PdfConfig from this config.
+    #[must_use]
+    pub fn pdf_config(&self) -> crate::archiver::PdfConfig {
+        crate::archiver::PdfConfig {
+            paper_width: self.pdf_paper_width,
+            paper_height: self.pdf_paper_height,
+            enabled: self.pdf_enabled,
         }
     }
 
@@ -609,6 +648,16 @@ fn parse_env_bool(name: &str, default: bool) -> Result<bool, ConfigError> {
                 value: val,
             }),
         },
+        _ => Ok(default),
+    }
+}
+
+fn parse_env_f64(name: &str, default: f64) -> Result<f64, ConfigError> {
+    match std::env::var(name) {
+        Ok(val) if !val.is_empty() => val.parse().map_err(|e| ConfigError::ParseFloat {
+            name: name.to_string(),
+            source: e,
+        }),
         _ => Ok(default),
     }
 }

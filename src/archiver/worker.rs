@@ -38,10 +38,17 @@ impl ArchiveWorker {
         let semaphore = Arc::new(Semaphore::new(config.worker_concurrency));
         let domain_limiter = Arc::new(DomainRateLimiter::new(config.per_domain_concurrency));
         let screenshot_config = config.screenshot_config();
-        let screenshot = Arc::new(ScreenshotService::new(screenshot_config));
+        let pdf_config = config.pdf_config();
+        let screenshot = Arc::new(ScreenshotService::with_pdf_config(
+            screenshot_config,
+            pdf_config,
+        ));
 
         if screenshot.is_enabled() {
             info!("Screenshot capture enabled");
+        }
+        if screenshot.is_pdf_enabled() {
+            info!("PDF generation enabled");
         }
 
         Self {
@@ -295,6 +302,26 @@ async fn process_archive_inner(
             }
             Err(e) => {
                 warn!(archive_id, error = %e, "Failed to capture screenshot");
+            }
+        }
+    }
+
+    // Generate PDF if enabled (non-fatal if it fails)
+    if screenshot.is_pdf_enabled() {
+        match screenshot.capture_pdf(&link.normalized_url).await {
+            Ok(pdf_data) => {
+                let pdf_key = format!("{s3_prefix}render/page.pdf");
+                if let Err(e) = s3
+                    .upload_bytes(&pdf_data, &pdf_key, "application/pdf")
+                    .await
+                {
+                    warn!(archive_id, error = %e, "Failed to upload PDF");
+                } else {
+                    debug!(archive_id, key = %pdf_key, "PDF uploaded");
+                }
+            }
+            Err(e) => {
+                warn!(archive_id, error = %e, "Failed to generate PDF");
             }
         }
     }

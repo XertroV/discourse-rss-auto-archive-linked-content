@@ -308,12 +308,12 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Write unit tests
 
 ### PDF Generation
-- [ ] Use browser print-to-PDF capability
-- [ ] Configure paper size settings
-- [ ] Generate PDF for article content
-- [ ] Store in S3 render/ directory
-- [ ] Add configuration options
-- [ ] Write unit tests
+- [x] Use browser print-to-PDF capability
+- [x] Configure paper size settings (PDF_PAPER_WIDTH, PDF_PAPER_HEIGHT)
+- [x] Generate PDF for article content
+- [x] Store in S3 render/page.pdf
+- [x] Add configuration options (PDF_ENABLED, PDF_PAPER_WIDTH, PDF_PAPER_HEIGHT)
+- [x] Write unit tests
 
 ### Dark Mode for Web UI
 - [x] Add CSS dark mode variables
@@ -390,6 +390,9 @@ Add new tasks here as they are discovered during development:
 - [x] Create lib.rs to expose modules for integration tests
 - [x] Write database integration tests
 - [x] Write web routes integration tests
+- [x] Improve archive list display (show original URL, domain, author, timestamp)
+- [x] Add ArchiveDisplay struct for flattened archive+link data
+- [x] Update SCREENSHOT_VIEWPORT_HEIGHT default to 3000 (taller screenshots)
 
 ### Archive Retry Improvements
 - [x] Add `next_retry_at` and `last_attempt_at` columns to archives table (migration v5)

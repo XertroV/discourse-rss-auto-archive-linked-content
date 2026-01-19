@@ -2,8 +2,8 @@ use anyhow::{Context, Result};
 use sqlx::SqlitePool;
 
 use super::models::{
-    Archive, ArchiveArtifact, Link, LinkOccurrence, NewLink, NewLinkOccurrence, NewPost,
-    NewSubmission, Post, Submission,
+    Archive, ArchiveArtifact, ArchiveDisplay, Link, LinkOccurrence, NewLink, NewLinkOccurrence,
+    NewPost, NewSubmission, Post, Submission,
 };
 
 // ========== Posts ==========
@@ -384,6 +384,113 @@ pub async fn get_recent_archives(pool: &SqlitePool, limit: i64) -> Result<Vec<Ar
     .fetch_all(pool)
     .await
     .context("Failed to fetch recent archives")
+}
+
+/// Get recent archives with link info for display.
+pub async fn get_recent_archives_display(
+    pool: &SqlitePool,
+    limit: i64,
+) -> Result<Vec<ArchiveDisplay>> {
+    sqlx::query_as(
+        r"
+        SELECT
+            a.id, a.link_id, a.status, a.archived_at,
+            a.content_title, a.content_author, a.content_type,
+            a.is_nsfw, a.error_message, a.retry_count,
+            l.original_url, l.domain
+        FROM archives a
+        JOIN links l ON a.link_id = l.id
+        WHERE a.status = 'complete'
+        ORDER BY a.archived_at DESC
+        LIMIT ?
+        ",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch recent archives with links")
+}
+
+/// Search archives with link info for display.
+pub async fn search_archives_display(
+    pool: &SqlitePool,
+    query: &str,
+    limit: i64,
+) -> Result<Vec<ArchiveDisplay>> {
+    sqlx::query_as(
+        r"
+        SELECT
+            a.id, a.link_id, a.status, a.archived_at,
+            a.content_title, a.content_author, a.content_type,
+            a.is_nsfw, a.error_message, a.retry_count,
+            l.original_url, l.domain
+        FROM archives a
+        JOIN links l ON a.link_id = l.id
+        JOIN archives_fts ON a.id = archives_fts.rowid
+        WHERE archives_fts MATCH ?
+        ORDER BY rank
+        LIMIT ?
+        ",
+    )
+    .bind(query)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to search archives with links")
+}
+
+/// Get archives by domain with link info for display.
+pub async fn get_archives_by_domain_display(
+    pool: &SqlitePool,
+    domain: &str,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<ArchiveDisplay>> {
+    sqlx::query_as(
+        r"
+        SELECT
+            a.id, a.link_id, a.status, a.archived_at,
+            a.content_title, a.content_author, a.content_type,
+            a.is_nsfw, a.error_message, a.retry_count,
+            l.original_url, l.domain
+        FROM archives a
+        JOIN links l ON a.link_id = l.id
+        WHERE l.domain = ? AND a.status = 'complete'
+        ORDER BY a.archived_at DESC
+        LIMIT ? OFFSET ?
+        ",
+    )
+    .bind(domain)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch archives by domain with links")
+}
+
+/// Get archives for a post with link info for display.
+pub async fn get_archives_for_post_display(
+    pool: &SqlitePool,
+    post_id: i64,
+) -> Result<Vec<ArchiveDisplay>> {
+    sqlx::query_as(
+        r"
+        SELECT DISTINCT
+            a.id, a.link_id, a.status, a.archived_at,
+            a.content_title, a.content_author, a.content_type,
+            a.is_nsfw, a.error_message, a.retry_count,
+            l.original_url, l.domain
+        FROM archives a
+        JOIN links l ON a.link_id = l.id
+        JOIN link_occurrences lo ON l.id = lo.link_id
+        WHERE lo.post_id = ?
+        ORDER BY a.archived_at DESC
+        ",
+    )
+    .bind(post_id)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch archives for post with links")
 }
 
 /// Search archives using FTS.
