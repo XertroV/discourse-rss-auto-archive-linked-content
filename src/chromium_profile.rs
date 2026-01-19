@@ -9,12 +9,11 @@ use std::path::{Path, PathBuf};
 /// - `chromium+basictext:/path::container` (container suffix is ignored)
 #[must_use]
 pub fn chromium_user_data_and_profile_from_spec(spec: &str) -> (PathBuf, Option<String>) {
-    let path_part = spec.split_once(':').map(|(_, rest)| rest).unwrap_or(spec);
+    let path_part = spec.split_once(':').map_or(spec, |(_, rest)| rest);
 
     let profile_raw = path_part
         .split_once("::")
-        .map(|(p, _)| p)
-        .unwrap_or(path_part);
+        .map_or(path_part, |(p, _)| p);
 
     let p = PathBuf::from(profile_raw);
 
@@ -27,7 +26,7 @@ pub fn chromium_user_data_and_profile_from_spec(spec: &str) -> (PathBuf, Option<
         let profile_name = p
             .file_name()
             .and_then(|s| s.to_str())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
         return (user_data_dir, profile_name);
     }
 

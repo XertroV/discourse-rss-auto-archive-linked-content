@@ -391,7 +391,7 @@ fn extract_post_id_from_guid(guid: &str) -> Option<i64> {
     guid.split(|c: char| !c.is_ascii_digit())
         .filter(|s| !s.is_empty())
         .filter_map(|s| s.parse::<i64>().ok())
-        .last()
+        .next_back()
 }
 
 #[cfg(test)]

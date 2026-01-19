@@ -64,7 +64,7 @@ async fn home(
     };
 
     let html = format!(
-        r#"<!DOCTYPE html><html><body><h1>Recent Archives</h1><p>{} archives</p></body></html>"#,
+        r"<!DOCTYPE html><html><body><h1>Recent Archives</h1><p>{} archives</p></body></html>",
         archives.len()
     );
     axum::response::Html(html).into_response()
@@ -94,7 +94,7 @@ async fn search(
     };
 
     let html = format!(
-        r#"<!DOCTYPE html><html><body><h1>Search</h1><p>Query: {}, {} results</p></body></html>"#,
+        r"<!DOCTYPE html><html><body><h1>Search</h1><p>Query: {}, {} results</p></body></html>",
         query,
         archives.len()
     );
@@ -114,8 +114,7 @@ async fn stats(
     let post_count = count_posts(state.db.pool()).await.unwrap_or(0);
 
     let html = format!(
-        r#"<!DOCTYPE html><html><body><h1>Stats</h1><p>Posts: {}, Links: {}</p></body></html>"#,
-        post_count, link_count
+        r"<!DOCTYPE html><html><body><h1>Stats</h1><p>Posts: {post_count}, Links: {link_count}</p></body></html>"
     );
     axum::response::Html(html).into_response()
 }
@@ -142,7 +141,7 @@ async fn archive_detail(
     };
 
     let html = format!(
-        r#"<!DOCTYPE html><html><body><h1>Archive {}</h1><p>Status: {}</p></body></html>"#,
+        r"<!DOCTYPE html><html><body><h1>Archive {}</h1><p>Status: {}</p></body></html>",
         archive.id, archive.status
     );
     axum::response::Html(html).into_response()
@@ -201,7 +200,7 @@ async fn post_detail(
     };
 
     let html = format!(
-        r#"<!DOCTYPE html><html><body><h1>Post</h1><p>GUID: {}</p></body></html>"#,
+        r"<!DOCTYPE html><html><body><h1>Post</h1><p>GUID: {}</p></body></html>",
         post.guid
     );
     axum::response::Html(html).into_response()
@@ -243,7 +242,7 @@ async fn test_rearchive_failed_archive_with_no_artifacts() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(&format!("/archive/{archive_id}/rearchive"))
+                .uri(format!("/archive/{archive_id}/rearchive"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -512,7 +511,7 @@ async fn test_archive_detail_found() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri(&format!("/archive/{archive_id}"))
+                .uri(format!("/archive/{archive_id}"))
                 .body(Body::empty())
                 .unwrap(),
         )

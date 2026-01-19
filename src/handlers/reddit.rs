@@ -77,7 +77,7 @@ static NSFW_SUBREDDIT_EXEMPTIONS: std::sync::LazyLock<Vec<String>> =
     std::sync::LazyLock::new(|| {
         let mut v: Vec<String> = DEFAULT_NSFW_SUBREDDIT_EXEMPTIONS
             .iter()
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .collect();
 
         if let Ok(extra) = std::env::var("REDDIT_NSFW_SUBREDDIT_EXEMPTIONS") {
@@ -205,8 +205,7 @@ impl SiteHandler for RedditHandler {
         // This avoids unnecessary yt-dlp calls (and errors) for image/text-only posts
         let has_video = media
             .as_ref()
-            .map(|m| m.video_url.is_some())
-            .unwrap_or(false);
+            .is_some_and(|m| m.video_url.is_some());
         let ytdlp_result = if has_video {
             debug!(url = %archive_url, "Running yt-dlp for detected Reddit video");
             match ytdlp::download(archive_url, work_dir, cookies, config).await {
@@ -281,8 +280,7 @@ impl SiteHandler for RedditHandler {
         // This overrides any earlier value (including Some(false)).
         let definitely_nsfw = html_content
             .as_deref()
-            .map(is_reddit_definitely_nsfw)
-            .unwrap_or(false);
+            .is_some_and(is_reddit_definitely_nsfw);
 
         if definitely_nsfw {
             result.is_nsfw = Some(true);
@@ -382,7 +380,7 @@ Configure either YT_DLP_COOKIES_FROM_BROWSER (recommended) or COOKIES_FILE_PATH 
 
     let status = response.status();
     if !status.is_success() {
-        anyhow::bail!("Reddit returned HTTP status {}", status);
+        anyhow::bail!("Reddit returned HTTP status {status}");
     }
 
     let html = response
@@ -730,15 +728,13 @@ fn extract_media_from_html(doc: &Html) -> RedditMedia {
     if let Ok(link_selector) = Selector::parse("a[href*='i.redd.it'], a[href*='imgur']") {
         for element in doc.select(&link_selector) {
             if let Some(href) = element.value().attr("href") {
-                if href.ends_with(".jpg")
+                if (href.ends_with(".jpg")
                     || href.ends_with(".png")
                     || href.ends_with(".gif")
-                    || href.ends_with(".webp")
-                {
-                    if !media.image_urls.contains(&href.to_string()) {
+                    || href.ends_with(".webp"))
+                    && !media.image_urls.contains(&href.to_string()) {
                         media.image_urls.push(href.to_string());
                     }
-                }
             }
         }
     }
@@ -916,7 +912,7 @@ async fn download_reddit_images(image_urls: &[String], work_dir: &Path) -> Vec<S
 
         // Normalize URL: convert protocol-relative URLs (//domain/path) to absolute URLs (https://domain/path)
         let normalized_url = if url.starts_with("//") {
-            format!("https:{}", url)
+            format!("https:{url}")
         } else {
             url.clone()
         };
@@ -1005,7 +1001,7 @@ async fn archive_direct_media(
 
     let status = response.status();
     if !status.is_success() {
-        anyhow::bail!("Reddit image download failed with status {}", status);
+        anyhow::bail!("Reddit image download failed with status {status}");
     }
 
     let content_type = response

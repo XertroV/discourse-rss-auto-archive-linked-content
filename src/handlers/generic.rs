@@ -81,7 +81,7 @@ impl SiteHandler for GenericHandler {
             // Extract filename from URL for title
             let filename = url
                 .split('/')
-                .last()
+                .next_back()
                 .unwrap_or("document.pdf")
                 .split('?')
                 .next()

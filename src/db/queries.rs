@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::iter;
 
 use super::models::{
     Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, ArchiveJobType, Link, LinkOccurrence,
@@ -189,9 +188,7 @@ pub fn thread_key_from_url(url: &str) -> String {
     if let Ok(parsed) = url::Url::parse(url) {
         let host = parsed.host_str().unwrap_or("");
         let segments: Vec<_> = parsed
-            .path_segments()
-            .map(|s| s.collect())
-            .unwrap_or_else(Vec::new);
+            .path_segments().map_or_else(Vec::new, std::iter::Iterator::collect);
 
         if segments.len() >= 3 && segments[0] == "t" {
             // /t/<slug>/<topic_id>/<post_no?>
@@ -829,8 +826,7 @@ pub async fn get_archives_for_posts_display(
         return Ok(Vec::new());
     }
 
-    let placeholders = iter::repeat("?")
-        .take(post_ids.len())
+    let placeholders = std::iter::repeat_n("?", post_ids.len())
         .collect::<Vec<_>>()
         .join(",");
 

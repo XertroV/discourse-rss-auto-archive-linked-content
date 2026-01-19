@@ -152,13 +152,13 @@ async fn site_list(
     };
 
     let html = format!(
-        r#"<!DOCTYPE html>
+        r"<!DOCTYPE html>
 <html>
 <body>
 <h1>Site: {}</h1>
 <p>Page {} - {} results</p>
 </body>
-</html>"#,
+</html>",
         site,
         page,
         archives.len()
@@ -178,8 +178,8 @@ async fn setup_db() -> (Database, TempDir) {
 async fn create_test_archives(db: &Database, count: usize, domain: &str) {
     for i in 0..count {
         let new_link = NewLink {
-            original_url: format!("https://{}/page{}", domain, i),
-            normalized_url: format!("https://{}/page{}", domain, i),
+            original_url: format!("https://{domain}/page{i}"),
+            normalized_url: format!("https://{domain}/page{i}"),
             canonical_url: None,
             domain: domain.to_string(),
         };
@@ -193,7 +193,7 @@ async fn create_test_archives(db: &Database, count: usize, domain: &str) {
         set_archive_complete(
             db.pool(),
             archive_id,
-            Some(&format!("Page {} Title", i)),
+            Some(&format!("Page {i} Title")),
             None,
             None,
             Some("text"),

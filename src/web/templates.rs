@@ -240,8 +240,7 @@ fn render_recent_archives_tabs(active: RecentArchivesTab, recent_failed_count: u
 
     let failed_count_badge = if recent_failed_count > 0 {
         format!(
-            r#" <span class=\"archive-tab-count\" aria-label=\"{count} failed archives\">{count}</span>"#,
-            count = recent_failed_count
+            r#" <span class=\"archive-tab-count\" aria-label=\"{recent_failed_count} failed archives\">{recent_failed_count}</span>"#
         )
     } else {
         String::new()
@@ -252,11 +251,7 @@ fn render_recent_archives_tabs(active: RecentArchivesTab, recent_failed_count: u
             <a class="{recent_class}" href="/">Recent</a>\
             <a class="{all_class}" href="/archives/all">All</a>\
             <a class="{failed_class}" href="/archives/failed">Failed{failed_count_badge}</a>\
-        </nav>"#,
-        recent_class = recent_class,
-        all_class = all_class,
-        failed_class = failed_class,
-        failed_count_badge = failed_count_badge
+        </nav>"#
     )
 }
 
@@ -333,7 +328,7 @@ fn render_pagination(current_page: usize, total_pages: usize, base_url: &str) ->
         } else {
             format!("{}?page={}", base_url, current_page - 1)
         };
-        html.push_str(&format!(r#"<a href="{}">&laquo; Previous</a>"#, prev_url));
+        html.push_str(&format!(r#"<a href="{prev_url}">&laquo; Previous</a>"#));
     } else {
         html.push_str(r#"<span class="disabled">&laquo; Previous</span>"#);
     }
@@ -346,9 +341,9 @@ fn render_pagination(current_page: usize, total_pages: usize, base_url: &str) ->
         let url = if 0 == 0 {
             base_url
         } else {
-            &format!("{}?page=0", base_url)
+            &format!("{base_url}?page=0")
         };
-        html.push_str(&format!(r#"<a href="{}">1</a>"#, url));
+        html.push_str(&format!(r#"<a href="{url}">1</a>"#));
         if start > 1 {
             html.push_str("<span>...</span>");
         }
@@ -358,7 +353,7 @@ fn render_pagination(current_page: usize, total_pages: usize, base_url: &str) ->
         let url = if page_num == 0 {
             base_url.to_string()
         } else {
-            format!("{}?page={}", base_url, page_num)
+            format!("{base_url}?page={page_num}")
         };
 
         if page_num == current_page {
@@ -373,13 +368,13 @@ fn render_pagination(current_page: usize, total_pages: usize, base_url: &str) ->
             html.push_str("<span>...</span>");
         }
         let url = format!("{}?page={}", base_url, total_pages - 1);
-        html.push_str(&format!(r#"<a href="{}">{}</a>"#, url, total_pages));
+        html.push_str(&format!(r#"<a href="{url}">{total_pages}</a>"#));
     }
 
     // Next button
     if current_page + 1 < total_pages {
         let next_url = format!("{}?page={}", base_url, current_page + 1);
-        html.push_str(&format!(r#"<a href="{}">Next &raquo;</a>"#, next_url));
+        html.push_str(&format!(r#"<a href="{next_url}">Next &raquo;</a>"#));
     } else {
         html.push_str(r#"<span class="disabled">Next &raquo;</span>"#);
     }
@@ -605,7 +600,7 @@ pub fn render_archive_detail(
         let size_display = if text_size >= 1024 {
             format!("{:.1} KB", text_size as f64 / 1024.0)
         } else {
-            format!("{} bytes", text_size)
+            format!("{text_size} bytes")
         };
         content.push_str(&format!(
             r#"<section class="content-text-section"><details>
@@ -625,10 +620,9 @@ pub fn render_archive_detail(
 
     let primary_key_opt = archive.s3_key_primary.as_deref();
     let is_html_archive = primary_key_opt
-        .map(|primary_key| {
+        .is_some_and(|primary_key| {
             primary_key.ends_with(".html") || archive.content_type.as_deref() == Some("thread")
-        })
-        .unwrap_or(false);
+        });
 
     // Show Media section for non-HTML archives (videos, images, etc.)
     // For HTML archives, we show the embedded preview instead
@@ -728,8 +722,7 @@ pub fn render_archive_detail(
     // Show screenshot/captures section if any capture artifacts exist
     if screenshot_artifact.is_some() || pdf_artifact.is_some() || mhtml_artifact.is_some() {
         content.push_str(&format!(
-            r#"<section class="captures-section"{nsfw_attr}><h2>Page Captures</h2>"#,
-            nsfw_attr = nsfw_attr
+            r#"<section class="captures-section"{nsfw_attr}><h2>Page Captures</h2>"#
         ));
         content.push_str(r#"<div class="captures-grid">"#);
 
@@ -820,8 +813,7 @@ pub fn render_archive_detail(
             // Dedup info
             let dedup_info = if let Some(dup_id) = artifact.duplicate_of_artifact_id {
                 format!(
-                    r#"<span class="dedup-dup" title="Duplicate of artifact #{}">🔗 #{}</span>"#,
-                    dup_id, dup_id
+                    r#"<span class="dedup-dup" title="Duplicate of artifact #{dup_id}">🔗 #{dup_id}</span>"#
                 )
             } else if artifact.perceptual_hash.is_some() {
                 format!(
@@ -1347,8 +1339,7 @@ pub fn render_thread_detail(
 
     let discourse_url = posts
         .first()
-        .map(|p| p.discourse_url.as_str())
-        .unwrap_or("");
+        .map_or("", |p| p.discourse_url.as_str());
 
     let last_activity = archives
         .iter()

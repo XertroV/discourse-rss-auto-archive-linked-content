@@ -47,7 +47,7 @@ async fn setup_db() -> (Database, TempDir) {
 }
 
 /// Create a mock S3 client for testing.
-/// Note: This requires MinIO or localstack to be running for full integration tests.
+/// Note: This requires `MinIO` or localstack to be running for full integration tests.
 /// For unit tests, we'll skip tests that require actual S3 operations.
 async fn create_mock_s3() -> Arc<S3Client> {
     std::env::set_var("S3_BUCKET", "test-bucket");
@@ -299,7 +299,7 @@ async fn test_export_get_archives_with_artifacts() {
     let (archive, _link, artifacts) = &results[0];
     assert!(archive.id == archive1_id || archive.id == archive2_id);
     assert!(
-        !artifacts.is_empty() || results[1].2.len() > 0,
+        !artifacts.is_empty() || !results[1].2.is_empty(),
         "Should have artifacts attached"
     );
 
@@ -538,5 +538,5 @@ async fn test_export_includes_nsfw_metadata() {
     .unwrap();
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].0.is_nsfw, true, "NSFW flag should be preserved");
+    assert!(results[0].0.is_nsfw, "NSFW flag should be preserved");
 }

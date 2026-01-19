@@ -1,7 +1,5 @@
 //! Integration tests for the archive pipeline.
 
-use std::path::PathBuf;
-use std::time::Duration;
 
 use discourse_link_archiver::archiver::CookieOptions;
 use discourse_link_archiver::config::Config;
@@ -433,6 +431,5 @@ async fn test_archive_with_metadata_extraction() {
     assert!(result
         .text
         .as_ref()
-        .map(|t| t.contains("guide to testing"))
-        .unwrap_or(false));
+        .is_some_and(|t| t.contains("guide to testing")));
 }

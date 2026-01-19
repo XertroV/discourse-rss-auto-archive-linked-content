@@ -217,7 +217,7 @@ impl StreamingUploader {
         let mut completed_parts = Vec::new();
         let mut part_number = 1;
         let mut bytes_uploaded = 0u64;
-        let total_parts = (file_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
+        let total_parts = file_size.div_ceil(CHUNK_SIZE);
 
         loop {
             // Read a full chunk (or remainder at EOF)
