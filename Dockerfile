@@ -2,9 +2,12 @@
 # Build stage
 FROM rust:1.85-bookworm AS builder
 
-# Allows selecting a faster Cargo profile for iterative builds.
+# Allows selecting a Cargo profile for builds.
+# Options: release (default, optimized), release-fast (faster builds, less optimization), debug (fastest builds, no optimization)
 # Examples:
-#   docker build --build-arg CARGO_PROFILE=release-fast .
+#   docker build --build-arg CARGO_PROFILE=debug .          # Fast debug build
+#   docker build --build-arg CARGO_PROFILE=release-fast .  # Faster release build
+#   docker build --build-arg CARGO_PROFILE=release .       # Fully optimized release build
 ARG CARGO_PROFILE=release
 
 WORKDIR /app
