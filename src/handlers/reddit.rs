@@ -160,9 +160,7 @@ impl SiteHandler for RedditHandler {
         let json_metadata = json_result.as_ref().ok();
 
         // Check if JSON API indicates NSFW
-        let api_nsfw = json_metadata
-            .and_then(|r| r.is_nsfw)
-            .unwrap_or(false);
+        let api_nsfw = json_metadata.and_then(|r| r.is_nsfw).unwrap_or(false);
 
         // Use yt-dlp for video/media content
         let ytdlp_result = ytdlp::download(&normalized_url, work_dir, cookies_file).await;
