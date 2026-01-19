@@ -344,17 +344,23 @@ pub fn render_archive_detail(
     }
 
     // Embedded HTML preview (collapsible) for webpage archives
-    // Prefer view.html (with banner) over raw.html
+    // Priority: complete.html (styled) > view.html (with banner) > raw.html
     if let Some(ref primary_key) = archive.s3_key_primary {
         let is_html_archive =
             primary_key.ends_with(".html") || archive.content_type.as_deref() == Some("thread");
 
         if is_html_archive {
-            // Find the view.html artifact first, or fall back to raw.html
-            let view_key = artifacts
+            // Find the best HTML artifact: complete.html (monolith) > view.html > raw.html
+            let preview_key = artifacts
                 .iter()
-                .find(|a| a.s3_key.ends_with("view.html"))
+                .find(|a| a.s3_key.ends_with("complete.html"))
                 .map(|a| &a.s3_key)
+                .or_else(|| {
+                    artifacts
+                        .iter()
+                        .find(|a| a.s3_key.ends_with("view.html"))
+                        .map(|a| &a.s3_key)
+                })
                 .or_else(|| {
                     artifacts
                         .iter()
@@ -362,16 +368,26 @@ pub fn render_archive_detail(
                         .map(|a| &a.s3_key)
                 });
 
-            if let Some(embed_key) = view_key {
+            // Determine which version we're showing for the label
+            let preview_type = if preview_key.is_some_and(|k| k.ends_with("complete.html")) {
+                " (Full Archive)"
+            } else if preview_key.is_some_and(|k| k.ends_with("view.html")) {
+                " (With Banner)"
+            } else {
+                " (Original)"
+            };
+
+            if let Some(embed_key) = preview_key {
                 content.push_str(&format!(
                     r#"<section class="embedded-preview">
                         <details open>
-                            <summary><h2 style="display: inline;">Archived Page Preview</h2></summary>
+                            <summary><h2 style="display: inline;">Archived Page Preview{}</h2></summary>
                             <div class="iframe-container">
                                 <iframe src="/s3/{}" sandbox="allow-same-origin" loading="lazy" title="Archived webpage preview"></iframe>
                             </div>
                         </details>
                     </section>"#,
+                    preview_type,
                     html_escape(embed_key)
                 ));
             }
@@ -646,7 +662,10 @@ pub fn render_archive_detail(
 /// Convert artifact kind to human-readable display string.
 fn artifact_kind_display(kind: &str) -> &'static str {
     match kind {
-        "raw_html" => "HTML",
+        "raw_html" => "HTML (Original)",
+        "view_html" => "HTML (With Banner)",
+        "complete_html" => "HTML (Full Archive)",
+        "mhtml" => "MHTML Archive",
         "screenshot" => "Screenshot",
         "pdf" => "PDF",
         "video" => "Video",

@@ -113,3 +113,45 @@ gateway_urls = [
 enabled = true
 # Maximum submissions per hour per IP address
 rate_limit_per_hour = 60
+
+[screenshot]
+# Enable screenshot capture (requires Chromium)
+enabled = false
+# Viewport width in pixels
+viewport_width = 1280
+# Viewport height in pixels (taller = more content captured)
+viewport_height = 3000
+# Page load timeout in seconds
+timeout_secs = 30
+# Path to Chrome/Chromium executable (optional, auto-detected if not set)
+# chrome_path = "/usr/bin/chromium"
+
+[pdf]
+# Enable PDF generation (requires Chromium)
+enabled = false
+# Paper width in inches (8.27 = A4)
+paper_width = 8.27
+# Paper height in inches (11.69 = A4)
+paper_height = 11.69
+
+[mhtml]
+# Enable MHTML archive generation (requires Chromium)
+# MHTML bundles HTML + CSS + images into a single file
+enabled = false
+
+[monolith]
+# Enable self-contained HTML generation using monolith
+# Creates complete.html with CSS, images, and fonts embedded as data URIs
+enabled = false
+# Path to monolith executable
+path = "monolith"
+# Timeout for monolith execution in seconds
+timeout_secs = 60
+# Include JavaScript in archived pages (may cause issues with some sites)
+include_js = false
+
+[dedup]
+# Enable content deduplication (saves storage by detecting similar media)
+enabled = true
+# Perceptual hash similarity threshold (0-64, lower = stricter matching)
+similarity_threshold = 10

@@ -110,6 +110,15 @@ pub struct Config {
     pub pdf_paper_width: f64,
     pub pdf_paper_height: f64,
 
+    // MHTML Generation (browser-based single-file archive)
+    pub mhtml_enabled: bool,
+
+    // Monolith (self-contained HTML with embedded CSS/images)
+    pub monolith_enabled: bool,
+    pub monolith_path: String,
+    pub monolith_timeout_secs: u64,
+    pub monolith_include_js: bool,
+
     // Content Deduplication
     pub dedup_enabled: bool,
     pub dedup_similarity_threshold: u32,
@@ -149,6 +158,10 @@ pub struct FileConfig {
     pub screenshot: ScreenshotCaptureConfig,
     #[serde(default)]
     pub pdf: PdfConfig,
+    #[serde(default)]
+    pub mhtml: MhtmlCaptureConfig,
+    #[serde(default)]
+    pub monolith: MonolithCaptureConfig,
     #[serde(default)]
     pub dedup: DedupConfig,
 }
@@ -272,6 +285,21 @@ pub struct PdfConfig {
     pub enabled: Option<bool>,
     pub paper_width: Option<f64>,
     pub paper_height: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct MhtmlCaptureConfig {
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct MonolithCaptureConfig {
+    pub enabled: Option<bool>,
+    pub path: Option<String>,
+    pub timeout_secs: Option<u64>,
+    pub include_js: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -547,6 +575,24 @@ impl Config {
                 fc.pdf.paper_height.unwrap_or(11.69),
             )?,
 
+            // MHTML Generation
+            mhtml_enabled: parse_env_bool("MHTML_ENABLED", fc.mhtml.enabled.unwrap_or(false))?,
+
+            // Monolith (self-contained HTML)
+            monolith_enabled: parse_env_bool(
+                "MONOLITH_ENABLED",
+                fc.monolith.enabled.unwrap_or(false),
+            )?,
+            monolith_path: get_string("MONOLITH_PATH", fc.monolith.path, "monolith"),
+            monolith_timeout_secs: parse_env_u64(
+                "MONOLITH_TIMEOUT_SECS",
+                fc.monolith.timeout_secs.unwrap_or(60),
+            )?,
+            monolith_include_js: parse_env_bool(
+                "MONOLITH_INCLUDE_JS",
+                fc.monolith.include_js.unwrap_or(false),
+            )?,
+
             // Content Deduplication
             dedup_enabled: parse_env_bool("DEDUP_ENABLED", fc.dedup.enabled.unwrap_or(true))?,
             dedup_similarity_threshold: parse_env_u32(
@@ -575,6 +621,25 @@ impl Config {
             paper_width: self.pdf_paper_width,
             paper_height: self.pdf_paper_height,
             enabled: self.pdf_enabled,
+        }
+    }
+
+    /// Create an MhtmlConfig from this config.
+    #[must_use]
+    pub fn mhtml_config(&self) -> crate::archiver::MhtmlConfig {
+        crate::archiver::MhtmlConfig {
+            enabled: self.mhtml_enabled,
+        }
+    }
+
+    /// Create a MonolithConfig from this config.
+    #[must_use]
+    pub fn monolith_config(&self) -> crate::archiver::MonolithConfig {
+        crate::archiver::MonolithConfig {
+            enabled: self.monolith_enabled,
+            path: self.monolith_path.clone(),
+            timeout: std::time::Duration::from_secs(self.monolith_timeout_secs),
+            include_js: self.monolith_include_js,
         }
     }
 

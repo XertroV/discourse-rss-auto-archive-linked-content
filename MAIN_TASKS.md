@@ -415,13 +415,16 @@ Add new tasks here as they are discovered during development:
 - [x] Fix extra_files upload in worker - handlers can return extra files but they weren't uploaded
 - [x] Embed CSS in archive banner for offline viewing (inline styles in view.html)
 
-### HTML/PDF Archiving Workflow (reviewed - see notes)
-Current status: PDFs and screenshots work well offline. HTML archives need external CSS/images to render fully.
-Known gaps (for future work):
-- [ ] Embed external CSS inline in HTML archives for offline viewing
-- [ ] Embed/download referenced images for HTML archives
-- [ ] Support font embedding for archived webpages
-- [ ] Create self-contained HTML option with all resources embedded
+### HTML/PDF Archiving Workflow
+Status: Complete. Full offline archiving implemented with multiple output formats.
+Implemented:
+- [x] Embed external CSS inline in HTML archives for offline viewing (via monolith)
+- [x] Embed/download referenced images for HTML archives (via monolith)
+- [x] Support font embedding for archived webpages (via monolith)
+- [x] Create self-contained HTML option with all resources embedded (complete.html via monolith)
+- [x] Add MHTML archive format (complete.mhtml via Chrome CDP)
+- [x] Screenshot capture (screenshot.png via headless Chrome)
+- [x] PDF generation (page.pdf via headless Chrome)
 
 ### Future Improvements
 - [ ] Upgrade axum from 0.7 to 0.8 (breaking change: path syntax changes from `:param` to `{param}`)
