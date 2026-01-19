@@ -1180,8 +1180,18 @@ pre {
     color: var(--text-secondary);
 }
 
-.artifact-kind-raw_html {
+.artifact-kind-complete_html {
+    background-color: #0f766e;
+    color: white;
+}
+
+.artifact-kind-view_html {
     background-color: #2563eb;
+    color: white;
+}
+
+.artifact-kind-raw_html {
+    background-color: #4b5563;
     color: white;
 }
 

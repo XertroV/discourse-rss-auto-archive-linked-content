@@ -427,21 +427,22 @@ pub fn render_archive_detail(
 
             // Determine if this artifact is viewable in browser
             let is_viewable = is_viewable_in_browser(filename);
+            let escaped_key = html_escape(&artifact.s3_key);
+            let escaped_filename = html_escape(filename);
             let actions = if is_viewable {
                 format!(
-                    r#"<a href="/s3/{}" target="_blank" title="View {}" class="action-link">View</a> <a href="/s3/{}" download title="Download {}" class="action-link">{}</a>"#,
-                    html_escape(&artifact.s3_key),
-                    html_escape(filename),
-                    html_escape(&artifact.s3_key),
-                    html_escape(filename),
-                    download_icon()
+                    r#"<a href="/s3/{key}" target="_blank" title="View {name}" aria-label="View {name}" class="action-link">{view}</a> <a href="/s3/{key}" download title="Download {name}" aria-label="Download {name}" class="action-link">{download}</a>"#,
+                    key = escaped_key,
+                    name = escaped_filename,
+                    view = view_icon(),
+                    download = download_icon()
                 )
             } else {
                 format!(
-                    r#"<a href="/s3/{}" download title="Download {}" class="action-link">{}</a>"#,
-                    html_escape(&artifact.s3_key),
-                    html_escape(filename),
-                    download_icon()
+                    r#"<a href="/s3/{key}" download title="Download {name}" aria-label="Download {name}" class="action-link">{download}</a>"#,
+                    key = escaped_key,
+                    name = escaped_filename,
+                    download = download_icon()
                 )
             };
 
@@ -675,6 +676,11 @@ fn artifact_kind_display(kind: &str) -> &'static str {
         "subtitles" => "Subtitles",
         _ => "File",
     }
+}
+
+/// Return a view icon SVG.
+fn view_icon() -> &'static str {
+    r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7"/><circle cx="12" cy="12" r="3"/></svg>"#
 }
 
 /// Return a download icon SVG.
