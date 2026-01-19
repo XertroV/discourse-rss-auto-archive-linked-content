@@ -113,7 +113,7 @@ services:
       "
 
   # Interactive browser for logging in and exporting cookies.
-  # Exposes noVNC on 127.0.0.1:7900 by default; use an SSH tunnel to access it securely.
+  # Exposes noVNC on 127.0.0.1:7900 by default; use an SSH tunnel to access it securely. Default pw = 'secret'.
   cookie-browser:
     profiles:
       - manual
