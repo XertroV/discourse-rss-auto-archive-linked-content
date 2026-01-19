@@ -379,7 +379,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [ ] Filter archives in database queries when `nsfw=hide` (optional enhancement)
 
 ### Testing
-- [x] Write unit tests for NSFW subreddit detection in Reddit handler
+- [x] Write comprehensive unit tests for NSFW subreddit detection in Reddit handler
 
 ---
 
