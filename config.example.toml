@@ -38,6 +38,14 @@ gallery_dl_path = "gallery-dl"
 # Path to cookies.txt file for authenticated downloads (optional)
 # cookies_file_path = "./cookies.txt"
 
+# Optional: Use a persisted browser profile instead of exporting cookies.txt.
+# This passes yt-dlp's "--cookies-from-browser ..." option.
+#
+# Example (Docker Compose + cookie-browser flow):
+#   yt_dlp_cookies_from_browser = "chromium+basictext:/app/cookies/chromium-profile"
+#
+# yt_dlp_cookies_from_browser = ""
+
 [archive]
 # Archive mode: "deletable" (only archive sites known for deleting content) or "all"
 mode = "deletable"

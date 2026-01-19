@@ -19,9 +19,12 @@ pub async fn download(
 ) -> Result<ArchiveResult> {
     let output_template = work_dir.join("%(title)s.%(ext)s");
 
+    let cookies_from_browser = std::env::var("YT_DLP_COOKIES_FROM_BROWSER")
+        .ok()
+        .filter(|s| !s.is_empty());
+
     let mut args = vec![
         "-4".to_string(),
-        url.to_string(),
         "--no-playlist".to_string(),
         "--write-info-json".to_string(),
         "--write-thumbnail".to_string(),
@@ -37,6 +40,12 @@ pub async fn download(
         "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best".to_string(),
     ];
 
+    if let Some(ref spec) = cookies_from_browser {
+        debug!(spec = %spec, "Using cookies from browser profile");
+        args.push("--cookies-from-browser".to_string());
+        args.push(spec.clone());
+    }
+
     if let Some(cookies) = cookies_file {
         if !cookies.exists() {
             warn!(path = %cookies.display(), "Cookies file specified but does not exist, continuing without cookies");
@@ -48,6 +57,9 @@ pub async fn download(
             args.push(cookies.to_string_lossy().to_string());
         }
     }
+
+    // URL goes last
+    args.push(url.to_string());
 
     debug!(url = %url, "Running yt-dlp");
 

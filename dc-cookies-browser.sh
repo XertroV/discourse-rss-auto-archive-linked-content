@@ -48,13 +48,14 @@ done
 echo "Auto-launching Chromium in the noVNC desktop..."
 docker compose --profile manual exec -T cookie-browser bash -lc '
 	set -euo pipefail
+	mkdir -p /cookies/chromium-profile
 	url="about:blank"
 	if command -v chromium >/dev/null 2>&1; then
-		nohup chromium --no-sandbox "$url" >/tmp/chromium-autostart.log 2>&1 &
+		nohup chromium --no-sandbox --user-data-dir=/cookies/chromium-profile --password-store=basic "$url" >/tmp/chromium-autostart.log 2>&1 &
 	elif command -v chromium-browser >/dev/null 2>&1; then
-		nohup chromium-browser --no-sandbox "$url" >/tmp/chromium-autostart.log 2>&1 &
+		nohup chromium-browser --no-sandbox --user-data-dir=/cookies/chromium-profile --password-store=basic "$url" >/tmp/chromium-autostart.log 2>&1 &
 	elif command -v google-chrome >/dev/null 2>&1; then
-		nohup google-chrome --no-sandbox "$url" >/tmp/chromium-autostart.log 2>&1 &
+		nohup google-chrome --no-sandbox --user-data-dir=/cookies/chromium-profile --password-store=basic "$url" >/tmp/chromium-autostart.log 2>&1 &
 	else
 		echo "No Chromium/Chrome binary found in container" >&2
 		exit 1

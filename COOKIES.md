@@ -6,6 +6,35 @@ This guide explains how to export cookies from YouTube to bypass bot detection w
 
 YouTube may show a "Sign in to confirm you're not a bot" error when downloading videos programmatically. Using cookies from an authenticated browser session allows yt-dlp to appear as a logged-in user, bypassing this restriction.
 
+## Automatic (recommended for Docker): Persisted Browser Profile
+
+If you're running this project via Docker Compose, you can avoid exporting `cookies.txt` entirely by:
+
+1. Starting the included `cookie-browser` (noVNC) once
+2. Logging into the sites you want (YouTube, Reddit, etc)
+3. Letting the archiver use yt-dlp's `--cookies-from-browser ...` against the persisted profile directory
+
+This repo's Docker setup stores a Chromium profile under `/cookies/chromium-profile` inside the `cookie-browser` container, and that same data is visible to the archiver at `/app/cookies/chromium-profile`.
+
+Enable it by setting:
+
+```bash
+YT_DLP_COOKIES_FROM_BROWSER=chromium+basictext:/app/cookies/chromium-profile
+```
+
+Then:
+
+```bash
+./dc-cookies-browser.sh
+# log in via http://127.0.0.1:7900 (pw: secret)
+./dc-restart.sh
+```
+
+Notes:
+
+- The `+basictext` keyring mode is often the simplest for containers.
+- You can change the browser/keyring/profile spec; see `yt-dlp --help` for `--cookies-from-browser`.
+
 ## Quick Export Method
 
 ### Step 1: Open YouTube in Your Browser
@@ -29,10 +58,10 @@ Copy and paste the following JavaScript code into the console and press Enter:
     const [name, ...valueParts] = c.trim().split('=');
     const value = valueParts.join('=');
     if (!name || !value) return null;
-    
+
     // Get cookie attributes from browser (if available)
     const cookieString = `${name}=${value}`;
-    
+
     return {
       name: name.trim(),
       value: decodeURIComponent(value),
@@ -47,7 +76,7 @@ Copy and paste the following JavaScript code into the console and press Enter:
 
   // Export as array format (yt-dlp compatible)
   const cookieArray = cookies;
-  
+
   // Create download link
   const blob = new Blob([JSON.stringify(cookieArray, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);

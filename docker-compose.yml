@@ -33,6 +33,9 @@ services:
       # Path to cookies file for authenticated downloads (yt-dlp, gallery-dl, etc.)
       # Recommended format: Netscape cookies.txt
       COOKIES_FILE_PATH: ${COOKIES_FILE_PATH:-/app/cookies/cookies.txt}
+      # Optional: use a persisted browser profile instead of exporting cookies.txt manually.
+      # Example: chromium+basictext:/app/cookies/chromium-profile
+      YT_DLP_COOKIES_FROM_BROWSER: ${YT_DLP_COOKIES_FROM_BROWSER:-}
 
       # Archive Policy
       ARCHIVE_MODE: ${ARCHIVE_MODE:-deletable}
@@ -118,6 +121,7 @@ services:
     profiles:
       - manual
     image: selenium/standalone-chromium:latest
+    user: root
     shm_size: 2gb
     ports:
       - "127.0.0.1:7900:7900"
