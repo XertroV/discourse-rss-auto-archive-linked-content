@@ -298,14 +298,14 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [ ] Write unit tests for hash comparison
 
 ### Screenshot Capture
-- [ ] Add chromiumoxide or headless_chrome dependency
-- [ ] Create screenshot capture module
-- [ ] Configure viewport dimensions
-- [ ] Capture full-page screenshots as PNG
-- [ ] Store in S3 render/ directory
-- [ ] Add configuration options
-- [ ] Handle browser startup/cleanup
-- [ ] Write unit tests
+- [x] Add chromiumoxide or headless_chrome dependency
+- [x] Create screenshot capture module
+- [x] Configure viewport dimensions
+- [x] Capture full-page screenshots as PNG
+- [x] Store in S3 render/ directory
+- [x] Add configuration options
+- [x] Handle browser startup/cleanup
+- [x] Write unit tests
 
 ### PDF Generation
 - [ ] Use browser print-to-PDF capability
@@ -390,3 +390,11 @@ Add new tasks here as they are discovered during development:
 - [x] Create lib.rs to expose modules for integration tests
 - [x] Write database integration tests
 - [x] Write web routes integration tests
+
+### Archive Retry Improvements
+- [x] Add `next_retry_at` and `last_attempt_at` columns to archives table (migration v5)
+- [x] Implement exponential backoff for failed archives (5, 10, 20, 40 minutes)
+- [x] Update retry query to respect `next_retry_at` timestamp
+- [x] Reset stuck "processing" archives to "pending" on startup
+- [x] Reset failed archives from today for retry on container restart
+- [x] Add startup recovery function to archive worker

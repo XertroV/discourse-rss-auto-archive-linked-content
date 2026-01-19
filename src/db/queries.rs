@@ -260,13 +260,25 @@ pub async fn set_archive_nsfw(
     Ok(())
 }
 
-/// Update archive as failed.
+/// Update archive as failed with exponential backoff for retry.
+///
+/// The `next_retry_at` is calculated as: now + (base_delay * 2^retry_count)
+/// With base_delay = 5 minutes:
+/// - retry 0: 5 minutes
+/// - retry 1: 10 minutes
+/// - retry 2: 20 minutes
+/// - retry 3: 40 minutes (but this is the last retry)
 pub async fn set_archive_failed(pool: &SqlitePool, id: i64, error: &str) -> Result<()> {
+    // Calculate exponential backoff delay in minutes: 5 * 2^retry_count
+    // We use the current retry_count before incrementing, so:
+    // retry_count=0 -> 5*2^0 = 5 min, retry_count=1 -> 5*2^1 = 10 min, etc.
     sqlx::query(
         r"
         UPDATE archives
         SET status = 'failed',
             error_message = ?,
+            last_attempt_at = datetime('now'),
+            next_retry_at = datetime('now', '+' || (5 * (1 << retry_count)) || ' minutes'),
             retry_count = retry_count + 1
         WHERE id = ?
         ",
@@ -330,16 +342,28 @@ pub async fn get_pending_archives(pool: &SqlitePool, limit: i64) -> Result<Vec<A
     .context("Failed to fetch pending archives")
 }
 
-/// Get failed archives eligible for retry (retry_count < 3).
-pub async fn get_failed_archives_for_retry(pool: &SqlitePool, limit: i64) -> Result<Vec<Archive>> {
+/// Get failed archives eligible for retry.
+///
+/// Returns archives where:
+/// - status = 'failed'
+/// - retry_count < max_retries
+/// - next_retry_at <= now (or is null for legacy data)
+pub async fn get_failed_archives_for_retry(
+    pool: &SqlitePool,
+    limit: i64,
+    max_retries: i32,
+) -> Result<Vec<Archive>> {
     sqlx::query_as(
         r"
         SELECT * FROM archives
-        WHERE status = 'failed' AND retry_count < 3
-        ORDER BY created_at ASC
+        WHERE status = 'failed'
+          AND retry_count < ?
+          AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
+        ORDER BY next_retry_at ASC NULLS FIRST, created_at ASC
         LIMIT ?
         ",
     )
+    .bind(max_retries)
     .bind(limit)
     .fetch_all(pool)
     .await
@@ -686,4 +710,56 @@ pub async fn set_submission_rejected(pool: &SqlitePool, id: i64, reason: &str) -
     .context("Failed to set submission rejected")?;
 
     Ok(())
+}
+
+// ========== Startup Recovery ==========
+
+/// Reset archives stuck in "processing" status back to "pending".
+///
+/// This should be called on startup to recover from interrupted processing
+/// (e.g., container restart, crash). These archives were mid-processing when
+/// the application stopped.
+pub async fn reset_stuck_processing_archives(pool: &SqlitePool) -> Result<u64> {
+    let result = sqlx::query(
+        r"
+        UPDATE archives
+        SET status = 'pending'
+        WHERE status = 'processing'
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to reset stuck processing archives")?;
+
+    Ok(result.rows_affected())
+}
+
+/// Reset failed archives from today for retry on startup.
+///
+/// This allows archives that failed today to be retried when the container
+/// restarts, giving them a fresh chance (e.g., if the failure was due to
+/// a temporary network issue or service outage).
+///
+/// Only resets archives that haven't exceeded the max retry count and were
+/// created or last attempted today.
+pub async fn reset_todays_failed_archives(pool: &SqlitePool, max_retries: i32) -> Result<u64> {
+    let result = sqlx::query(
+        r"
+        UPDATE archives
+        SET status = 'pending',
+            next_retry_at = NULL
+        WHERE status = 'failed'
+          AND retry_count < ?
+          AND (
+              date(created_at) = date('now')
+              OR date(last_attempt_at) = date('now')
+          )
+        ",
+    )
+    .bind(max_retries)
+    .execute(pool)
+    .await
+    .context("Failed to reset today's failed archives")?;
+
+    Ok(result.rows_affected())
 }

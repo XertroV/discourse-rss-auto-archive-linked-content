@@ -123,6 +123,10 @@ pub struct Archive {
     pub is_nsfw: bool,
     /// Source of the NSFW flag: 'api', 'metadata', 'subreddit', 'manual'.
     pub nsfw_source: Option<String>,
+    /// When the archive is eligible for retry (for exponential backoff).
+    pub next_retry_at: Option<String>,
+    /// When the last archive attempt was made.
+    pub last_attempt_at: Option<String>,
 }
 
 impl Archive {

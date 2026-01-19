@@ -101,6 +101,12 @@ async fn run() -> Result<()> {
     let worker_s3 = s3_client;
     let worker_ipfs = ipfs_client;
     let worker = ArchiveWorker::new(worker_config, worker_db, worker_s3, worker_ipfs);
+
+    // Recover from any interrupted processing on startup
+    if let Err(e) = worker.recover_on_startup().await {
+        error!("Failed to recover archives on startup: {e:#}");
+    }
+
     let worker_handle = tokio::spawn(async move {
         worker.run().await;
     });

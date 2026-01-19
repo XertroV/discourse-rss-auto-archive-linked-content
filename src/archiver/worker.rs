@@ -7,11 +7,13 @@ use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
 use super::rate_limiter::DomainRateLimiter;
+use super::screenshot::ScreenshotService;
 use crate::config::Config;
 use crate::db::{
     get_failed_archives_for_retry, get_link, get_pending_archives, reset_archive_for_retry,
-    set_archive_complete, set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw,
-    set_archive_processing, set_archive_skipped, update_link_last_archived, Database,
+    reset_stuck_processing_archives, reset_todays_failed_archives, set_archive_complete,
+    set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw, set_archive_processing,
+    set_archive_skipped, update_link_last_archived, Database,
 };
 use crate::handlers::HANDLERS;
 use crate::ipfs::IpfsClient;
@@ -25,6 +27,7 @@ pub struct ArchiveWorker {
     db: Database,
     s3: S3Client,
     ipfs: IpfsClient,
+    screenshot: Arc<ScreenshotService>,
     semaphore: Arc<Semaphore>,
     domain_limiter: Arc<DomainRateLimiter>,
 }
@@ -34,14 +37,45 @@ impl ArchiveWorker {
     pub fn new(config: Config, db: Database, s3: S3Client, ipfs: IpfsClient) -> Self {
         let semaphore = Arc::new(Semaphore::new(config.worker_concurrency));
         let domain_limiter = Arc::new(DomainRateLimiter::new(config.per_domain_concurrency));
+        let screenshot_config = config.screenshot_config();
+        let screenshot = Arc::new(ScreenshotService::new(screenshot_config));
+
+        if screenshot.is_enabled() {
+            info!("Screenshot capture enabled");
+        }
+
         Self {
             config,
             db,
             s3,
             ipfs,
+            screenshot,
             semaphore,
             domain_limiter,
         }
+    }
+
+    /// Recover from a previous unclean shutdown.
+    ///
+    /// This resets archives that were stuck in "processing" state (interrupted
+    /// mid-processing) and gives today's failed archives another chance.
+    pub async fn recover_on_startup(&self) -> Result<()> {
+        // Reset archives that were mid-processing when we shut down
+        let stuck = reset_stuck_processing_archives(self.db.pool()).await?;
+        if stuck > 0 {
+            info!(count = stuck, "Reset stuck processing archives to pending");
+        }
+
+        // Give today's failed archives another chance
+        let failed = reset_todays_failed_archives(self.db.pool(), MAX_RETRIES).await?;
+        if failed > 0 {
+            info!(
+                count = failed,
+                "Reset today's failed archives for retry on startup"
+            );
+        }
+
+        Ok(())
     }
 
     /// Run the worker loop.
@@ -92,6 +126,7 @@ impl ArchiveWorker {
             let db = self.db.clone();
             let s3 = self.s3.clone();
             let ipfs = self.ipfs.clone();
+            let screenshot = Arc::clone(&self.screenshot);
             let config = self.config.clone();
             let domain_limiter = Arc::clone(&self.domain_limiter);
 
@@ -100,7 +135,16 @@ impl ArchiveWorker {
                 // Acquire domain-specific permit
                 let _domain_permit = domain_limiter.acquire(&domain).await;
                 debug!(archive_id = archive.id, domain = %domain, "Acquired domain permit");
-                process_archive(&db, &s3, &ipfs, &config, archive.id, archive.link_id).await;
+                process_archive(
+                    &db,
+                    &s3,
+                    &ipfs,
+                    &screenshot,
+                    &config,
+                    archive.id,
+                    archive.link_id,
+                )
+                .await;
             });
 
             handles.push(handle);
@@ -119,11 +163,13 @@ impl ArchiveWorker {
     }
 
     async fn process_failed(&self) -> Result<()> {
-        let failed = get_failed_archives_for_retry(self.db.pool(), 10).await?;
+        // The query already filters by retry_count and next_retry_at,
+        // so archives returned here are ready for retry
+        let failed = get_failed_archives_for_retry(self.db.pool(), 10, MAX_RETRIES).await?;
 
         for archive in failed {
             if archive.retry_count >= MAX_RETRIES {
-                // Mark as permanently skipped
+                // Mark as permanently skipped (shouldn't happen due to query filter, but be safe)
                 set_archive_skipped(self.db.pool(), archive.id).await?;
                 warn!(
                     archive_id = archive.id,
@@ -132,7 +178,12 @@ impl ArchiveWorker {
             } else {
                 // Reset to pending for retry
                 reset_archive_for_retry(self.db.pool(), archive.id).await?;
-                debug!(archive_id = archive.id, "Archive reset for retry");
+                debug!(
+                    archive_id = archive.id,
+                    retry_count = archive.retry_count,
+                    "Archive reset for retry (attempt {})",
+                    archive.retry_count + 1
+                );
             }
         }
 
@@ -144,11 +195,14 @@ async fn process_archive(
     db: &Database,
     s3: &S3Client,
     ipfs: &IpfsClient,
+    screenshot: &ScreenshotService,
     config: &Config,
     archive_id: i64,
     link_id: i64,
 ) {
-    if let Err(e) = process_archive_inner(db, s3, ipfs, config, archive_id, link_id).await {
+    if let Err(e) =
+        process_archive_inner(db, s3, ipfs, screenshot, config, archive_id, link_id).await
+    {
         error!(archive_id, "Archive failed: {e:#}");
         if let Err(e2) = set_archive_failed(db.pool(), archive_id, &format!("{e:#}")).await {
             error!(archive_id, "Failed to mark archive as failed: {e2:#}");
@@ -160,6 +214,7 @@ async fn process_archive_inner(
     db: &Database,
     s3: &S3Client,
     ipfs: &IpfsClient,
+    screenshot: &ScreenshotService,
     config: &Config,
     archive_id: i64,
     link_id: i64,
@@ -222,6 +277,26 @@ async fn process_archive_inner(
         let key = format!("{s3_prefix}meta.json");
         s3.upload_bytes(metadata.as_bytes(), &key, "application/json")
             .await?;
+    }
+
+    // Capture screenshot if enabled (non-fatal if it fails)
+    if screenshot.is_enabled() {
+        match screenshot.capture(&link.normalized_url).await {
+            Ok(png_data) => {
+                let screenshot_key = format!("{s3_prefix}render/screenshot.png");
+                if let Err(e) = s3
+                    .upload_bytes(&png_data, &screenshot_key, "image/png")
+                    .await
+                {
+                    warn!(archive_id, error = %e, "Failed to upload screenshot");
+                } else {
+                    debug!(archive_id, key = %screenshot_key, "Screenshot uploaded");
+                }
+            }
+            Err(e) => {
+                warn!(archive_id, error = %e, "Failed to capture screenshot");
+            }
+        }
     }
 
     // Pin to IPFS if enabled
