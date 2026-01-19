@@ -656,8 +656,8 @@ async fn submit_url(
             return Html(html).into_response();
         }
         Ok(None) => {
-            // Create pending archive
-            if let Err(e) = create_pending_archive(state.db.pool(), link_id).await {
+            // Create pending archive (no post_date for manual submissions)
+            if let Err(e) = create_pending_archive(state.db.pool(), link_id, None).await {
                 tracing::error!("Failed to create pending archive: {e}");
                 let html = templates::render_submit_error("Failed to queue for archiving");
                 return Html(html).into_response();

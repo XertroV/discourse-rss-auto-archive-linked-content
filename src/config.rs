@@ -431,7 +431,7 @@ impl Config {
                 "CACHE_WINDOW_SECS",
                 fc.rss.cache_window_secs.unwrap_or(3600),
             )?),
-            rss_max_pages: parse_env_usize("RSS_MAX_PAGES", fc.rss.max_pages.unwrap_or(1))?,
+            rss_max_pages: parse_env_usize("RSS_MAX_PAGES", fc.rss.max_pages.unwrap_or(4))?,
 
             // Database
             database_path: PathBuf::from(get_string(

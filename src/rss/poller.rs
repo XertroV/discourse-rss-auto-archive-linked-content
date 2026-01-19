@@ -299,8 +299,12 @@ async fn process_single_link(
     if should_archive {
         // Check if archive already exists
         if get_archive_by_link_id(db.pool(), link_id).await?.is_none() {
-            debug!(url = %link.url, "Creating pending archive");
-            create_pending_archive(db.pool(), link_id).await?;
+            // Fetch the post to get its publication date
+            let post = db::get_post(db.pool(), post_id).await?;
+            let post_date = post.and_then(|p| p.published_at);
+
+            debug!(url = %link.url, post_date = ?post_date, "Creating pending archive");
+            create_pending_archive(db.pool(), link_id, post_date.as_deref()).await?;
         }
     }
 

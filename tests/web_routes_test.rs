@@ -230,7 +230,9 @@ async fn test_rearchive_failed_archive_with_no_artifacts() {
         domain: "reddit.com".to_string(),
     };
     let link_id = insert_link(db.pool(), &new_link).await.unwrap();
-    let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
+        .await
+        .unwrap();
     set_archive_failed(db.pool(), archive_id, "boom")
         .await
         .unwrap();
@@ -285,8 +287,12 @@ async fn test_rearchive_clears_duplicate_references_before_deleting_artifacts() 
     };
     let link_a_id = insert_link(db.pool(), &link_a).await.unwrap();
     let link_b_id = insert_link(db.pool(), &link_b).await.unwrap();
-    let archive_a_id = create_pending_archive(db.pool(), link_a_id).await.unwrap();
-    let archive_b_id = create_pending_archive(db.pool(), link_b_id).await.unwrap();
+    let archive_a_id = create_pending_archive(db.pool(), link_a_id, None)
+        .await
+        .unwrap();
+    let archive_b_id = create_pending_archive(db.pool(), link_b_id, None)
+        .await
+        .unwrap();
 
     // Create artifact for A
     let a_artifact_id = insert_artifact_with_hash(
@@ -483,7 +489,9 @@ async fn test_archive_detail_found() {
         domain: "example.com".to_string(),
     };
     let link_id = insert_link(db.pool(), &new_link).await.unwrap();
-    let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
+        .await
+        .unwrap();
 
     // Complete the archive
     set_archive_complete(
@@ -650,7 +658,9 @@ async fn test_search_returns_relevant_results() {
     let link_id = insert_link(db.pool(), &new_link).await.unwrap();
 
     // Create pending archive
-    let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
+        .await
+        .unwrap();
 
     // Complete the archive with searchable content
     set_archive_complete(
@@ -703,7 +713,9 @@ async fn test_search_no_results_for_unmatched_query() {
         domain: "www.youtube.com".to_string(),
     };
     let link_id = insert_link(db.pool(), &new_link).await.unwrap();
-    let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
+        .await
+        .unwrap();
 
     set_archive_complete(
         db.pool(),
@@ -754,7 +766,9 @@ async fn test_search_by_author() {
         domain: "twitter.com".to_string(),
     };
     let link_id = insert_link(db.pool(), &new_link).await.unwrap();
-    let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
+        .await
+        .unwrap();
 
     set_archive_complete(
         db.pool(),
@@ -807,7 +821,9 @@ async fn test_home_page_with_archives() {
             domain: "example.com".to_string(),
         };
         let link_id = insert_link(db.pool(), &new_link).await.unwrap();
-        let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
+        let archive_id = create_pending_archive(db.pool(), link_id, None)
+            .await
+            .unwrap();
 
         set_archive_complete(
             db.pool(),
