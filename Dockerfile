@@ -35,7 +35,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # Runtime stage
 FROM debian:bookworm-slim
 
-# Install runtime dependencies
+# Install runtime dependencies including Chromium for screenshots/PDF/MHTML
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
@@ -44,6 +44,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-venv \
     unzip \
+    # Chromium for headless browser features (screenshots, PDF, MHTML)
+    chromium \
+    # Fonts for proper text rendering in screenshots
+    fonts-liberation \
+    fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Deno (JS runtime for yt-dlp)
@@ -56,6 +61,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Install yt-dlp and gallery-dl
 RUN pip install --no-cache-dir yt-dlp gallery-dl
+
+# Install monolith for creating self-contained HTML archives
+# Download pre-built binary from GitHub releases (faster than cargo install)
+ARG MONOLITH_VERSION=2.8.3
+RUN curl -fsSL "https://github.com/Y2Z/monolith/releases/download/v${MONOLITH_VERSION}/monolith-gnu-linux-x86_64" \
+    -o /usr/local/bin/monolith && chmod +x /usr/local/bin/monolith
 
 # Create non-root user
 RUN useradd -r -s /bin/false -m -d /app archiver
@@ -100,6 +111,14 @@ ENV WEB_HOST=0.0.0.0
 ENV WEB_PORT=8080
 ENV YT_DLP_PATH=yt-dlp
 ENV GALLERY_DL_PATH=gallery-dl
+ENV MONOLITH_PATH=monolith
+
+# Screenshot/PDF/MHTML settings (Chromium is installed in this image)
+ENV SCREENSHOT_ENABLED=true
+ENV PDF_ENABLED=true
+ENV MHTML_ENABLED=true
+ENV MONOLITH_ENABLED=true
+ENV SCREENSHOT_CHROME_PATH=/usr/bin/chromium
 
 # TLS settings (disabled by default; set TLS_ENABLED=true and TLS_DOMAINS to enable)
 ENV TLS_ENABLED=false

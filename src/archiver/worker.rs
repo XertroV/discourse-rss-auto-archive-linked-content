@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
+use super::monolith::create_complete_html;
 use super::rate_limiter::DomainRateLimiter;
 use super::screenshot::ScreenshotService;
 use crate::config::Config;
@@ -42,9 +43,12 @@ impl ArchiveWorker {
         let domain_limiter = Arc::new(DomainRateLimiter::new(config.per_domain_concurrency));
         let screenshot_config = config.screenshot_config();
         let pdf_config = config.pdf_config();
-        let screenshot = Arc::new(ScreenshotService::with_pdf_config(
+        let mhtml_config = config.mhtml_config();
+        let monolith_config = config.monolith_config();
+        let screenshot = Arc::new(ScreenshotService::with_all_configs(
             screenshot_config,
             pdf_config,
+            mhtml_config,
         ));
 
         if screenshot.is_enabled() {
@@ -52,6 +56,12 @@ impl ArchiveWorker {
         }
         if screenshot.is_pdf_enabled() {
             info!("PDF generation enabled");
+        }
+        if screenshot.is_mhtml_enabled() {
+            info!("MHTML archive enabled");
+        }
+        if monolith_config.enabled {
+            info!("Monolith self-contained HTML enabled");
         }
 
         Self {
@@ -540,6 +550,7 @@ async fn process_archive_inner(
             }
 
             // If this is an HTML file (raw.html), create view.html with archive banner
+            // and optionally create complete.html with monolith
             if primary == "raw.html" {
                 match create_view_html(
                     db,
@@ -559,7 +570,7 @@ async fn process_archive_inner(
                         if let Err(e) = insert_artifact(
                             db.pool(),
                             archive_id,
-                            ArtifactKind::RawHtml.as_str(),
+                            ArtifactKind::ViewHtml.as_str(),
                             &view_key,
                             Some("text/html"),
                             view_size,
@@ -572,6 +583,49 @@ async fn process_archive_inner(
                     }
                     Err(e) => {
                         warn!(archive_id, error = %e, "Failed to create view.html, continuing without banner");
+                    }
+                }
+
+                // Create complete.html with monolith if enabled (non-fatal if fails)
+                let monolith_config = config.monolith_config();
+                if monolith_config.enabled {
+                    let complete_path = work_dir.join("complete.html");
+                    let cookies_file = config.cookies_file_path.as_deref();
+                    match create_complete_html(
+                        &link.normalized_url,
+                        &complete_path,
+                        cookies_file,
+                        &monolith_config,
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+                            let complete_key = format!("{s3_prefix}media/complete.html");
+                            let metadata = tokio::fs::metadata(&complete_path).await.ok();
+                            let size_bytes = metadata.map(|m| m.len() as i64);
+                            if let Err(e) = s3.upload_file(&complete_path, &complete_key).await {
+                                warn!(archive_id, error = %e, "Failed to upload complete.html");
+                            } else {
+                                debug!(archive_id, key = %complete_key, "Uploaded complete.html");
+                                // Insert complete.html artifact record
+                                if let Err(e) = insert_artifact(
+                                    db.pool(),
+                                    archive_id,
+                                    ArtifactKind::CompleteHtml.as_str(),
+                                    &complete_key,
+                                    Some("text/html"),
+                                    size_bytes,
+                                    None,
+                                )
+                                .await
+                                {
+                                    warn!(archive_id, error = %e, "Failed to insert complete.html artifact record");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!(archive_id, error = %e, "Failed to create complete.html with monolith");
+                        }
                     }
                 }
             }
@@ -812,6 +866,41 @@ async fn process_archive_inner(
             }
             Err(e) => {
                 warn!(archive_id, error = %e, "Failed to generate PDF");
+            }
+        }
+    }
+
+    // Generate MHTML archive if enabled (non-fatal if it fails)
+    if screenshot.is_mhtml_enabled() {
+        match screenshot.capture_mhtml(&link.normalized_url).await {
+            Ok(mhtml_data) => {
+                let mhtml_key = format!("{s3_prefix}render/complete.mhtml");
+                let size_bytes = Some(mhtml_data.len() as i64);
+                if let Err(e) = s3
+                    .upload_bytes(&mhtml_data, &mhtml_key, "message/rfc822")
+                    .await
+                {
+                    warn!(archive_id, error = %e, "Failed to upload MHTML");
+                } else {
+                    debug!(archive_id, key = %mhtml_key, "MHTML archive uploaded");
+                    // Insert MHTML artifact record
+                    if let Err(e) = insert_artifact(
+                        db.pool(),
+                        archive_id,
+                        ArtifactKind::Mhtml.as_str(),
+                        &mhtml_key,
+                        Some("message/rfc822"),
+                        size_bytes,
+                        None,
+                    )
+                    .await
+                    {
+                        warn!(archive_id, error = %e, "Failed to insert MHTML artifact record");
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(archive_id, error = %e, "Failed to generate MHTML archive");
             }
         }
     }

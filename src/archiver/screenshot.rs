@@ -1,7 +1,7 @@
-//! Screenshot and PDF capture module using headless Chrome/Chromium.
+//! Screenshot, PDF, and MHTML capture module using headless Chrome/Chromium.
 //!
-//! This module provides functionality to capture full-page screenshots
-//! and generate PDFs of web pages using a headless browser.
+//! This module provides functionality to capture full-page screenshots,
+//! generate PDFs, and create MHTML archives of web pages using a headless browser.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -9,7 +9,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use chromiumoxide::browser::{Browser, BrowserConfig};
-use chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams;
+use chromiumoxide::cdp::browser_protocol::page::{
+    CaptureSnapshotFormat, CaptureSnapshotParams, PrintToPdfParams,
+};
 use chromiumoxide::page::ScreenshotParams;
 use futures_util::StreamExt;
 use tokio::sync::Mutex;
@@ -78,13 +80,27 @@ impl Default for PdfConfig {
     }
 }
 
-/// Screenshot and PDF capture service.
+/// MHTML archive configuration.
+#[derive(Debug, Clone)]
+pub struct MhtmlConfig {
+    /// Whether MHTML generation is enabled.
+    pub enabled: bool,
+}
+
+impl Default for MhtmlConfig {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
+}
+
+/// Screenshot, PDF, and MHTML capture service.
 ///
-/// Manages a headless browser instance for capturing screenshots and generating PDFs.
-/// The browser is lazily initialized on first use.
+/// Manages a headless browser instance for capturing screenshots, generating PDFs,
+/// and creating MHTML archives. The browser is lazily initialized on first use.
 pub struct ScreenshotService {
     config: ScreenshotConfig,
     pdf_config: PdfConfig,
+    mhtml_config: MhtmlConfig,
     browser: Arc<Mutex<Option<Browser>>>,
 }
 
@@ -95,6 +111,7 @@ impl ScreenshotService {
         Self {
             config,
             pdf_config: PdfConfig::default(),
+            mhtml_config: MhtmlConfig::default(),
             browser: Arc::new(Mutex::new(None)),
         }
     }
@@ -105,6 +122,22 @@ impl ScreenshotService {
         Self {
             config,
             pdf_config,
+            mhtml_config: MhtmlConfig::default(),
+            browser: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Create a new screenshot service with PDF and MHTML configuration.
+    #[must_use]
+    pub fn with_all_configs(
+        config: ScreenshotConfig,
+        pdf_config: PdfConfig,
+        mhtml_config: MhtmlConfig,
+    ) -> Self {
+        Self {
+            config,
+            pdf_config,
+            mhtml_config,
             browser: Arc::new(Mutex::new(None)),
         }
     }
@@ -119,6 +152,12 @@ impl ScreenshotService {
     #[must_use]
     pub fn is_pdf_enabled(&self) -> bool {
         self.pdf_config.enabled
+    }
+
+    /// Check if MHTML generation is enabled.
+    #[must_use]
+    pub fn is_mhtml_enabled(&self) -> bool {
+        self.mhtml_config.enabled
     }
 
     /// Initialize the browser if not already running.
@@ -291,6 +330,67 @@ impl ScreenshotService {
         Ok(())
     }
 
+    /// Capture the page as MHTML (single-file web archive).
+    ///
+    /// MHTML bundles HTML with all resources (CSS, images, etc.) into a single file.
+    /// Returns the MHTML content as bytes.
+    pub async fn capture_mhtml(&self, url: &str) -> Result<Vec<u8>> {
+        if !self.mhtml_config.enabled {
+            anyhow::bail!("MHTML generation is disabled");
+        }
+
+        self.ensure_browser().await?;
+
+        let browser_guard = self.browser.lock().await;
+        let browser = browser_guard.as_ref().context("Browser not initialized")?;
+
+        debug!(url = %url, "Capturing MHTML");
+
+        // Create a new page
+        let page = browser
+            .new_page(url)
+            .await
+            .context("Failed to create new page")?;
+
+        // Wait for the page to load
+        page.wait_for_navigation()
+            .await
+            .context("Navigation timeout")?;
+
+        // Give the page more time to render dynamic content and load resources
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+
+        // Capture MHTML using CDP Page.captureSnapshot
+        let snapshot_params = CaptureSnapshotParams::builder()
+            .format(CaptureSnapshotFormat::Mhtml)
+            .build();
+
+        let snapshot = page
+            .execute(snapshot_params)
+            .await
+            .context("Failed to capture MHTML snapshot")?;
+
+        let mhtml_data = snapshot.data.clone().into_bytes();
+
+        // Close the page
+        if let Err(e) = page.close().await {
+            warn!("Failed to close page: {e}");
+        }
+
+        debug!(url = %url, size = mhtml_data.len(), "MHTML captured");
+
+        Ok(mhtml_data)
+    }
+
+    /// Capture MHTML and save it to a file.
+    pub async fn capture_mhtml_to_file(&self, url: &str, output_path: &Path) -> Result<()> {
+        let mhtml_data = self.capture_mhtml(url).await?;
+        tokio::fs::write(output_path, &mhtml_data)
+            .await
+            .with_context(|| format!("Failed to write MHTML to {}", output_path.display()))?;
+        Ok(())
+    }
+
     /// Shutdown the browser gracefully.
     pub async fn shutdown(&self) {
         let mut browser_guard = self.browser.lock().await;
@@ -364,5 +464,28 @@ mod tests {
         };
         let service = ScreenshotService::with_pdf_config(screenshot_config, pdf_config);
         assert!(service.is_pdf_enabled());
+    }
+
+    #[test]
+    fn test_default_mhtml_config() {
+        let config = MhtmlConfig::default();
+        assert!(!config.enabled);
+    }
+
+    #[test]
+    fn test_mhtml_disabled_by_default() {
+        let config = ScreenshotConfig::default();
+        let service = ScreenshotService::new(config);
+        assert!(!service.is_mhtml_enabled());
+    }
+
+    #[test]
+    fn test_mhtml_enabled_with_config() {
+        let screenshot_config = ScreenshotConfig::default();
+        let pdf_config = PdfConfig::default();
+        let mhtml_config = MhtmlConfig { enabled: true };
+        let service =
+            ScreenshotService::with_all_configs(screenshot_config, pdf_config, mhtml_config);
+        assert!(service.is_mhtml_enabled());
     }
 }

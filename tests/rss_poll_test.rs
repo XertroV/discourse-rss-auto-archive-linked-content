@@ -61,6 +61,11 @@ fn create_test_config(rss_url: &str, work_dir: &std::path::Path) -> Config {
         pdf_enabled: false,
         pdf_paper_width: 8.27,
         pdf_paper_height: 11.69,
+        mhtml_enabled: false,
+        monolith_enabled: false,
+        monolith_path: "monolith".to_string(),
+        monolith_timeout_secs: 60,
+        monolith_include_js: false,
         dedup_enabled: false,
         dedup_similarity_threshold: 10,
     }

@@ -1,13 +1,15 @@
 use std::path::Path;
 
 pub mod gallerydl;
+pub mod monolith;
 pub mod rate_limiter;
 pub mod screenshot;
 pub mod worker;
 pub mod ytdlp;
 
+pub use monolith::{create_complete_html, MonolithConfig};
 pub use rate_limiter::DomainRateLimiter;
-pub use screenshot::{PdfConfig, ScreenshotConfig, ScreenshotService};
+pub use screenshot::{MhtmlConfig, PdfConfig, ScreenshotConfig, ScreenshotService};
 pub use worker::ArchiveWorker;
 
 /// Cookie options for archive downloads.

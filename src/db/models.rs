@@ -141,6 +141,9 @@ impl Archive {
 #[serde(rename_all = "snake_case")]
 pub enum ArtifactKind {
     RawHtml,
+    ViewHtml,
+    CompleteHtml,
+    Mhtml,
     Screenshot,
     Pdf,
     Video,
@@ -155,6 +158,9 @@ impl ArtifactKind {
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::RawHtml => "raw_html",
+            Self::ViewHtml => "view_html",
+            Self::CompleteHtml => "complete_html",
+            Self::Mhtml => "mhtml",
             Self::Screenshot => "screenshot",
             Self::Pdf => "pdf",
             Self::Video => "video",
