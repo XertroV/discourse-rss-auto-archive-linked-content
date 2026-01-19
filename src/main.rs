@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use discourse_link_archiver::archiver::ArchiveWorker;
@@ -34,6 +34,17 @@ async fn run() -> Result<()> {
     config.validate().context("Invalid configuration")?;
 
     info!(rss_url = %config.rss_url, "Configuration loaded");
+
+    // Log cookies file status
+    if let Some(ref cookies_path) = config.cookies_file_path {
+        if cookies_path.exists() {
+            info!(path = %cookies_path.display(), "Cookies file configured and found");
+        } else {
+            warn!(path = %cookies_path.display(), "Cookies file configured but not found - cookies will not be used");
+        }
+    } else {
+        debug!("No cookies file configured");
+    }
 
     // Ensure data directories exist
     tokio::fs::create_dir_all(&config.work_dir)

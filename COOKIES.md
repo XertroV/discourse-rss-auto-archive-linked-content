@@ -127,6 +127,28 @@ Cookies expire over time. When you start seeing bot detection errors again:
 - **Verify file location**: Ensure `yt-cookies.json` is in the same directory as `docker-compose.yml`
 - **Check file permissions**: The file should be readable by the Docker container
 
+### Docker Compose Volume Mount Issues
+
+If cookies aren't working in Docker Compose:
+
+1. **Verify file exists before starting**: Docker Compose will create a directory if the file doesn't exist:
+   ```bash
+   ls -la yt-cookies.json  # Should show a file, not a directory
+   ```
+
+2. **Check inside container**: Verify the file is mounted correctly:
+   ```bash
+   docker-compose exec archiver ls -la /app/yt-cookies.json
+   docker-compose exec archiver file /app/yt-cookies.json  # Should say "JSON" not "directory"
+   ```
+
+3. **If directory was created**: Remove it and recreate the file:
+   ```bash
+   rm -rf yt-cookies.json  # Remove directory if it exists
+   # Re-export cookies and save as yt-cookies.json
+   docker-compose restart archiver
+   ```
+
 ### Docker Compose Fails to Start
 
 If Docker Compose fails with a volume mount error:

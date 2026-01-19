@@ -590,6 +590,20 @@ impl Config {
                 message: "at least one domain required when TLS is enabled".to_string(),
             });
         }
+        if let Some(ref cookies_path) = self.cookies_file_path {
+            if !cookies_path.exists() {
+                return Err(ConfigError::InvalidValue {
+                    name: "cookies_file_path".to_string(),
+                    message: format!("Cookies file does not exist: {}", cookies_path.display()),
+                });
+            }
+            if cookies_path.is_dir() {
+                return Err(ConfigError::InvalidValue {
+                    name: "cookies_file_path".to_string(),
+                    message: format!("Cookies path is a directory, not a file: {}", cookies_path.display()),
+                });
+            }
+        }
         Ok(())
     }
 }

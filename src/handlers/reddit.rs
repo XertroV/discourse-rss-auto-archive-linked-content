@@ -216,7 +216,16 @@ impl SiteHandler for RedditHandler {
             }
             Err(e) => {
                 // If yt-dlp fails, use JSON API result if available
-                debug!("yt-dlp failed for Reddit URL: {e}");
+                // Extract archive_id from work_dir path (format: archive_{archive_id})
+                let archive_id = work_dir
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .and_then(|name| name.strip_prefix("archive_"))
+                    .and_then(|id_str| id_str.parse::<i64>().ok());
+                debug!(
+                    archive_id = ?archive_id,
+                    "yt-dlp failed for Reddit URL: {e}"
+                );
                 match json_result {
                     Ok(mut result) => {
                         // Set NSFW status from API or subreddit detection

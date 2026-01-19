@@ -3,7 +3,7 @@ use std::process::Stdio;
 
 use anyhow::{Context, Result};
 use tokio::process::Command;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::handlers::ArchiveResult;
 
@@ -38,8 +38,15 @@ pub async fn download(
     ];
 
     if let Some(cookies) = cookies_file {
-        args.push("--cookies".to_string());
-        args.push(cookies.to_string_lossy().to_string());
+        if !cookies.exists() {
+            warn!(path = %cookies.display(), "Cookies file specified but does not exist, continuing without cookies");
+        } else if cookies.is_dir() {
+            warn!(path = %cookies.display(), "Cookies path is a directory, continuing without cookies");
+        } else {
+            debug!(path = %cookies.display(), "Using cookies file for authenticated download");
+            args.push("--cookies".to_string());
+            args.push(cookies.to_string_lossy().to_string());
+        }
     }
 
     debug!(url = %url, "Running yt-dlp");
