@@ -15,7 +15,7 @@ use super::templates;
 use super::AppState;
 use crate::db::{
     count_archives_by_status, count_links, count_posts, count_submissions_from_ip_last_hour,
-    create_pending_archive, delete_archive, get_archive, get_archive_by_link_id,
+    create_pending_archive, delete_archive, get_all_threads, get_archive, get_archive_by_link_id,
     get_archives_by_domain_display, get_archives_for_post_display, get_artifacts_for_archive,
     get_jobs_for_archive, get_link, get_link_by_normalized_url, get_link_occurrences_with_posts,
     get_post_by_guid, get_queue_stats, get_recent_archives_display, get_recent_archives_filtered,
@@ -39,6 +39,7 @@ pub fn router() -> Router<AppState> {
         .route("/archive/:id/retry-skipped", post(retry_skipped))
         .route("/compare/:id1/:id2", get(compare_archives))
         .route("/post/:guid", get(post_detail))
+        .route("/threads", get(threads_list))
         .route("/site/:site", get(site_list))
         .route("/stats", get(stats))
         .route("/healthz", get(health))
@@ -401,6 +402,33 @@ async fn post_detail(State(state): State<AppState>, Path(guid): Path<String>) ->
     };
 
     let html = templates::render_post_detail(&post, &archives);
+    Html(html).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ThreadsListParams {
+    sort: Option<String>,
+    page: Option<u32>,
+}
+
+async fn threads_list(
+    State(state): State<AppState>,
+    Query(params): Query<ThreadsListParams>,
+) -> Response {
+    let sort_by = params.sort.as_deref().unwrap_or("created");
+    let page = params.page.unwrap_or(1);
+    let per_page = 20i64;
+    let offset = i64::from(page.saturating_sub(1)) * per_page;
+
+    let threads = match get_all_threads(state.db.pool(), sort_by, per_page, offset).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("Failed to fetch threads: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    let html = templates::render_threads_list(&threads, sort_by, page);
     Html(html).into_response()
 }
 

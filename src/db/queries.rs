@@ -3,7 +3,7 @@ use sqlx::SqlitePool;
 
 use super::models::{
     Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, ArchiveJobType, Link, LinkOccurrence,
-    NewLink, NewLinkOccurrence, NewPost, NewSubmission, Post, Submission,
+    NewLink, NewLinkOccurrence, NewPost, NewSubmission, Post, Submission, ThreadDisplay,
 };
 
 // ========== Posts ==========
@@ -61,6 +61,52 @@ pub async fn update_post(pool: &SqlitePool, id: i64, post: &NewPost) -> Result<(
     .context("Failed to update post")?;
 
     Ok(())
+}
+
+/// Get all threads (posts) with aggregated statistics.
+///
+/// Returns threads sorted by the specified order with pagination.
+/// Sort options: "name" (title), "created" (published_at), "updated" (last_archived_at)
+pub async fn get_all_threads(
+    pool: &SqlitePool,
+    sort_by: &str,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<ThreadDisplay>> {
+    let order_clause = match sort_by {
+        "name" => "ORDER BY p.title ASC",
+        "created" => "ORDER BY p.published_at DESC",
+        "updated" => "ORDER BY last_archived_at DESC NULLS LAST",
+        _ => "ORDER BY p.published_at DESC", // default to created
+    };
+
+    let query = format!(
+        r"
+        SELECT
+            p.guid,
+            p.title,
+            p.author,
+            p.discourse_url,
+            p.published_at,
+            COUNT(DISTINCT lo.link_id) as link_count,
+            COUNT(DISTINCT a.id) as archive_count,
+            MAX(a.archived_at) as last_archived_at
+        FROM posts p
+        LEFT JOIN link_occurrences lo ON p.id = lo.post_id
+        LEFT JOIN links l ON lo.link_id = l.id
+        LEFT JOIN archives a ON l.id = a.link_id
+        GROUP BY p.id
+        {order_clause}
+        LIMIT ? OFFSET ?
+        "
+    );
+
+    sqlx::query_as(&query)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .context("Failed to fetch threads")
 }
 
 // ========== Links ==========
