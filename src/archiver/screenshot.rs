@@ -342,8 +342,10 @@ impl ScreenshotService {
             .await
             .context("Navigation timeout")?;
 
-        // Give the page a bit more time to render dynamic content
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Wait for resources to load (images, CSS, JS, fonts, etc.)
+        // Longer timeout than before to ensure complete page loading
+        // TODO: Use network idle detection when chromiumoxide supports it
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
         // Capture full page screenshot using webp format for better compression
         let screenshot_params = ScreenshotParams::builder()
@@ -437,8 +439,9 @@ impl ScreenshotService {
             .await
             .context("Navigation timeout")?;
 
-        // Give the page a bit more time to render dynamic content
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Wait for resources to load before PDF generation
+        // Longer timeout ensures CSS, fonts, and images are loaded
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
         // Generate PDF with configured paper size
         let pdf_params = PrintToPdfParams::builder()
@@ -533,8 +536,9 @@ impl ScreenshotService {
             .await
             .context("Navigation timeout")?;
 
-        // Give the page more time to render dynamic content and load resources
-        tokio::time::sleep(Duration::from_millis(1000)).await;
+        // Wait longer for MHTML to ensure all resources are loaded
+        // MHTML captures complete page state including all assets
+        tokio::time::sleep(Duration::from_secs(4)).await;
 
         // Capture MHTML using CDP Page.captureSnapshot
         let snapshot_params = CaptureSnapshotParams::builder()
