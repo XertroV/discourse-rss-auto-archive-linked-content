@@ -610,6 +610,8 @@ impl Config {
             viewport_height: self.screenshot_viewport_height,
             page_timeout: std::time::Duration::from_secs(self.screenshot_timeout_secs),
             chrome_path: self.screenshot_chrome_path.clone(),
+            cookies_from_browser: self.yt_dlp_cookies_from_browser.clone(),
+            work_dir: self.work_dir.clone(),
             enabled: self.screenshot_enabled,
         }
     }

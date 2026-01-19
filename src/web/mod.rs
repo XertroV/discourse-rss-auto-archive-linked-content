@@ -9,8 +9,10 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::extract::Host;
+use axum::extract::ConnectInfo;
 use axum::handler::HandlerWithoutStateExt;
 use axum::http::Uri;
+use axum::http::Request;
 use axum::response::Redirect;
 use axum::Router;
 use futures_util::StreamExt;
@@ -189,8 +191,97 @@ fn create_app(state: AppState) -> Router {
         .merge(routes::router())
         .nest_service("/static", ServeDir::new(&static_dir))
         .layer(CompressionLayer::new())
-        .layer(TraceLayer::new_for_http())
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|req: &Request<_>| {
+                let client_ip = best_effort_client_ip(req).unwrap_or_else(|| "unknown".to_string());
+                let user_agent = req
+                    .headers()
+                    .get(axum::http::header::USER_AGENT)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
+
+                tracing::info_span!(
+                    "http_request",
+                    method = %req.method(),
+                    uri = %req.uri(),
+                    client_ip = %client_ip,
+                    user_agent = %user_agent,
+                )
+            }),
+        )
         .with_state(state)
+}
+
+fn best_effort_client_ip<B>(req: &Request<B>) -> Option<String> {
+    // Prefer proxy headers if present.
+    if let Some(v) = req.headers().get("forwarded").and_then(|v| v.to_str().ok()) {
+        if let Some(ip) = parse_forwarded_for(v) {
+            return Some(ip);
+        }
+    }
+
+    if let Some(v) = req
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+    {
+        if let Some(first) = v.split(',').next().map(str::trim).filter(|s| !s.is_empty()) {
+            return Some(strip_port_and_brackets(first));
+        }
+    }
+
+    if let Some(v) = req
+        .headers()
+        .get("x-real-ip")
+        .and_then(|v| v.to_str().ok())
+    {
+        let v = v.trim();
+        if !v.is_empty() {
+            return Some(strip_port_and_brackets(v));
+        }
+    }
+
+    // Fall back to connect info (remote socket address).
+    req.extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ci| ci.0.ip().to_string())
+}
+
+fn parse_forwarded_for(header_value: &str) -> Option<String> {
+    // Forwarded: for=1.2.3.4;proto=https;by=...
+    // Forwarded: for="[2001:db8::1]:1234";proto=https
+    // We take the first `for=` value in the first element.
+    let first_elem = header_value.split(',').next()?.trim();
+    for part in first_elem.split(';') {
+        let part = part.trim();
+        let Some(rest) = part.strip_prefix("for=") else { continue };
+        let rest = rest.trim().trim_matches('"');
+        if rest.is_empty() {
+            continue;
+        }
+        return Some(strip_port_and_brackets(rest));
+    }
+    None
+}
+
+fn strip_port_and_brackets(s: &str) -> String {
+    let mut v = s.trim().trim_matches('"').to_string();
+    if v.starts_with('[') {
+        if let Some(end) = v.find(']') {
+            v = v[1..end].to_string();
+            return v;
+        }
+    }
+
+    // IPv4:port or hostname:port => strip port.
+    // For raw IPv6 without brackets, we leave it as-is.
+    if let Some((host, port)) = v.rsplit_once(':') {
+        if !host.contains(':') && port.chars().all(|c| c.is_ascii_digit()) {
+            return host.to_string();
+        }
+    }
+
+    v
 }
 
 /// Find the static files directory.

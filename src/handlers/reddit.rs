@@ -10,6 +10,9 @@ use scraper::{Html, Selector};
 use tokio::process::Command;
 use tracing::{debug, info, warn};
 
+use crate::chromium_profile::chromium_user_data_and_profile_from_spec;
+use crate::fs_utils::copy_dir_best_effort;
+
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::{ytdlp, CookieOptions};
 use crate::constants::ARCHIVAL_USER_AGENT;
@@ -264,11 +267,32 @@ async fn fetch_reddit_html(
     if cookies.browser_profile.is_some() {
         match fetch_html_with_chromium_profile(url, work_dir, cookies).await {
             Ok(html) => {
-                debug!("Fetched Reddit HTML via Chromium profile");
-                return finalize_reddit_html(url, work_dir, html).await;
+                if is_reddit_block_page(&html) {
+                    warn!("Reddit HTML looks like a block page on old.reddit.com; retrying via www.reddit.com");
+                } else {
+                    debug!("Fetched Reddit HTML via Chromium profile");
+                    return finalize_reddit_html(url, work_dir, html).await;
+                }
             }
             Err(e) => {
                 warn!("Chromium profile fetch failed; will try cookies.txt fallback: {e}");
+            }
+        }
+
+        // Retry via www.reddit.com if old.reddit.com appears blocked.
+        if url.contains("old.reddit.com") {
+            let alt_url = url.replace("old.reddit.com", "www.reddit.com");
+            match fetch_html_with_chromium_profile(&alt_url, work_dir, cookies).await {
+                Ok(html) => {
+                    if !is_reddit_block_page(&html) {
+                        debug!(original = %url, alt = %alt_url, "Fetched Reddit HTML via Chromium profile (www fallback)");
+                        return finalize_reddit_html(&alt_url, work_dir, html).await;
+                    }
+                    warn!("www.reddit.com HTML also looks blocked; falling back to cookies.txt");
+                }
+                Err(e) => {
+                    warn!("Chromium www.reddit.com fallback failed; will try cookies.txt fallback: {e}");
+                }
             }
         }
     }
@@ -379,8 +403,12 @@ async fn fetch_html_with_chromium_profile(
         .arg("--no-sandbox")
         .arg("--disable-gpu")
         .arg("--disable-dev-shm-usage")
+        .arg("--window-size=1280,2000")
+        .arg("--lang=en-US,en")
+        .arg("--disable-blink-features=AutomationControlled")
         .arg("--no-first-run")
         .arg("--no-default-browser-check")
+        .arg(format!("--user-agent={ARCHIVAL_USER_AGENT}"))
         .arg(format!("--user-data-dir={}", user_data_dir.display()));
 
     if let Some(profile_dir) = profile_dir {
@@ -410,6 +438,14 @@ async fn fetch_html_with_chromium_profile(
         anyhow::bail!("Chromium dump-dom returned empty output");
     }
     Ok(html.to_string())
+}
+
+fn is_reddit_block_page(html: &str) -> bool {
+    let s = html.to_ascii_lowercase();
+    s.contains("you've been blocked by network security")
+        || s.contains("you have been blocked by network security")
+        || s.contains("whoa there")
+        || s.contains("woah there")
 }
 
 async fn clone_chromium_user_data_dir(
@@ -449,7 +485,7 @@ async fn clone_chromium_user_data_dir(
                 stderr = %stderr.trim(),
                 "cp -a failed while cloning Chromium profile; falling back to best-effort copy"
             );
-            copy_dir_best_effort(source, &dest).await?;
+            copy_dir_best_effort(source, &dest, "chromium profile clone (reddit html)").await?;
         }
         Err(e) => {
             warn!(
@@ -457,7 +493,7 @@ async fn clone_chromium_user_data_dir(
                 source = %source.display(),
                 "Failed to spawn cp -a for Chromium profile copy; falling back to best-effort copy"
             );
-            copy_dir_best_effort(source, &dest).await?;
+            copy_dir_best_effort(source, &dest, "chromium profile clone (reddit html)").await?;
         }
     }
 
@@ -492,97 +528,6 @@ async fn clone_chromium_user_data_dir(
     }
 
     Ok(dest)
-}
-
-async fn copy_dir_best_effort(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
-    // Async recursion is not allowed without boxing; use an explicit stack.
-    let mut stack = vec![(src.to_path_buf(), dst.to_path_buf())];
-
-    while let Some((src_dir, dst_dir)) = stack.pop() {
-        tokio::fs::create_dir_all(&dst_dir)
-            .await
-            .context("Failed to create destination directory")?;
-
-        let mut entries = match tokio::fs::read_dir(&src_dir).await {
-            Ok(rd) => rd,
-            Err(e) => {
-                return Err(anyhow::Error::new(e)).context(format!(
-                    "Failed to read Chromium user-data-dir: {}",
-                    src_dir.display()
-                ));
-            }
-        };
-
-        while let Some(entry) = entries.next_entry().await? {
-            let src_path = entry.path();
-            let dst_path = dst_dir.join(entry.file_name());
-            let file_type = entry.file_type().await?;
-
-            if file_type.is_dir() {
-                stack.push((src_path, dst_path));
-                continue;
-            }
-
-            if file_type.is_file() {
-                match tokio::fs::copy(&src_path, &dst_path).await {
-                    Ok(_) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                        debug!(
-                            path = %src_path.display(),
-                            "Skipping unreadable Chromium profile file"
-                        );
-                    }
-                    Err(e) => {
-                        return Err(anyhow::Error::new(e)).context(format!(
-                            "Failed to copy Chromium profile file: {}",
-                            src_path.display()
-                        ));
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn chromium_user_data_and_profile_from_spec(spec: &str) -> (std::path::PathBuf, Option<String>) {
-    // yt-dlp spec format examples:
-    // - chromium+basictext:/app/cookies/chromium-profile
-    // - chromium+basictext:/app/cookies/chromium-profile/Default
-    // - chromium+basictext:/path::container (ignore container suffix)
-
-    let path_part = spec
-        .split_once(':')
-        .map(|(_, rest)| rest)
-        .unwrap_or(spec);
-    let profile_raw = path_part
-        .split_once("::")
-        .map(|(p, _)| p)
-        .unwrap_or(path_part);
-    let p = std::path::PathBuf::from(profile_raw);
-
-    let cookies_db_present = |dir: &std::path::Path| {
-        dir.join("Cookies").is_file() || dir.join("Network").join("Cookies").is_file()
-    };
-
-    // If they point at a profile dir directly (Default/), use its parent as user-data-dir.
-    if cookies_db_present(&p) {
-        let user_data_dir = p.parent().unwrap_or(&p).to_path_buf();
-        let profile_name = p
-            .file_name()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_string());
-        return (user_data_dir, profile_name);
-    }
-
-    // If they point at a user-data-dir (contains Default/), assume Default.
-    if cookies_db_present(&p.join("Default")) {
-        return (p, Some("Default".to_string()));
-    }
-
-    // Fallback: treat as user-data-dir without specifying profile.
-    (p, None)
 }
 
 /// Build a cookie header string from CookieOptions for a specific domain.

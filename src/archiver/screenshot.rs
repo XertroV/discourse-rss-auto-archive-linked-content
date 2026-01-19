@@ -3,7 +3,7 @@
 //! This module provides functionality to capture full-page screenshots,
 //! generate PDFs, and create MHTML archives of web pages using a headless browser.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,6 +16,9 @@ use chromiumoxide::page::ScreenshotParams;
 use futures_util::StreamExt;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
+
+use crate::chromium_profile::chromium_user_data_and_profile_from_spec;
+use crate::fs_utils::copy_dir_best_effort;
 
 /// Default viewport width in pixels.
 pub const DEFAULT_VIEWPORT_WIDTH: u32 = 1280;
@@ -37,6 +40,11 @@ pub struct ScreenshotConfig {
     pub page_timeout: Duration,
     /// Path to Chrome/Chromium executable (None for auto-detection).
     pub chrome_path: Option<String>,
+    /// Optional yt-dlp-style cookies-from-browser spec (e.g. "chromium+basictext:/app/cookies/chromium-profile").
+    /// When set, ScreenshotService will launch Chromium with a cloned profile so authenticated pages render.
+    pub cookies_from_browser: Option<String>,
+    /// Base working directory for storing a cloned Chromium profile.
+    pub work_dir: PathBuf,
     /// Whether screenshot capture is enabled.
     pub enabled: bool,
 }
@@ -48,6 +56,8 @@ impl Default for ScreenshotConfig {
             viewport_height: DEFAULT_VIEWPORT_HEIGHT,
             page_timeout: Duration::from_secs(DEFAULT_PAGE_TIMEOUT_SECS),
             chrome_path: None,
+            cookies_from_browser: None,
+            work_dir: PathBuf::from("./data/tmp"),
             enabled: false,
         }
     }
@@ -102,28 +112,46 @@ pub struct ScreenshotService {
     pdf_config: PdfConfig,
     mhtml_config: MhtmlConfig,
     browser: Arc<Mutex<Option<Browser>>>,
+    chromium_user_data_dir: Arc<Mutex<Option<PathBuf>>>,
+    chromium_profile_dir: Option<String>,
 }
 
 impl ScreenshotService {
     /// Create a new screenshot service.
     #[must_use]
     pub fn new(config: ScreenshotConfig) -> Self {
+        let (chromium_profile_dir, _) = config
+            .cookies_from_browser
+            .as_deref()
+            .map(chromium_user_data_and_profile_from_spec)
+            .map(|(_ud, prof)| (prof, ()))
+            .unwrap_or((None, ()));
         Self {
             config,
             pdf_config: PdfConfig::default(),
             mhtml_config: MhtmlConfig::default(),
             browser: Arc::new(Mutex::new(None)),
+            chromium_user_data_dir: Arc::new(Mutex::new(None)),
+            chromium_profile_dir,
         }
     }
 
     /// Create a new screenshot service with PDF configuration.
     #[must_use]
     pub fn with_pdf_config(config: ScreenshotConfig, pdf_config: PdfConfig) -> Self {
+        let (chromium_profile_dir, _) = config
+            .cookies_from_browser
+            .as_deref()
+            .map(chromium_user_data_and_profile_from_spec)
+            .map(|(_ud, prof)| (prof, ()))
+            .unwrap_or((None, ()));
         Self {
             config,
             pdf_config,
             mhtml_config: MhtmlConfig::default(),
             browser: Arc::new(Mutex::new(None)),
+            chromium_user_data_dir: Arc::new(Mutex::new(None)),
+            chromium_profile_dir,
         }
     }
 
@@ -134,11 +162,19 @@ impl ScreenshotService {
         pdf_config: PdfConfig,
         mhtml_config: MhtmlConfig,
     ) -> Self {
+        let (chromium_profile_dir, _) = config
+            .cookies_from_browser
+            .as_deref()
+            .map(chromium_user_data_and_profile_from_spec)
+            .map(|(_ud, prof)| (prof, ()))
+            .unwrap_or((None, ()));
         Self {
             config,
             pdf_config,
             mhtml_config,
             browser: Arc::new(Mutex::new(None)),
+            chromium_user_data_dir: Arc::new(Mutex::new(None)),
+            chromium_profile_dir,
         }
     }
 
@@ -169,6 +205,30 @@ impl ScreenshotService {
 
         info!("Initializing headless browser for screenshots");
 
+        // If configured, clone the persisted cookies profile into a writable temp directory.
+        // This avoids profile lock contention with cookie-browser and ensures auth cookies are present.
+        let mut user_data_dir_guard = self.chromium_user_data_dir.lock().await;
+        if user_data_dir_guard.is_none() {
+            if let Some(spec) = self.config.cookies_from_browser.as_deref() {
+                let (source_user_data_dir, profile_dir) = chromium_user_data_and_profile_from_spec(spec);
+                let cloned = clone_chromium_user_data_dir_for_service(
+                    &self.config.work_dir,
+                    &source_user_data_dir,
+                    profile_dir.as_deref(),
+                )
+                .await
+                .context("Failed to clone Chromium profile for screenshot/PDF/MHTML")?;
+                *user_data_dir_guard = Some(cloned);
+
+                // Store profile dir for chromium launch args.
+                // If None, Chromium will use its default profile.
+                // (We still keep a copy in self.chromium_profile_dir for consistency.)
+                drop(user_data_dir_guard);
+            }
+        }
+
+        let user_data_dir = self.chromium_user_data_dir.lock().await.clone();
+
         let mut config_builder = BrowserConfig::builder()
             .window_size(self.config.viewport_width, self.config.viewport_height)
             .request_timeout(self.config.page_timeout)
@@ -186,6 +246,13 @@ impl ScreenshotService {
             .arg("--disable-translate")
             .arg("--mute-audio")
             .arg("--hide-scrollbars");
+
+        if let Some(dir) = user_data_dir {
+            config_builder = config_builder.arg(format!("--user-data-dir={}", dir.display()));
+            if let Some(ref profile) = self.chromium_profile_dir {
+                config_builder = config_builder.arg(format!("--profile-directory={profile}"));
+            }
+        }
 
         if let Some(ref chrome_path) = self.config.chrome_path {
             config_builder = config_builder.chrome_executable(chrome_path);
@@ -404,6 +471,80 @@ impl ScreenshotService {
     }
 }
 
+async fn clone_chromium_user_data_dir_for_service(
+    base_work_dir: &Path,
+    source: &Path,
+    profile_dir: Option<&str>,
+) -> Result<PathBuf> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+
+    let dest = base_work_dir.join("chromium-screenshot-user-data");
+    let _ = tokio::fs::remove_dir_all(&dest).await;
+    tokio::fs::create_dir_all(&dest)
+        .await
+        .context("Failed to create chromium-screenshot-user-data dir")?;
+
+    // Prefer cp -a, but fall back to best-effort copy if permissions are weird.
+    let cp_output = Command::new("cp")
+        .arg("-a")
+        .arg(format!("{}/.", source.display()))
+        .arg(&dest)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .await;
+
+    match cp_output {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            warn!(
+                status = %output.status,
+                source = %source.display(),
+                stderr = %stderr.trim(),
+                "cp -a failed while cloning Chromium profile for screenshots; falling back to best-effort copy"
+            );
+            copy_dir_best_effort(source, &dest, "chromium profile clone (screenshots)").await?;
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                source = %source.display(),
+                "Failed to spawn cp -a for Chromium profile copy (screenshots); falling back to best-effort copy"
+            );
+            copy_dir_best_effort(source, &dest, "chromium profile clone (screenshots)").await?;
+        }
+    }
+
+    for name in ["SingletonLock", "SingletonCookie", "SingletonSocket"] {
+        let _ = tokio::fs::remove_file(dest.join(name)).await;
+    }
+
+    let local_state = dest.join("Local State");
+    if !local_state.is_file() {
+        anyhow::bail!(
+            "Cloned Chromium profile for screenshots is missing 'Local State'. Ensure /app/cookies/chromium-profile is readable by the archiver container (e.g. chmod -R a+rX on the profile)."
+        );
+    }
+
+    let profile_name = profile_dir.unwrap_or("Default");
+    let cookie_db_candidates = [
+        dest.join(profile_name).join("Cookies"),
+        dest.join(profile_name).join("Network").join("Cookies"),
+        dest.join("Default").join("Cookies"),
+        dest.join("Default").join("Network").join("Cookies"),
+    ];
+    let has_cookie_db = cookie_db_candidates.iter().any(|p| p.is_file());
+    if !has_cookie_db {
+        anyhow::bail!(
+            "Cloned Chromium profile for screenshots does not contain a readable Cookies database. Ensure /app/cookies/chromium-profile is readable by the archiver container (e.g. chmod -R a+rX on the profile)."
+        );
+    }
+
+    Ok(dest)
+}
+
 impl Drop for ScreenshotService {
     fn drop(&mut self) {
         // Note: We can't do async cleanup in Drop, but the browser process
@@ -420,6 +561,7 @@ mod tests {
         let config = ScreenshotConfig::default();
         assert_eq!(config.viewport_width, DEFAULT_VIEWPORT_WIDTH);
         assert_eq!(config.viewport_height, DEFAULT_VIEWPORT_HEIGHT);
+        assert!(config.cookies_from_browser.is_none());
         assert!(!config.enabled);
     }
 
