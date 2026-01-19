@@ -1,9 +1,11 @@
 use std::path::Path;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use tracing::debug;
 
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::ytdlp;
@@ -20,6 +22,9 @@ static PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
         Regex::new(r"^https?://preview\.redd\.it/").unwrap(),
     ]
 });
+
+static SHORTLINK_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^https?://redd\.it/[a-zA-Z0-9]+$").unwrap());
 
 pub struct RedditHandler;
 
@@ -69,8 +74,24 @@ impl SiteHandler for RedditHandler {
         work_dir: &Path,
         cookies_file: Option<&Path>,
     ) -> Result<ArchiveResult> {
-        // Normalize URL first
-        let normalized_url = self.normalize_url(url);
+        // Resolve redd.it shortlinks first
+        let resolved_url = if is_shortlink(url) {
+            match resolve_short_url(url).await {
+                Ok(resolved) => {
+                    debug!(original = %url, resolved = %resolved, "Resolved redd.it shortlink");
+                    resolved
+                }
+                Err(e) => {
+                    debug!("Failed to resolve shortlink, using original URL: {e}");
+                    url.to_string()
+                }
+            }
+        } else {
+            url.to_string()
+        };
+
+        // Normalize URL
+        let normalized_url = self.normalize_url(&resolved_url);
 
         // Use yt-dlp for video content
         let ytdlp_result = ytdlp::download(&normalized_url, work_dir, cookies_file).await;
@@ -79,7 +100,7 @@ impl SiteHandler for RedditHandler {
             Ok(result) => Ok(result),
             Err(e) => {
                 // If yt-dlp fails, try HTTP fetch for metadata
-                tracing::debug!("yt-dlp failed for Reddit URL, falling back to HTTP: {e}");
+                debug!("yt-dlp failed for Reddit URL, falling back to HTTP: {e}");
 
                 // For now, return a minimal result
                 // In a full implementation, we'd fetch the JSON API
@@ -92,11 +113,18 @@ impl SiteHandler for RedditHandler {
     }
 }
 
+/// Check if a URL is a redd.it shortlink.
+fn is_shortlink(url: &str) -> bool {
+    SHORTLINK_PATTERN.is_match(url)
+}
+
 /// Resolve a redd.it short URL to full Reddit URL.
-#[allow(dead_code)]
+///
+/// Sends a HEAD request and follows the redirect location header.
 pub async fn resolve_short_url(short_url: &str) -> Result<String> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(10))
         .build()
         .context("Failed to build HTTP client")?;
 
@@ -144,5 +172,21 @@ mod tests {
         assert!(handler
             .normalize_url("https://new.reddit.com/r/test")
             .contains("old.reddit.com"));
+    }
+
+    #[test]
+    fn test_is_shortlink() {
+        // Valid shortlinks
+        assert!(is_shortlink("https://redd.it/abc123"));
+        assert!(is_shortlink("http://redd.it/xyz789"));
+
+        // Not shortlinks (media subdomains)
+        assert!(!is_shortlink("https://i.redd.it/image.jpg"));
+        assert!(!is_shortlink("https://v.redd.it/video123"));
+        assert!(!is_shortlink("https://preview.redd.it/something"));
+
+        // Not shortlinks (full Reddit URLs)
+        assert!(!is_shortlink("https://www.reddit.com/r/rust"));
+        assert!(!is_shortlink("https://old.reddit.com/r/test"));
     }
 }

@@ -10,31 +10,7 @@ fn base_layout(title: &str, content: &str) -> String {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{title} - Discourse Link Archiver</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-    <style>
-        .archive-card {{
-            border: 1px solid var(--pico-muted-border-color);
-            border-radius: 0.5rem;
-            padding: 1rem;
-            margin-bottom: 1rem;
-        }}
-        .archive-card h3 {{
-            margin-bottom: 0.5rem;
-        }}
-        .archive-card .meta {{
-            color: var(--pico-muted-color);
-            font-size: 0.875rem;
-        }}
-        .status-complete {{ color: green; }}
-        .status-pending {{ color: orange; }}
-        .status-failed {{ color: red; }}
-        .status-skipped {{ color: gray; }}
-        nav ul {{
-            list-style: none;
-            padding: 0;
-            display: flex;
-            gap: 1rem;
-        }}
-    </style>
+    <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
     <header class="container">

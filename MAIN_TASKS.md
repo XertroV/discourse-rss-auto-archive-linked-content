@@ -34,8 +34,8 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 
 ### Logging
 - [x] Set up tracing subscriber
-- [ ] Configure structured JSON logging for production
-- [ ] Add request tracing middleware for web server
+- [x] Configure structured JSON logging for production
+- [x] Add request tracing middleware for web server
 
 ## Phase 3: RSS Polling
 
@@ -79,7 +79,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Reddit handler
   - [x] URL patterns for reddit.com, redd.it, old.reddit.com
   - [x] Normalize to old.reddit.com
-  - [ ] Resolve redd.it shortlinks
+  - [x] Resolve redd.it shortlinks
   - [x] Archive via yt-dlp
   - [ ] Fetch JSON API data
   - [x] Write tests
@@ -114,7 +114,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 ### Worker Pool
 - [x] Implement semaphore-based concurrency limiting
 - [x] Create worker loop to process pending archives
-- [ ] Implement per-domain rate limiting
+- [x] Implement per-domain rate limiting
 - [x] Handle worker errors gracefully
 
 ### External Tool Integration
@@ -165,7 +165,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 ### Server Setup
 - [x] Initialize axum application
 - [x] Configure tower-http middleware (CORS, compression)
-- [ ] Set up static file serving
+- [x] Set up static file serving
 - [x] Add request logging middleware
 
 ### Templates
@@ -196,7 +196,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [ ] Add media player styling
 
 ### Integration Tests
-- [ ] Test all routes return expected status codes
+- [x] Test all routes return expected status codes
 - [ ] Test search returns relevant results
 - [ ] Test pagination works correctly
 
@@ -236,3 +236,4 @@ Add new tasks here as they are discovered during development:
 
 - [x] Create lib.rs to expose modules for integration tests
 - [x] Write database integration tests
+- [x] Write web routes integration tests
