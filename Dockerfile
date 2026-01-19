@@ -3,11 +3,11 @@
 FROM rust:1.85-bookworm AS builder
 
 # Allows selecting a Cargo profile for builds.
-# Options: release (default, optimized), release-fast (faster builds, less optimization), debug (fastest builds, no optimization)
+# Options: release (default, optimized), release-fast (faster builds, less optimization), dev (fastest builds, no optimization)
 # Examples:
-#   docker build --build-arg CARGO_PROFILE=debug .          # Fast debug build
-#   docker build --build-arg CARGO_PROFILE=release-fast .  # Faster release build
-#   docker build --build-arg CARGO_PROFILE=release .       # Fully optimized release build
+#   docker build --build-arg CARGO_PROFILE=dev .           # Fast debug build
+#   docker build --build-arg CARGO_PROFILE=release-fast . # Faster release build
+#   docker build --build-arg CARGO_PROFILE=release .      # Fully optimized release build
 ARG CARGO_PROFILE=release
 
 WORKDIR /app
@@ -24,11 +24,13 @@ COPY src ./src
 
 # Build the application using BuildKit cache mounts for cargo registry and target
 # This caches dependencies between builds without any fragile dummy file workarounds
+# Note: 'dev' profile outputs to target/debug/, not target/dev/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
     cargo build --profile "${CARGO_PROFILE}" && \
-    cp "target/${CARGO_PROFILE}/discourse-link-archiver" /usr/local/bin/
+    TARGET_DIR="$([ "${CARGO_PROFILE}" = "dev" ] && echo "debug" || echo "${CARGO_PROFILE}")" && \
+    cp "target/${TARGET_DIR}/discourse-link-archiver" /usr/local/bin/
 
 # Runtime stage
 FROM debian:bookworm-slim

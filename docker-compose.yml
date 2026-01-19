@@ -3,8 +3,8 @@ services:
     build:
       context: .
       args:
-        # Build profile: release (default, optimized), release-fast (faster builds), or debug (fastest builds, no optimization)
-        # Set via environment variable: CARGO_PROFILE=debug docker compose build
+        # Build profile: release (default, optimized), release-fast (faster builds), or dev (fastest builds, no optimization)
+        # Set via environment variable: CARGO_PROFILE=dev docker compose build
         CARGO_PROFILE: ${CARGO_PROFILE:-release}
     ports:
       - "8080:8080"
