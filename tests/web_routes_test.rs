@@ -6,7 +6,10 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
 use discourse_link_archiver::config::Config;
-use discourse_link_archiver::db::{insert_link, insert_post, Database, NewLink, NewPost};
+use discourse_link_archiver::db::{
+    create_pending_archive, insert_link, insert_post, set_archive_complete, Database, NewLink,
+    NewPost,
+};
 use tempfile::TempDir;
 use tower::ServiceExt;
 use tower_http::compression::CompressionLayer;
@@ -379,4 +382,210 @@ async fn test_stats_with_data() {
     let body_str = String::from_utf8(body.to_vec()).unwrap();
     assert!(body_str.contains("Posts: 1"));
     assert!(body_str.contains("Links: 1"));
+}
+
+#[tokio::test]
+async fn test_search_returns_relevant_results() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Create a link and archive with searchable content
+    let new_link = NewLink {
+        original_url: "https://youtube.com/watch?v=test123".to_string(),
+        normalized_url: "https://www.youtube.com/watch?v=test123".to_string(),
+        canonical_url: None,
+        domain: "www.youtube.com".to_string(),
+    };
+    let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+
+    // Create pending archive
+    let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
+
+    // Complete the archive with searchable content
+    set_archive_complete(
+        db.pool(),
+        archive_id,
+        Some("Rust Programming Tutorial for Beginners"),
+        Some("TechChannel"),
+        Some("Learn Rust programming from scratch in this comprehensive tutorial"),
+        Some("video"),
+        Some("archives/youtube/test123.mp4"),
+        None,
+    )
+    .await
+    .unwrap();
+
+    let app = create_test_app(db);
+
+    // Search for "Rust" - should find our archive
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/search?q=Rust")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_str = String::from_utf8(body.to_vec()).unwrap();
+    assert!(
+        body_str.contains("1 results"),
+        "Should find 1 result for 'Rust'"
+    );
+}
+
+#[tokio::test]
+async fn test_search_no_results_for_unmatched_query() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Create a link and archive with searchable content
+    let new_link = NewLink {
+        original_url: "https://youtube.com/watch?v=abc".to_string(),
+        normalized_url: "https://www.youtube.com/watch?v=abc".to_string(),
+        canonical_url: None,
+        domain: "www.youtube.com".to_string(),
+    };
+    let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
+
+    set_archive_complete(
+        db.pool(),
+        archive_id,
+        Some("Python Tutorial"),
+        Some("PythonDev"),
+        Some("Learn Python programming"),
+        Some("video"),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let app = create_test_app(db);
+
+    // Search for something that doesn't exist
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/search?q=JavaScript")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_str = String::from_utf8(body.to_vec()).unwrap();
+    assert!(
+        body_str.contains("0 results"),
+        "Should find 0 results for 'JavaScript'"
+    );
+}
+
+#[tokio::test]
+async fn test_search_by_author() {
+    let (db, _temp_dir) = setup_db().await;
+
+    let new_link = NewLink {
+        original_url: "https://twitter.com/user/status/123".to_string(),
+        normalized_url: "https://twitter.com/user/status/123".to_string(),
+        canonical_url: None,
+        domain: "twitter.com".to_string(),
+    };
+    let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
+
+    set_archive_complete(
+        db.pool(),
+        archive_id,
+        Some("Tweet about technology"),
+        Some("TechInfluencer"),
+        Some("Great insights about tech"),
+        Some("text"),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let app = create_test_app(db);
+
+    // Search by author name
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/search?q=TechInfluencer")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_str = String::from_utf8(body.to_vec()).unwrap();
+    assert!(
+        body_str.contains("1 results"),
+        "Should find 1 result when searching by author"
+    );
+}
+
+#[tokio::test]
+async fn test_home_page_with_archives() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Create multiple archives
+    for i in 0..3 {
+        let new_link = NewLink {
+            original_url: format!("https://example.com/page{i}"),
+            normalized_url: format!("https://example.com/page{i}"),
+            canonical_url: None,
+            domain: "example.com".to_string(),
+        };
+        let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+        let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
+
+        set_archive_complete(
+            db.pool(),
+            archive_id,
+            Some(&format!("Page {i} Title")),
+            None,
+            None,
+            Some("text"),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    }
+
+    let app = create_test_app(db);
+
+    let response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_str = String::from_utf8(body.to_vec()).unwrap();
+    assert!(
+        body_str.contains("3 archives"),
+        "Home page should show 3 archives"
+    );
 }
