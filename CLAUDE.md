@@ -211,3 +211,31 @@ Optional:
 - `COOKIES_FILE_PATH` - Path to cookies.txt for authenticated archiving
 
 See `SPEC.md` for complete list.
+
+## External Tools
+
+### Monolith
+**Purpose:** Creates self-contained HTML archives (complete.html with all resources embedded)
+
+**Configuration:**
+- `MONOLITH_PATH` - Path to monolith binary (default: `monolith`)
+- `MONOLITH_ENABLED` - Enable/disable monolith archiving
+- `MONOLITH_TIMEOUT_SECS` - Execution timeout (default: 60s)
+- `MONOLITH_INCLUDE_JS` - Include JavaScript in archive (default: false)
+
+**Known Issues:**
+- **Exit code 101 panics:** Older versions (v2.8.3) crash on certain HTML content with panic in unwrap(). Manifests as 6 archives losing complete.html format.
+- **Fix:** Upgrade to latest monolith version from https://github.com/Y2Z/monolith/releases
+- **Workaround (already implemented):** Monolith now processes raw.html (unmodified) instead of view.html (with injected banner), which prevents banner injection from breaking HTML parsing
+
+**Installation:**
+```bash
+# Latest version
+cargo install monolith
+
+# Or from source
+git clone https://github.com/Y2Z/monolith.git
+cd monolith && cargo install --path .
+```
+
+**Monitoring:** Check logs for "Monolith crashed" warnings - these indicate either a broken monolith install or upstream tool bugs.

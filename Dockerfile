@@ -64,9 +64,15 @@ RUN pip install --no-cache-dir yt-dlp gallery-dl
 
 # Install monolith for creating self-contained HTML archives
 # Download pre-built binary from GitHub releases (faster than cargo install)
-ARG MONOLITH_VERSION=2.8.3
-RUN curl -fsSL "https://github.com/Y2Z/monolith/releases/download/v${MONOLITH_VERSION}/monolith-gnu-linux-x86_64" \
-    -o /usr/local/bin/monolith && chmod +x /usr/local/bin/monolith
+# Use latest version to get bug fixes for exit code 101 panics
+ARG MONOLITH_VERSION=latest
+RUN MONOLITH_LATEST=$(curl -fsSL "https://api.github.com/repos/Y2Z/monolith/releases/latest" | grep -oP '"tag_name": "v\K[^"]*' || echo "2.8.5") && \
+    MONOLITH_VERSION=${MONOLITH_VERSION#latest} && \
+    MONOLITH_VERSION=${MONOLITH_VERSION:-$MONOLITH_LATEST} && \
+    echo "Installing monolith v${MONOLITH_VERSION}" && \
+    curl -fsSL "https://github.com/Y2Z/monolith/releases/download/v${MONOLITH_VERSION}/monolith-gnu-linux-x86_64" \
+    -o /usr/local/bin/monolith && chmod +x /usr/local/bin/monolith && \
+    monolith --version
 
 # Create non-root user
 RUN useradd -r -s /bin/false -m -d /app archiver

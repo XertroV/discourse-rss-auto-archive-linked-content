@@ -923,8 +923,15 @@ async fn download_reddit_images(image_urls: &[String], work_dir: &Path) -> Vec<S
             continue;
         }
 
+        // Normalize URL: convert protocol-relative URLs (//domain/path) to absolute URLs (https://domain/path)
+        let normalized_url = if url.starts_with("//") {
+            format!("https:{}", url)
+        } else {
+            url.clone()
+        };
+
         // Determine filename from URL or use index
-        let filename = url
+        let filename = normalized_url
             .rsplit('/')
             .next()
             .unwrap_or("image.jpg")
@@ -937,7 +944,7 @@ async fn download_reddit_images(image_urls: &[String], work_dir: &Path) -> Vec<S
         let output_path = work_dir.join(&filename);
 
         match client
-            .get(url)
+            .get(&normalized_url)
             .header("User-Agent", ARCHIVAL_USER_AGENT)
             .send()
             .await
@@ -947,22 +954,22 @@ async fn download_reddit_images(image_urls: &[String], work_dir: &Path) -> Vec<S
                     match response.bytes().await {
                         Ok(bytes) => {
                             if let Err(e) = tokio::fs::write(&output_path, &bytes).await {
-                                warn!(url = %url, error = %e, "Failed to write image file");
+                                warn!(url = %normalized_url, error = %e, "Failed to write image file");
                             } else {
-                                debug!(url = %url, filename = %filename, size = bytes.len(), "Downloaded Reddit image");
+                                debug!(url = %normalized_url, filename = %filename, size = bytes.len(), "Downloaded Reddit image");
                                 downloaded.push(filename);
                             }
                         }
                         Err(e) => {
-                            warn!(url = %url, error = %e, "Failed to read image data");
+                            warn!(url = %normalized_url, error = %e, "Failed to read image data");
                         }
                     }
                 } else {
-                    debug!(url = %url, status = %response.status(), "Image download returned non-success status");
+                    debug!(url = %normalized_url, status = %response.status(), "Image download returned non-success status");
                 }
             }
             Err(e) => {
-                warn!(url = %url, error = %e, "Failed to download image");
+                warn!(url = %normalized_url, error = %e, "Failed to download image");
             }
         }
     }

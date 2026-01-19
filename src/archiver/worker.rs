@@ -587,6 +587,8 @@ async fn process_archive_inner(
                 ArtifactKind::Video
             } else if result.content_type == "image" || result.content_type == "gallery" {
                 ArtifactKind::Image
+            } else if result.content_type == "pdf" {
+                ArtifactKind::Pdf
             } else if primary == "raw.html" {
                 ArtifactKind::RawHtml
             } else {
@@ -707,16 +709,19 @@ async fn process_archive_inner(
                     // the archived HTML we already saved.
                     let view_path = work_dir.join("view.html");
                     let raw_path = work_dir.join("raw.html");
-                    let monolith_input = if view_path.exists() {
-                        Url::from_file_path(&view_path)
-                            .ok()
-                            .map(|u| u.to_string())
-                            .unwrap_or_else(|| view_path.display().to_string())
-                    } else if raw_path.exists() {
+                    // Use raw.html for monolith instead of view.html
+                    // The archive banner injection in view.html can break monolith's HTML parsing
+                    // on certain content types. Use the unmodified raw.html for monolith processing.
+                    let monolith_input = if raw_path.exists() {
                         Url::from_file_path(&raw_path)
                             .ok()
                             .map(|u| u.to_string())
                             .unwrap_or_else(|| raw_path.display().to_string())
+                    } else if view_path.exists() {
+                        Url::from_file_path(&view_path)
+                            .ok()
+                            .map(|u| u.to_string())
+                            .unwrap_or_else(|| view_path.display().to_string())
                     } else {
                         link.normalized_url.clone()
                     };
@@ -757,7 +762,20 @@ async fn process_archive_inner(
                             }
                         }
                         Err(e) => {
-                            warn!(archive_id, error = %e, "Failed to create complete.html with monolith");
+                            let err_str = e.to_string();
+                            // Check if this is a known monolith panic (exit code 101)
+                            if err_str.contains("exit code Some(101)")
+                                || err_str.contains("panicked")
+                            {
+                                warn!(
+                                    archive_id,
+                                    error = %e,
+                                    "Monolith crashed processing this page - likely a tool limitation with this content type"
+                                );
+                                // This is expected for certain content types, continue with other formats
+                            } else {
+                                warn!(archive_id, error = %e, "Failed to create complete.html with monolith");
+                            }
                         }
                     }
                 }
@@ -964,7 +982,9 @@ async fn process_archive_inner(
     }
 
     // Capture screenshot if enabled (non-fatal if it fails)
-    if screenshot.is_enabled() {
+    // Skip screenshots for direct PDF files - they're already archived
+    let is_pdf = result.content_type == "pdf";
+    if screenshot.is_enabled() && !is_pdf {
         match screenshot.capture(&link.normalized_url).await {
             Ok(webp_data) => {
                 let screenshot_key = format!("{s3_prefix}render/screenshot.webp");
@@ -999,7 +1019,8 @@ async fn process_archive_inner(
     }
 
     // Generate PDF if enabled (non-fatal if it fails)
-    if screenshot.is_pdf_enabled() {
+    // Skip PDF generation for direct PDF files - they're already archived
+    if screenshot.is_pdf_enabled() && !is_pdf {
         match screenshot.capture_pdf(&link.normalized_url).await {
             Ok(pdf_data) => {
                 let pdf_key = format!("{s3_prefix}render/page.pdf");
@@ -1034,7 +1055,8 @@ async fn process_archive_inner(
     }
 
     // Generate MHTML archive if enabled (non-fatal if it fails)
-    if screenshot.is_mhtml_enabled() {
+    // Skip MHTML for direct PDF files - they're already archived
+    if screenshot.is_mhtml_enabled() && !is_pdf {
         match screenshot.capture_mhtml(&link.normalized_url).await {
             Ok(mhtml_data) => {
                 let mhtml_key = format!("{s3_prefix}render/complete.mhtml");
