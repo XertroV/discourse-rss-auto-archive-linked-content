@@ -1,0 +1,229 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::{Context, Result};
+use tokio::sync::Semaphore;
+use tracing::{debug, error, info, warn};
+
+use crate::config::Config;
+use crate::db::{
+    get_failed_archives_for_retry, get_link, get_pending_archives, reset_archive_for_retry,
+    set_archive_complete, set_archive_failed, set_archive_processing, set_archive_skipped,
+    update_link_last_archived, Database,
+};
+use crate::handlers::HANDLERS;
+use crate::s3::S3Client;
+
+const MAX_RETRIES: i32 = 3;
+
+/// Archive worker pool.
+pub struct ArchiveWorker {
+    config: Config,
+    db: Database,
+    s3: S3Client,
+    semaphore: Arc<Semaphore>,
+}
+
+impl ArchiveWorker {
+    /// Create a new archive worker.
+    pub fn new(config: Config, db: Database, s3: S3Client) -> Self {
+        let semaphore = Arc::new(Semaphore::new(config.worker_concurrency));
+        Self {
+            config,
+            db,
+            s3,
+            semaphore,
+        }
+    }
+
+    /// Run the worker loop.
+    pub async fn run(&self) {
+        loop {
+            // Process failed archives first (for retry)
+            if let Err(e) = self.process_failed().await {
+                error!("Error processing failed archives: {e:#}");
+            }
+
+            // Process pending archives
+            match self.process_pending().await {
+                Ok(count) => {
+                    if count > 0 {
+                        info!(count, "Processed pending archives");
+                    }
+                }
+                Err(e) => {
+                    error!("Error processing pending archives: {e:#}");
+                }
+            }
+
+            // Wait before next iteration
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+    }
+
+    async fn process_pending(&self) -> Result<usize> {
+        let pending = get_pending_archives(
+            self.db.pool(),
+            i64::try_from(self.config.worker_concurrency).unwrap_or(4),
+        )
+        .await?;
+
+        let mut handles = Vec::new();
+
+        for archive in pending {
+            let permit = self.semaphore.clone().acquire_owned().await?;
+            let db = self.db.clone();
+            let s3 = self.s3.clone();
+            let config = self.config.clone();
+
+            let handle = tokio::spawn(async move {
+                let _permit = permit;
+                process_archive(&db, &s3, &config, archive.id, archive.link_id).await
+            });
+
+            handles.push(handle);
+        }
+
+        let count = handles.len();
+
+        // Wait for all to complete
+        for handle in handles {
+            if let Err(e) = handle.await {
+                error!("Worker task panicked: {e}");
+            }
+        }
+
+        Ok(count)
+    }
+
+    async fn process_failed(&self) -> Result<()> {
+        let failed = get_failed_archives_for_retry(self.db.pool(), 10).await?;
+
+        for archive in failed {
+            if archive.retry_count >= MAX_RETRIES {
+                // Mark as permanently skipped
+                set_archive_skipped(self.db.pool(), archive.id).await?;
+                warn!(archive_id = archive.id, "Archive marked as skipped after max retries");
+            } else {
+                // Reset to pending for retry
+                reset_archive_for_retry(self.db.pool(), archive.id).await?;
+                debug!(archive_id = archive.id, "Archive reset for retry");
+            }
+        }
+
+        Ok(())
+    }
+}
+
+async fn process_archive(
+    db: &Database,
+    s3: &S3Client,
+    config: &Config,
+    archive_id: i64,
+    link_id: i64,
+) {
+    if let Err(e) = process_archive_inner(db, s3, config, archive_id, link_id).await {
+        error!(archive_id, "Archive failed: {e:#}");
+        if let Err(e2) = set_archive_failed(db.pool(), archive_id, &format!("{e:#}")).await {
+            error!(archive_id, "Failed to mark archive as failed: {e2:#}");
+        }
+    }
+}
+
+async fn process_archive_inner(
+    db: &Database,
+    s3: &S3Client,
+    config: &Config,
+    archive_id: i64,
+    link_id: i64,
+) -> Result<()> {
+    // Mark as processing
+    set_archive_processing(db.pool(), archive_id).await?;
+
+    // Get the link
+    let link = get_link(db.pool(), link_id)
+        .await?
+        .context("Link not found")?;
+
+    debug!(archive_id, url = %link.normalized_url, "Processing archive");
+
+    // Find handler
+    let handler = HANDLERS
+        .find_handler(&link.normalized_url)
+        .context("No handler found for URL")?;
+
+    // Create work directory
+    let work_dir = config.work_dir.join(format!("archive_{archive_id}"));
+    tokio::fs::create_dir_all(&work_dir)
+        .await
+        .context("Failed to create work directory")?;
+
+    // Run the archive
+    let cookies_file = config.cookies_file_path.as_deref();
+    let result = handler
+        .archive(&link.normalized_url, &work_dir, cookies_file)
+        .await
+        .context("Handler archive failed")?;
+
+    // Upload artifacts to S3
+    let s3_prefix = format!("{}{}/", config.s3_prefix, link_id);
+    let mut primary_key = None;
+    let mut thumb_key = None;
+
+    if let Some(ref primary) = result.primary_file {
+        let local_path = work_dir.join(primary);
+        if local_path.exists() {
+            let key = format!("{s3_prefix}media/{primary}");
+            s3.upload_file(&local_path, &key).await?;
+            primary_key = Some(key);
+        }
+    }
+
+    if let Some(ref thumb) = result.thumbnail {
+        let local_path = work_dir.join(thumb);
+        if local_path.exists() {
+            let key = format!("{s3_prefix}thumb/{thumb}");
+            s3.upload_file(&local_path, &key).await?;
+            thumb_key = Some(key);
+        }
+    }
+
+    // Upload metadata JSON if present
+    if let Some(ref metadata) = result.metadata_json {
+        let key = format!("{s3_prefix}meta.json");
+        s3.upload_bytes(metadata.as_bytes(), &key, "application/json")
+            .await?;
+    }
+
+    // Mark as complete
+    set_archive_complete(
+        db.pool(),
+        archive_id,
+        result.title.as_deref(),
+        result.author.as_deref(),
+        result.text.as_deref(),
+        Some(&result.content_type),
+        primary_key.as_deref(),
+        thumb_key.as_deref(),
+    )
+    .await?;
+
+    // Update link last archived timestamp
+    update_link_last_archived(db.pool(), link_id).await?;
+
+    // Clean up work directory
+    if let Err(e) = tokio::fs::remove_dir_all(&work_dir).await {
+        warn!(archive_id, "Failed to clean up work directory: {e}");
+    }
+
+    info!(archive_id, url = %link.normalized_url, "Archive complete");
+
+    Ok(())
+}
+
+/// Create a work directory for an archive job.
+#[allow(dead_code)]
+fn create_work_dir(base: &PathBuf, archive_id: i64) -> PathBuf {
+    base.join(format!("archive_{archive_id}"))
+}
