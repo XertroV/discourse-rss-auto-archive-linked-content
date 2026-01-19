@@ -386,6 +386,117 @@ pub async fn get_recent_archives(pool: &SqlitePool, limit: i64) -> Result<Vec<Ar
     .context("Failed to fetch recent archives")
 }
 
+/// Get recent archives with NSFW filter.
+pub async fn get_recent_archives_filtered(
+    pool: &SqlitePool,
+    limit: i64,
+    nsfw_filter: Option<bool>,
+) -> Result<Vec<Archive>> {
+    match nsfw_filter {
+        Some(true) => {
+            // Only NSFW
+            sqlx::query_as(
+                r"
+                SELECT * FROM archives
+                WHERE status = 'complete' AND is_nsfw = 1
+                ORDER BY archived_at DESC
+                LIMIT ?
+                ",
+            )
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .context("Failed to fetch NSFW archives")
+        }
+        Some(false) => {
+            // Hide NSFW
+            sqlx::query_as(
+                r"
+                SELECT * FROM archives
+                WHERE status = 'complete' AND (is_nsfw = 0 OR is_nsfw IS NULL)
+                ORDER BY archived_at DESC
+                LIMIT ?
+                ",
+            )
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .context("Failed to fetch SFW archives")
+        }
+        None => {
+            // Show all
+            get_recent_archives(pool, limit).await
+        }
+    }
+}
+
+/// Get recent archives with domain and content_type filters.
+/// Used for RSS/Atom feeds with optional filtering.
+pub async fn get_recent_archives_with_filters(
+    pool: &SqlitePool,
+    limit: i64,
+    domain: Option<&str>,
+    content_type: Option<&str>,
+) -> Result<Vec<Archive>> {
+    match (domain, content_type) {
+        (Some(d), Some(ct)) => {
+            // Filter by both domain and content_type
+            sqlx::query_as(
+                r"
+                SELECT a.* FROM archives a
+                JOIN links l ON a.link_id = l.id
+                WHERE a.status = 'complete' AND l.domain = ? AND a.content_type = ?
+                ORDER BY a.archived_at DESC
+                LIMIT ?
+                ",
+            )
+            .bind(d)
+            .bind(ct)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .context("Failed to fetch archives with domain and content_type filter")
+        }
+        (Some(d), None) => {
+            // Filter by domain only
+            sqlx::query_as(
+                r"
+                SELECT a.* FROM archives a
+                JOIN links l ON a.link_id = l.id
+                WHERE a.status = 'complete' AND l.domain = ?
+                ORDER BY a.archived_at DESC
+                LIMIT ?
+                ",
+            )
+            .bind(d)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .context("Failed to fetch archives with domain filter")
+        }
+        (None, Some(ct)) => {
+            // Filter by content_type only
+            sqlx::query_as(
+                r"
+                SELECT * FROM archives
+                WHERE status = 'complete' AND content_type = ?
+                ORDER BY archived_at DESC
+                LIMIT ?
+                ",
+            )
+            .bind(ct)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .context("Failed to fetch archives with content_type filter")
+        }
+        (None, None) => {
+            // No filters, use existing function
+            get_recent_archives(pool, limit).await
+        }
+    }
+}
+
 /// Get recent archives with link info for display.
 pub async fn get_recent_archives_display(
     pool: &SqlitePool,
@@ -533,6 +644,55 @@ pub async fn search_archives(pool: &SqlitePool, query: &str, limit: i64) -> Resu
     .fetch_all(pool)
     .await
     .context("Failed to search archives")
+}
+
+/// Search archives with NSFW filter.
+pub async fn search_archives_filtered(
+    pool: &SqlitePool,
+    query: &str,
+    limit: i64,
+    nsfw_filter: Option<bool>,
+) -> Result<Vec<Archive>> {
+    match nsfw_filter {
+        Some(true) => {
+            // Only NSFW
+            sqlx::query_as(
+                r"
+                SELECT archives.* FROM archives
+                JOIN archives_fts ON archives.id = archives_fts.rowid
+                WHERE archives_fts MATCH ? AND archives.is_nsfw = 1
+                ORDER BY rank
+                LIMIT ?
+                ",
+            )
+            .bind(query)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .context("Failed to search NSFW archives")
+        }
+        Some(false) => {
+            // Hide NSFW
+            sqlx::query_as(
+                r"
+                SELECT archives.* FROM archives
+                JOIN archives_fts ON archives.id = archives_fts.rowid
+                WHERE archives_fts MATCH ? AND (archives.is_nsfw = 0 OR archives.is_nsfw IS NULL)
+                ORDER BY rank
+                LIMIT ?
+                ",
+            )
+            .bind(query)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+            .context("Failed to search SFW archives")
+        }
+        None => {
+            // Show all
+            search_archives(pool, query, limit).await
+        }
+    }
 }
 
 /// Get archives by domain.

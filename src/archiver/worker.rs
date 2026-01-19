@@ -207,12 +207,19 @@ async fn process_archive(
     archive_id: i64,
     link_id: i64,
 ) {
+    // Fetch link to get domain for logging
+    let domain = match get_link(db.pool(), link_id).await {
+        Ok(Some(link)) => link.domain,
+        Ok(None) => "unknown".to_string(),
+        Err(_) => "unknown".to_string(),
+    };
+
     if let Err(e) =
         process_archive_inner(db, s3, ipfs, screenshot, config, archive_id, link_id).await
     {
-        error!(archive_id, "Archive failed: {e:#}");
+        error!(archive_id, domain = %domain, "Archive failed: {e:#}");
         if let Err(e2) = set_archive_failed(db.pool(), archive_id, &format!("{e:#}")).await {
-            error!(archive_id, "Failed to mark archive as failed: {e2:#}");
+            error!(archive_id, domain = %domain, "Failed to mark archive as failed: {e2:#}");
         }
     }
 }

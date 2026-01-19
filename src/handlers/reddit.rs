@@ -532,27 +532,55 @@ mod tests {
 
     #[test]
     fn test_is_nsfw_subreddit() {
-        // NSFW subreddits
+        // Test exact pattern matches
         assert!(is_nsfw_subreddit(
             "https://old.reddit.com/r/nsfw/comments/abc123"
         ));
         assert!(is_nsfw_subreddit("https://reddit.com/r/gonewild/"));
-        assert!(is_nsfw_subreddit("https://www.reddit.com/r/NSFW_GIF/"));
         assert!(is_nsfw_subreddit("https://old.reddit.com/r/porn/"));
         assert!(is_nsfw_subreddit("https://reddit.com/r/hentai/"));
         assert!(is_nsfw_subreddit(
             "https://reddit.com/r/rule34/comments/xyz"
         ));
 
-        // SFW subreddits
+        // Test additional patterns from NSFW_SUBREDDIT_PATTERNS
+        assert!(is_nsfw_subreddit("https://reddit.com/r/xxx/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/nude/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/sex/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/adult/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/18_plus/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/onlyfans/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/lewd/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/celebnsfw/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/realgirls/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/boobs/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/ass/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/tits/"));
+
+        // Test case insensitivity
+        assert!(is_nsfw_subreddit("https://www.reddit.com/r/NSFW_GIF/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/GoNeWiLd/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/PORN/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/HentAI/"));
+
+        // Test pattern matching within subreddit names
+        assert!(is_nsfw_subreddit("https://reddit.com/r/asiansgoNewild/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/amateur_porn/"));
+        assert!(is_nsfw_subreddit("https://reddit.com/r/nsfw_gifs/"));
+
+        // SFW subreddits that might contain misleading words
         assert!(!is_nsfw_subreddit("https://reddit.com/r/rust/"));
         assert!(!is_nsfw_subreddit("https://old.reddit.com/r/programming/"));
         assert!(!is_nsfw_subreddit("https://www.reddit.com/r/funny/"));
         assert!(!is_nsfw_subreddit("https://reddit.com/r/pics/"));
+        assert!(!is_nsfw_subreddit("https://reddit.com/r/technology/"));
+        assert!(!is_nsfw_subreddit("https://reddit.com/r/worldnews/"));
 
-        // Edge cases
+        // Edge cases - non-subreddit URLs
         assert!(!is_nsfw_subreddit("https://reddit.com/user/someone"));
         assert!(!is_nsfw_subreddit("https://i.redd.it/image.jpg"));
+        assert!(!is_nsfw_subreddit("https://reddit.com/"));
+        assert!(!is_nsfw_subreddit("https://www.reddit.com"));
     }
 
     #[test]
