@@ -20,6 +20,7 @@ async fn main() {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 async fn run() -> Result<()> {
     // Load .env file if present
     let _ = dotenvy::dotenv();

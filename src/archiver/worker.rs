@@ -296,7 +296,7 @@ fn inject_archive_banner(html: &str, banner: &str) -> String {
             format!("{}{}{}", &html[..html_end], banner, &html[html_end..])
         } else {
             // Just prepend to the whole document
-            format!("{}{}", banner, html)
+            format!("{banner}{html}")
         }
     }
 }

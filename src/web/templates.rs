@@ -293,8 +293,7 @@ pub fn render_archive_detail(
                 .unwrap_or(&artifact.s3_key);
             let size_display = artifact
                 .size_bytes
-                .map(format_bytes)
-                .unwrap_or_else(|| "Unknown".to_string());
+                .map_or_else(|| "Unknown".to_string(), format_bytes);
 
             content.push_str(&format!(
                 r#"<tr>
@@ -304,7 +303,7 @@ pub fn render_archive_detail(
                     <td><a href="/s3/{}" download title="Download {}">{}</a></td>
                 </tr>"#,
                 html_escape(&artifact.kind),
-                html_escape(&kind_display),
+                html_escape(kind_display),
                 html_escape(filename),
                 html_escape(&size_display),
                 html_escape(&artifact.s3_key),
@@ -722,7 +721,7 @@ fn render_media_player(
     let type_badge = match content_type {
         Some("video") => r#"<span class="media-type-badge media-type-video">Video</span>"#,
         Some("audio") => r#"<span class="media-type-badge media-type-audio">Audio</span>"#,
-        Some("image") | Some("gallery") => {
+        Some("image" | "gallery") => {
             r#"<span class="media-type-badge media-type-image">Image</span>"#
         }
         _ => r#"<span class="media-type-badge media-type-text">File</span>"#,
@@ -798,9 +797,7 @@ fn render_media_player(
             r#"<div class="media-container">
                 {type_badge}
                 <img src="{media_url}" alt="Archived media" loading="lazy">
-            </div>"#,
-            type_badge = type_badge,
-            media_url = media_url
+            </div>"#
         );
     }
 
