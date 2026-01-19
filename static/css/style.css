@@ -96,18 +96,294 @@ nav ul {
 .media-container {
     margin: 1rem 0;
     max-width: 100%;
+    position: relative;
 }
 
-.media-container video,
-.media-container audio {
+/* Video wrapper for responsive aspect ratio */
+.video-wrapper {
+    position: relative;
+    width: 100%;
+    padding-bottom: 56.25%; /* 16:9 aspect ratio */
+    background-color: #000;
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.video-wrapper video {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* Standalone video (non-embedded) */
+.media-container video {
     max-width: 100%;
     width: 100%;
+    border-radius: 0.5rem;
+    background-color: #000;
 }
 
+/* Video controls styling - enhance native controls */
+.media-container video::-webkit-media-controls {
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+}
+
+.media-container video::-webkit-media-controls-panel {
+    padding: 0.5rem;
+}
+
+/* Audio player styling */
+.media-container audio {
+    width: 100%;
+    min-height: 54px;
+    border-radius: 2rem;
+    background: linear-gradient(135deg, var(--pico-card-background-color), var(--pico-muted-border-color));
+}
+
+[data-theme="dark"] .media-container audio {
+    background: linear-gradient(135deg, #2a2a2a, #1a1a1a);
+}
+
+.media-container audio::-webkit-media-controls-panel {
+    background-color: transparent;
+}
+
+/* Audio player wrapper */
+.audio-wrapper {
+    padding: 0.5rem;
+    border-radius: 2.5rem;
+    background: var(--pico-card-background-color);
+    border: 1px solid var(--pico-muted-border-color);
+}
+
+/* Image styling */
 .media-container img {
     max-width: 100%;
     height: auto;
+    border-radius: 0.5rem;
+    display: block;
+}
+
+/* Image gallery for multiple images */
+.media-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.5rem;
+}
+
+.media-gallery img {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.media-gallery img:hover {
+    transform: scale(1.02);
+}
+
+/* Fullscreen image viewer */
+.media-lightbox {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    cursor: zoom-out;
+}
+
+.media-lightbox img {
+    max-width: 95%;
+    max-height: 95%;
+    object-fit: contain;
+    border-radius: 0;
+}
+
+/* Media loading state */
+.media-loading {
+    position: relative;
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--pico-muted-border-color);
+    border-radius: 0.5rem;
+}
+
+.media-loading::after {
+    content: '';
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--pico-muted-color);
+    border-top-color: var(--pico-primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Media error state */
+.media-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    background: var(--pico-muted-border-color);
+    border-radius: 0.5rem;
+    color: var(--pico-muted-color);
+    padding: 1rem;
+}
+
+.media-error::before {
+    content: '⚠️';
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Media controls overlay for custom controls */
+.media-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 1rem;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.media-container:hover .media-controls {
+    opacity: 1;
+}
+
+.media-controls button {
+    background: transparent;
+    border: none;
+    color: white;
+    cursor: pointer;
+    padding: 0.5rem;
+    font-size: 1.25rem;
+}
+
+.media-controls button:hover {
+    opacity: 0.8;
+}
+
+/* Progress bar styling */
+.media-progress {
+    flex: 1;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+    cursor: pointer;
+    position: relative;
+}
+
+.media-progress-fill {
+    height: 100%;
+    background: var(--pico-primary);
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.1s linear;
+}
+
+.media-progress:hover {
+    height: 6px;
+}
+
+/* Volume slider */
+.media-volume {
+    width: 80px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+/* Time display */
+.media-time {
+    color: white;
+    font-size: 0.75rem;
+    font-family: monospace;
+    min-width: 80px;
+    text-align: center;
+}
+
+/* Download link styling */
+.media-download {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--pico-card-background-color);
+    border: 1px solid var(--pico-muted-border-color);
     border-radius: 0.25rem;
+    text-decoration: none;
+    margin-top: 0.5rem;
+}
+
+.media-download:hover {
+    background: var(--pico-muted-border-color);
+}
+
+/* Media type badge */
+.media-type-badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.75rem;
+    border-radius: 0.25rem;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.media-type-video {
+    background-color: #dc2626;
+    color: white;
+}
+
+.media-type-audio {
+    background-color: #7c3aed;
+    color: white;
+}
+
+.media-type-image {
+    background-color: #059669;
+    color: white;
+}
+
+.media-type-text {
+    background-color: #2563eb;
+    color: white;
+}
+
+/* Dark mode media adjustments */
+[data-theme="dark"] .video-wrapper {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .audio-wrapper {
+    background: #1f1f1f;
+    border-color: #3f3f3f;
+}
+
+[data-theme="dark"] .media-loading,
+[data-theme="dark"] .media-error {
+    background: #2f2f2f;
 }
 
 /* Grid layout for archives */
