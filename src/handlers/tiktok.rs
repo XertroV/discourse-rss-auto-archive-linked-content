@@ -4,9 +4,9 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use regex::Regex;
 
-use crate::constants::ARCHIVAL_USER_AGENT;
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::ytdlp;
+use crate::constants::ARCHIVAL_USER_AGENT;
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
     vec![

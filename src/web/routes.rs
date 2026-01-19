@@ -568,13 +568,10 @@ async fn api_search(
 
 // ========== S3 File Serving ==========
 
-async fn serve_s3_file(
-    State(state): State<AppState>,
-    Path(path): Path<String>,
-) -> Response {
+async fn serve_s3_file(State(state): State<AppState>, Path(path): Path<String>) -> Response {
     // Path already contains the full path after /s3/, use it directly as S3 key
     let s3_key = &path;
-    
+
     // Check if S3 is public (AWS S3) - if so, redirect to public URL
     if state.s3.is_public() {
         let public_url = state.s3.get_public_url(s3_key);

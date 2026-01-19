@@ -894,3 +894,85 @@ pub async fn reset_todays_failed_archives(pool: &SqlitePool, max_retries: i32) -
 
     Ok(result.rows_affected())
 }
+
+// ========== Content Deduplication ==========
+
+/// Find an artifact with a matching perceptual hash.
+///
+/// Returns the first artifact that has the same perceptual hash,
+/// indicating a potential duplicate.
+pub async fn find_artifact_by_perceptual_hash(
+    pool: &SqlitePool,
+    perceptual_hash: &str,
+) -> Result<Option<ArchiveArtifact>> {
+    sqlx::query_as(
+        r"
+        SELECT * FROM archive_artifacts
+        WHERE perceptual_hash = ?
+          AND duplicate_of_artifact_id IS NULL
+        LIMIT 1
+        ",
+    )
+    .bind(perceptual_hash)
+    .fetch_optional(pool)
+    .await
+    .context("Failed to find artifact by perceptual hash")
+}
+
+/// Insert an artifact with perceptual hash for deduplication.
+pub async fn insert_artifact_with_hash(
+    pool: &SqlitePool,
+    archive_id: i64,
+    kind: &str,
+    s3_key: &str,
+    content_type: Option<&str>,
+    size_bytes: Option<i64>,
+    sha256: Option<&str>,
+    perceptual_hash: Option<&str>,
+    duplicate_of_artifact_id: Option<i64>,
+) -> Result<i64> {
+    let result = sqlx::query(
+        r"
+        INSERT INTO archive_artifacts (archive_id, kind, s3_key, content_type, size_bytes, sha256, perceptual_hash, duplicate_of_artifact_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ",
+    )
+    .bind(archive_id)
+    .bind(kind)
+    .bind(s3_key)
+    .bind(content_type)
+    .bind(size_bytes)
+    .bind(sha256)
+    .bind(perceptual_hash)
+    .bind(duplicate_of_artifact_id)
+    .execute(pool)
+    .await
+    .context("Failed to insert artifact with hash")?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Update an existing artifact's perceptual hash.
+pub async fn update_artifact_perceptual_hash(
+    pool: &SqlitePool,
+    artifact_id: i64,
+    perceptual_hash: &str,
+) -> Result<()> {
+    sqlx::query("UPDATE archive_artifacts SET perceptual_hash = ? WHERE id = ?")
+        .bind(perceptual_hash)
+        .bind(artifact_id)
+        .execute(pool)
+        .await
+        .context("Failed to update artifact perceptual hash")?;
+
+    Ok(())
+}
+
+/// Get an artifact by ID.
+pub async fn get_artifact(pool: &SqlitePool, id: i64) -> Result<Option<ArchiveArtifact>> {
+    sqlx::query_as("SELECT * FROM archive_artifacts WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to fetch artifact")
+}

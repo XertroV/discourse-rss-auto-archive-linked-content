@@ -30,7 +30,7 @@ use crate::tls;
 pub struct AppState {
     pub db: Database,
     pub config: Arc<Config>,
-    pub s3: S3Client,
+    pub s3: Arc<S3Client>,
 }
 
 /// Start the web server.
@@ -41,28 +41,24 @@ pub struct AppState {
 /// # Errors
 ///
 /// Returns an error if the server fails to start.
-pub async fn serve(config: Config, db: Database) -> Result<()> {
+pub async fn serve(config: Config, db: Database, s3: S3Client) -> Result<()> {
     if config.tls_enabled {
-        serve_with_tls(config, db).await
+        serve_with_tls(config, db, s3).await
     } else {
-        serve_http_only(config, db).await
+        serve_http_only(config, db, s3).await
     }
 }
 
 /// Serve HTTP only (no TLS).
-async fn serve_http_only(config: Config, db: Database) -> Result<()> {
+async fn serve_http_only(config: Config, db: Database, s3: S3Client) -> Result<()> {
     let addr: SocketAddr = format!("{}:{}", config.web_host, config.web_port)
         .parse()
         .context("Invalid web server address")?;
 
-    let s3_client = S3Client::new(&config)
-        .await
-        .context("Failed to initialize S3 client")?;
-
     let state = AppState {
         db,
         config: Arc::new(config),
-        s3: s3_client,
+        s3: Arc::new(s3),
     };
 
     let app = create_app(state);
@@ -84,7 +80,7 @@ async fn serve_http_only(config: Config, db: Database) -> Result<()> {
 }
 
 /// Serve with TLS using automatic Let's Encrypt certificates.
-async fn serve_with_tls(config: Config, db: Database) -> Result<()> {
+async fn serve_with_tls(config: Config, db: Database, s3: S3Client) -> Result<()> {
     let http_addr: SocketAddr = format!("{}:{}", config.web_host, config.web_port)
         .parse()
         .context("Invalid HTTP address")?;
@@ -100,14 +96,10 @@ async fn serve_with_tls(config: Config, db: Database) -> Result<()> {
     let mut acme_state = acme_config.state();
     let acceptor = acme_state.axum_acceptor(acme_state.default_rustls_config());
 
-    let s3_client = S3Client::new(&config)
-        .await
-        .context("Failed to initialize S3 client")?;
-
     let state = AppState {
         db,
         config: Arc::new(config),
-        s3: s3_client,
+        s3: Arc::new(s3),
     };
 
     let app = create_app(state);

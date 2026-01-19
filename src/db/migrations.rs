@@ -37,6 +37,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 5).await?;
     }
 
+    if current_version < 6 {
+        debug!("Running migration v6");
+        run_migration_v6(pool).await?;
+        set_schema_version(pool, 6).await?;
+    }
+
     Ok(())
 }
 
@@ -364,6 +370,34 @@ async fn run_migration_v5(pool: &SqlitePool) -> Result<()> {
         .execute(pool)
         .await
         .context("Failed to create next_retry_at index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v6(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v6: adding perceptual hash for content deduplication");
+
+    // Add perceptual_hash column to archive_artifacts table
+    // This stores a perceptual hash (pHash) for image/video content
+    sqlx::query("ALTER TABLE archive_artifacts ADD COLUMN perceptual_hash TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add perceptual_hash column")?;
+
+    // Add duplicate_of_artifact_id column to track duplicates
+    // If set, this artifact is a duplicate of another artifact
+    sqlx::query("ALTER TABLE archive_artifacts ADD COLUMN duplicate_of_artifact_id INTEGER REFERENCES archive_artifacts(id)")
+        .execute(pool)
+        .await
+        .context("Failed to add duplicate_of_artifact_id column")?;
+
+    // Create index for efficient duplicate lookup by hash
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_archive_artifacts_perceptual_hash ON archive_artifacts(perceptual_hash)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create perceptual_hash index")?;
 
     Ok(())
 }

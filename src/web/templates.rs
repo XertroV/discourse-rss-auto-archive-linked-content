@@ -5,117 +5,18 @@ use crate::web::diff::DiffResult;
 fn base_layout(title: &str, content: &str) -> String {
     format!(
         r#"<!DOCTYPE html>
-<html lang="en" data-theme="auto">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light dark">
     <title>{title} - Discourse Link Archiver</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="alternate" type="application/rss+xml" title="Archive RSS Feed" href="/feed.rss">
     <link rel="alternate" type="application/atom+xml" title="Archive Atom Feed" href="/feed.atom">
     <style>
         /* NSFW filtering styles */
         body.nsfw-hidden [data-nsfw="true"] {{ display: none !important; }}
-        .nsfw-badge {{
-            background-color: #dc3545;
-            color: white;
-            padding: 0.15em 0.4em;
-            border-radius: 3px;
-            font-size: 0.75em;
-            font-weight: bold;
-            margin-left: 0.5em;
-            vertical-align: middle;
-        }}
-        .nsfw-warning {{
-            background-color: #fff3cd;
-            border: 1px solid #ffc107;
-            color: #856404;
-            padding: 1em;
-            border-radius: 5px;
-            margin-bottom: 1em;
-        }}
-        [data-theme="dark"] .nsfw-warning {{
-            background-color: #332701;
-            border-color: #ffc107;
-            color: #ffc107;
-        }}
-        .nsfw-toggle {{ cursor: pointer; }}
-        .nsfw-toggle.active {{ background-color: #dc3545; color: white; border-color: #dc3545; }}
-        /* Diff styles */
-        .diff-container {{
-            font-family: monospace;
-            font-size: 0.9em;
-            overflow-x: auto;
-            border: 1px solid var(--pico-muted-border-color);
-            border-radius: 4px;
-        }}
-        .diff-line {{
-            display: flex;
-            white-space: pre-wrap;
-            word-break: break-all;
-        }}
-        .diff-line-num {{
-            min-width: 3em;
-            padding: 0 0.5em;
-            text-align: right;
-            user-select: none;
-            color: var(--pico-muted-color);
-            border-right: 1px solid var(--pico-muted-border-color);
-        }}
-        .diff-line-content {{
-            padding: 0 0.5em;
-            flex: 1;
-        }}
-        .diff-symbol {{
-            width: 1.5em;
-            text-align: center;
-            font-weight: bold;
-        }}
-        .diff-added {{
-            background-color: rgba(40, 167, 69, 0.2);
-        }}
-        .diff-added .diff-symbol {{
-            color: #28a745;
-        }}
-        .diff-removed {{
-            background-color: rgba(220, 53, 69, 0.2);
-        }}
-        .diff-removed .diff-symbol {{
-            color: #dc3545;
-        }}
-        .diff-unchanged {{
-            background-color: transparent;
-        }}
-        .diff-stats {{
-            display: flex;
-            gap: 1em;
-            margin-bottom: 1em;
-        }}
-        .diff-stat-additions {{
-            color: #28a745;
-        }}
-        .diff-stat-deletions {{
-            color: #dc3545;
-        }}
-        .comparison-header {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1em;
-            margin-bottom: 1em;
-        }}
-        .comparison-archive {{
-            padding: 1em;
-            border: 1px solid var(--pico-muted-border-color);
-            border-radius: 4px;
-        }}
-        [data-theme="dark"] .diff-added {{
-            background-color: rgba(40, 167, 69, 0.3);
-        }}
-        [data-theme="dark"] .diff-removed {{
-            background-color: rgba(220, 53, 69, 0.3);
-        }}
     </style>
     <script>
         (function() {{
@@ -145,8 +46,8 @@ fn base_layout(title: &str, content: &str) -> String {
                 <li><a href="/search">Search</a></li>
                 <li><a href="/submit">Submit</a></li>
                 <li><a href="/stats">Stats</a></li>
-                <li><button id="nsfw-toggle" class="nsfw-toggle outline" title="Toggle NSFW content visibility" aria-label="Toggle NSFW content">18+</button></li>
-                <li><button id="theme-toggle" class="theme-toggle outline" title="Toggle dark mode" aria-label="Toggle dark mode">🌓</button></li>
+                <li><button id="nsfw-toggle" class="nsfw-toggle" title="Toggle NSFW content visibility" aria-label="Toggle NSFW content">18+</button></li>
+                <li><button id="theme-toggle" class="theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">🌓</button></li>
             </ul>
         </nav>
     </header>
@@ -618,7 +519,12 @@ fn render_archive_card_display(archive: &ArchiveDisplay) -> String {
     let size_display = archive
         .total_size_bytes
         .filter(|&size| size > 0)
-        .map(|size| format!(r#"<span class="archive-size">{}</span>"#, format_bytes(size)))
+        .map(|size| {
+            format!(
+                r#"<span class="archive-size">{}</span>"#,
+                format_bytes(size)
+            )
+        })
         .unwrap_or_default();
 
     format!(

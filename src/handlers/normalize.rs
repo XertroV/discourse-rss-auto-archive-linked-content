@@ -53,7 +53,7 @@ pub fn normalize_url(url: &str) -> String {
     if let Some(host) = normalized.host_str() {
         let lower_host = host.to_lowercase();
         let mut final_host = lower_host.as_str();
-        
+
         // Normalize Reddit domains to old.reddit.com
         if final_host == "www.reddit.com"
             || final_host == "reddit.com"
@@ -62,7 +62,7 @@ pub fn normalize_url(url: &str) -> String {
         {
             final_host = "old.reddit.com";
         }
-        
+
         if host != final_host {
             let _ = normalized.set_host(Some(final_host));
         } else if host != lower_host {

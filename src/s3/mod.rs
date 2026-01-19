@@ -181,6 +181,31 @@ impl S3Client {
         Ok((response.bytes().to_vec(), content_type))
     }
 
+    /// Get an object from S3.
+    ///
+    /// Returns the object data and content type, or None if not found.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the get request fails.
+    pub async fn get_object(&self, s3_key: &str) -> Result<Option<(Vec<u8>, String)>> {
+        debug!(key = %s3_key, "Getting S3 object");
+
+        match self.bucket.get_object(s3_key).await {
+            Ok(response) => {
+                let content_type = response
+                    .headers()
+                    .get("content-type")
+                    .map_or("application/octet-stream", |v| v.as_str())
+                    .to_string();
+                Ok(Some((response.to_vec(), content_type)))
+            }
+            Err(s3::error::S3Error::HttpFailWithBody(404, _)) => Ok(None),
+            Err(s3::error::S3Error::HttpFail) => Ok(None),
+            Err(e) => Err(anyhow::anyhow!("S3 get object failed: {e}")),
+        }
+    }
+
     /// Check if the S3 bucket is public (AWS S3, R2) or private (MinIO).
     ///
     /// Returns `true` if using AWS S3 (no custom endpoint) or R2 (Cloudflare),
@@ -195,6 +220,24 @@ impl S3Client {
                 !endpoint_lower.contains("minio")
             }
         }
+    }
+
+    /// Check if this client uses a custom endpoint (MinIO, R2, etc.)
+    #[must_use]
+    pub fn uses_custom_endpoint(&self) -> bool {
+        self.endpoint.is_some()
+    }
+
+    /// Get the bucket name
+    #[must_use]
+    pub fn bucket_name(&self) -> String {
+        self.bucket.name().to_string()
+    }
+
+    /// Get the bucket region
+    #[must_use]
+    pub fn region(&self) -> String {
+        format!("{}", self.bucket.region())
     }
 }
 
