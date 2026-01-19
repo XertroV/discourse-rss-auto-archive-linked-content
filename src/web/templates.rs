@@ -491,7 +491,8 @@ pub fn render_archive_detail(
 
         // MHTML link
         if let Some(mhtml) = mhtml_artifact {
-            let download_name = suggested_download_filename(&link.domain, archive.id, &mhtml.s3_key);
+            let download_name =
+                suggested_download_filename(&link.domain, archive.id, &mhtml.s3_key);
             content.push_str(&format!(
                 r#"<div class="capture-item">
                     <h4>MHTML Archive</h4>
@@ -531,7 +532,8 @@ pub fn render_archive_detail(
                 .rsplit('/')
                 .next()
                 .unwrap_or(&artifact.s3_key);
-            let download_name = suggested_download_filename(&link.domain, archive.id, &artifact.s3_key);
+            let download_name =
+                suggested_download_filename(&link.domain, archive.id, &artifact.s3_key);
             let size_display = artifact
                 .size_bytes
                 .map_or_else(|| "Unknown".to_string(), format_bytes);
@@ -938,7 +940,7 @@ fn suggested_download_filename(domain: &str, archive_id: i64, s3_key: &str) -> S
 fn sanitize_filename_component(s: &str) -> String {
     s.chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' ) {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
                 c
             } else {
                 '_'

@@ -918,7 +918,7 @@ fn suggest_content_disposition_filename(s3_key: &str) -> Option<String> {
     name = name
         .chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' ) {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
                 c
             } else {
                 '_'
