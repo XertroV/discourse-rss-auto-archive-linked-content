@@ -3,7 +3,7 @@ use std::process::Stdio;
 
 use anyhow::{Context, Result};
 use tokio::process::Command;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use super::CookieOptions;
 use crate::handlers::ArchiveResult;
@@ -45,9 +45,10 @@ pub async fn download(
     let mut cookie_method_used = false;
 
     if let Some(ref spec) = cookies.browser_profile {
+        let spec = maybe_adjust_chromium_user_data_dir_spec(spec);
         debug!(spec = %spec, "Using cookies from browser profile");
         args.push("--cookies-from-browser".to_string());
-        args.push(spec.to_string());
+        args.push(spec);
         cookie_method_used = true;
     }
 
@@ -84,6 +85,11 @@ pub async fn download(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("could not find chromium cookies database") {
+            anyhow::bail!(
+                "yt-dlp failed: {stderr}\n\nHint: yt-dlp couldn't locate Chromium's Cookies database under the path from YT_DLP_COOKIES_FROM_BROWSER.\n- If you're using a persisted --user-data-dir, the DB is commonly under .../Default (or .../Default/Network/Cookies).\n- Run ./dc-cookies-browser.sh once and let Chromium fully start, then log in and retry."
+            );
+        }
         anyhow::bail!("yt-dlp failed: {stderr}");
     }
 
@@ -91,6 +97,67 @@ pub async fn download(
     let metadata = find_and_parse_metadata(work_dir).await?;
 
     Ok(metadata)
+}
+
+fn maybe_adjust_chromium_user_data_dir_spec(spec: &str) -> String {
+    let Some((browser, rest)) = spec.split_once(':') else {
+        return spec.to_string();
+    };
+
+    // Only attempt to adjust Chromium/Chrome specs. Other browsers (e.g. firefox) have
+    // different layouts.
+    let browser_lower = browser.to_ascii_lowercase();
+    if !browser_lower.starts_with("chromium") && !browser_lower.starts_with("chrome") {
+        return spec.to_string();
+    }
+
+    let (profile_raw, container_suffix) = match rest.split_once("::") {
+        Some((profile, container)) => (profile, Some(container)),
+        None => (rest, None),
+    };
+
+    let profile_raw = profile_raw.trim();
+    if profile_raw.is_empty() {
+        return spec.to_string();
+    }
+
+    let profile_path = Path::new(profile_raw);
+    if !profile_path.is_absolute() {
+        return spec.to_string();
+    }
+
+    // Chromium stores cookies DB either directly in the profile dir as `Cookies`,
+    // or in `Network/Cookies` for newer versions.
+    let cookies_db_present = |dir: &Path| {
+        dir.join("Cookies").is_file() || dir.join("Network").join("Cookies").is_file()
+    };
+
+    if cookies_db_present(profile_path) {
+        return spec.to_string();
+    }
+
+    // Common pitfall: passing a Chromium *user-data-dir* (which contains a `Default/`
+    // profile directory), while yt-dlp expects the actual profile directory.
+    let default_profile = profile_path.join("Default");
+    if cookies_db_present(&default_profile) {
+        let mut new_spec = format!("{}:{}", browser, default_profile.to_string_lossy());
+        if let Some(container) = container_suffix {
+            new_spec.push_str("::");
+            new_spec.push_str(container);
+        }
+        info!(
+            provided = %profile_path.display(),
+            using = %default_profile.display(),
+            "Chromium cookies DB not found in provided profile path; treating it as user-data-dir and using the Default profile"
+        );
+        return new_spec;
+    }
+
+    warn!(
+        provided = %profile_path.display(),
+        "Chromium cookies DB not found under provided profile path (expected Cookies or Network/Cookies). If this is a user-data-dir, try pointing YT_DLP_COOKIES_FROM_BROWSER at .../Default."
+    );
+    spec.to_string()
 }
 
 /// Find and parse the info.json metadata file.
