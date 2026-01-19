@@ -46,7 +46,7 @@ impl Default for MonolithConfig {
 ///
 /// # Arguments
 ///
-/// * `url` - The URL to archive
+/// * `input` - The URL (or file path / file:// URL) to archive
 /// * `output_path` - Where to save the self-contained HTML file
 /// * `cookies_file` - Optional path to a cookies.txt file for authenticated requests
 /// * `config` - Monolith configuration
@@ -55,7 +55,7 @@ impl Default for MonolithConfig {
 ///
 /// Returns an error if monolith fails to execute or times out.
 pub async fn create_complete_html(
-    url: &str,
+    input: &str,
     output_path: &Path,
     cookies_file: Option<&Path>,
     config: &MonolithConfig,
@@ -64,12 +64,12 @@ pub async fn create_complete_html(
         anyhow::bail!("Monolith archiving is disabled");
     }
 
-    debug!(url = %url, output = %output_path.display(), "Creating self-contained HTML with monolith");
+    debug!(input = %input, output = %output_path.display(), "Creating self-contained HTML with monolith");
 
     let mut cmd = Command::new(&config.path);
 
     // Input URL
-    cmd.arg(url);
+    cmd.arg(input);
 
     // Output file
     cmd.arg("-o").arg(output_path);
@@ -109,8 +109,8 @@ pub async fn create_complete_html(
         }
     }
 
-    // Suppress stdout, capture stderr
-    cmd.stdout(Stdio::null());
+    // Capture stdout+stderr. Some monolith errors are printed to stdout.
+    cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
     // Execute with timeout
@@ -120,19 +120,26 @@ pub async fn create_complete_html(
         .context("Failed to execute monolith")?;
 
     if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
+
+        let stdout_trim = stdout.trim();
+        let stderr_trim = stderr.trim();
+
         // Log warning but don't fail - monolith can fail on some pages but still produce useful output
         if !output_path.exists() {
             anyhow::bail!(
-                "Monolith failed with exit code {:?}: {}",
+                "Monolith failed with exit code {:?}. stderr: {} stdout: {}",
                 output.status.code(),
-                stderr.trim()
+                stderr_trim,
+                stdout_trim
             );
         }
         warn!(
-            url = %url,
+            input = %input,
             exit_code = ?output.status.code(),
-            stderr = %stderr.trim(),
+            stderr = %stderr_trim,
+            stdout = %stdout_trim,
             "Monolith completed with warnings"
         );
     }
@@ -148,7 +155,7 @@ pub async fn create_complete_html(
         .unwrap_or(0);
 
     debug!(
-        url = %url,
+        input = %input,
         output = %output_path.display(),
         size = file_size,
         "Self-contained HTML created successfully"

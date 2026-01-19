@@ -5,6 +5,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
+use url::Url;
 
 use super::monolith::create_complete_html;
 use super::rate_limiter::DomainRateLimiter;
@@ -591,8 +592,28 @@ async fn process_archive_inner(
                 if monolith_config.enabled {
                     let complete_path = work_dir.join("complete.html");
                     let cookies_file = config.cookies_file_path.as_deref();
+
+                    // Prefer local HTML inputs so monolith doesn't have to re-fetch the page.
+                    // This avoids cookie-gated/blocked fetches (e.g., Reddit) and makes output match
+                    // the archived HTML we already saved.
+                    let view_path = work_dir.join("view.html");
+                    let raw_path = work_dir.join("raw.html");
+                    let monolith_input = if view_path.exists() {
+                        Url::from_file_path(&view_path)
+                            .ok()
+                            .map(|u| u.to_string())
+                            .unwrap_or_else(|| view_path.display().to_string())
+                    } else if raw_path.exists() {
+                        Url::from_file_path(&raw_path)
+                            .ok()
+                            .map(|u| u.to_string())
+                            .unwrap_or_else(|| raw_path.display().to_string())
+                    } else {
+                        link.normalized_url.clone()
+                    };
+
                     match create_complete_html(
-                        &link.normalized_url,
+                        &monolith_input,
                         &complete_path,
                         cookies_file,
                         &monolith_config,
