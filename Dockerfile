@@ -13,16 +13,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY Cargo.toml Cargo.lock ./
 
 # Create dummy source files to build dependencies
-RUN mkdir src && \
+# The dummy lib.rs must declare the same modules as the real lib.rs
+# to ensure dependencies are compiled correctly
+RUN mkdir -p src && \
     echo 'fn main() {}' > src/main.rs && \
-    echo 'pub fn lib() {}' > src/lib.rs
+    echo 'pub mod archive_today {} pub mod archiver {} pub mod backup {} pub mod config {} pub mod db {} pub mod handlers {} pub mod ipfs {} pub mod rss {} pub mod s3 {} pub mod tls {} pub mod wayback {} pub mod web {}' > src/lib.rs
 
-# Build dependencies only
-RUN cargo build --release && \
-    rm -rf src target/release/deps/discourse*
+# Build dependencies only (this caches all external crates)
+RUN cargo build --release
+
+# Remove ALL project-specific artifacts to force complete rebuild
+# This includes fingerprints which track file modification times
+RUN rm -rf src && \
+    rm -rf target/release/deps/discourse* && \
+    rm -rf target/release/deps/libdiscourse* && \
+    rm -rf target/release/.fingerprint/discourse* && \
+    rm -rf target/release/incremental/discourse* && \
+    rm -rf target/release/discourse*
 
 # Copy actual source code
 COPY src ./src
+
+# Touch all source files to ensure they're seen as newer than any cached metadata
+# This guarantees Cargo will rebuild the project with the real source
+RUN find src -name '*.rs' -exec touch {} +
 
 # Build the application
 RUN cargo build --release
