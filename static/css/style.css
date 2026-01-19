@@ -65,9 +65,9 @@
 
 /* Dark mode - Zinc palette */
 [data-theme="dark"] {
-    --primary: #f472b6;
-    --primary-hover: #ec4899;
-    --primary-low: rgba(244, 114, 182, 0.15);
+    --primary: #d8479f;
+    --primary-hover: #c1308f;
+    --primary-low: rgba(216, 71, 159, 0.12);
     --secondary: #09090b;
     --header-bg: #09090b;
     --header-primary: #fafafa;
