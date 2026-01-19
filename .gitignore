@@ -1,0 +1,24 @@
+# Build output
+/target
+
+# IDE/Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+*.env.local
+
+# Data directories
+/data/
+
+# Credentials
+cookies.txt
+*.pem
+*.key
+
+# OS
+.DS_Store
+Thumbs.db

@@ -8,94 +8,94 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 
 ## Phase 1: Project Setup
 
-- [ ] Initialize Cargo project with workspace structure
-- [ ] Configure Cargo.toml with initial dependencies
-- [ ] Set up basic project structure (src/, tests/, templates/)
-- [ ] Add rustfmt.toml and clippy configuration
-- [ ] Create .env.example with all environment variables
+- [x] Initialize Cargo project with workspace structure
+- [x] Configure Cargo.toml with initial dependencies
+- [x] Set up basic project structure (src/, tests/, templates/)
+- [x] Add rustfmt.toml and clippy configuration
+- [x] Create .env.example with all environment variables
 - [ ] Set up GitHub Actions for CI (build, test, clippy, fmt)
 
 ## Phase 2: Core Infrastructure
 
 ### Configuration
-- [ ] Implement config loading from environment variables
+- [x] Implement config loading from environment variables
 - [ ] Add config.toml file support as alternative
-- [ ] Validate configuration on startup
-- [ ] Write unit tests for config parsing
+- [x] Validate configuration on startup
+- [x] Write unit tests for config parsing
 
 ### Database
-- [ ] Set up SQLite connection with sqlx
-- [ ] Create initial migration (posts, links, link_occurrences, archives, archive_artifacts)
-- [ ] Add FTS5 virtual table and triggers
-- [ ] Implement database models (structs)
-- [ ] Write CRUD query functions
-- [ ] Configure WAL mode and pragmas
-- [ ] Write unit tests for database operations
+- [x] Set up SQLite connection with sqlx
+- [x] Create initial migration (posts, links, link_occurrences, archives, archive_artifacts)
+- [x] Add FTS5 virtual table and triggers
+- [x] Implement database models (structs)
+- [x] Write CRUD query functions
+- [x] Configure WAL mode and pragmas
+- [x] Write unit tests for database operations
 
 ### Logging
-- [ ] Set up tracing subscriber
+- [x] Set up tracing subscriber
 - [ ] Configure structured JSON logging for production
 - [ ] Add request tracing middleware for web server
 
 ## Phase 3: RSS Polling
 
 ### Poller
-- [ ] Implement RSS feed fetcher with reqwest
-- [ ] Parse RSS with feed-rs
-- [ ] Extract post metadata (guid, url, author, title, body)
-- [ ] Compute content hash for change detection
-- [ ] Store/update posts in database
-- [ ] Implement polling loop with configurable interval
-- [ ] Add adaptive polling (decay interval when no new content)
-- [ ] Write unit tests for RSS parsing
+- [x] Implement RSS feed fetcher with reqwest
+- [x] Parse RSS with feed-rs
+- [x] Extract post metadata (guid, url, author, title, body)
+- [x] Compute content hash for change detection
+- [x] Store/update posts in database
+- [x] Implement polling loop with configurable interval
+- [x] Add adaptive polling (decay interval when no new content)
+- [x] Write unit tests for RSS parsing
 - [ ] Write integration test for poll cycle
 
 ### Link Extraction
-- [ ] Parse HTML with scraper crate
-- [ ] Extract all `<a href>` tags
-- [ ] Detect quote context (aside.quote, blockquote)
-- [ ] Mark links as in_quote true/false
-- [ ] Extract context snippet around link
-- [ ] Deduplicate links by normalized URL
-- [ ] Write unit tests for link extraction
-- [ ] Write unit tests for quote detection
+- [x] Parse HTML with scraper crate
+- [x] Extract all `<a href>` tags
+- [x] Detect quote context (aside.quote, blockquote)
+- [x] Mark links as in_quote true/false
+- [x] Extract context snippet around link
+- [x] Deduplicate links by normalized URL
+- [x] Write unit tests for link extraction
+- [x] Write unit tests for quote detection
 
 ## Phase 4: URL Handling
 
 ### URL Normalization
-- [ ] Strip tracking parameters (utm_*, fbclid, etc.)
-- [ ] Force HTTPS, lowercase hostname
-- [ ] Remove default ports
-- [ ] Normalize trailing slashes
-- [ ] Write unit tests for normalization
+- [x] Strip tracking parameters (utm_*, fbclid, etc.)
+- [x] Force HTTPS, lowercase hostname
+- [x] Remove default ports
+- [x] Normalize trailing slashes
+- [x] Write unit tests for normalization
 
 ### Site Handler Trait
-- [ ] Define SiteHandler trait
-- [ ] Define ArchiveResult struct
-- [ ] Create HandlerRegistry for URL dispatch
-- [ ] Implement URL pattern matching
+- [x] Define SiteHandler trait
+- [x] Define ArchiveResult struct
+- [x] Create HandlerRegistry for URL dispatch
+- [x] Implement URL pattern matching
 
 ### Individual Handlers
-- [ ] Reddit handler
-  - [ ] URL patterns for reddit.com, redd.it, old.reddit.com
-  - [ ] Normalize to old.reddit.com
+- [x] Reddit handler
+  - [x] URL patterns for reddit.com, redd.it, old.reddit.com
+  - [x] Normalize to old.reddit.com
   - [ ] Resolve redd.it shortlinks
-  - [ ] Archive via yt-dlp
+  - [x] Archive via yt-dlp
   - [ ] Fetch JSON API data
-  - [ ] Write tests
-- [ ] TikTok handler
-  - [ ] URL patterns for tiktok.com, vm.tiktok.com
-  - [ ] Resolve vm.tiktok.com redirects
-  - [ ] Archive via yt-dlp
-  - [ ] Write tests
-- [ ] Twitter/X handler
-  - [ ] URL patterns for twitter.com, x.com
-  - [ ] Archive via yt-dlp and gallery-dl
-  - [ ] Write tests
-- [ ] YouTube handler
-  - [ ] URL patterns for youtube.com, youtu.be
-  - [ ] Archive via yt-dlp with subtitles
-  - [ ] Write tests
+  - [x] Write tests
+- [x] TikTok handler
+  - [x] URL patterns for tiktok.com, vm.tiktok.com
+  - [x] Resolve vm.tiktok.com redirects
+  - [x] Archive via yt-dlp
+  - [x] Write tests
+- [x] Twitter/X handler
+  - [x] URL patterns for twitter.com, x.com
+  - [x] Archive via yt-dlp and gallery-dl
+  - [x] Write tests
+- [x] YouTube handler
+  - [x] URL patterns for youtube.com, youtu.be
+  - [x] Archive via yt-dlp with subtitles
+  - [x] Write tests
 - [ ] Instagram handler
   - [ ] URL patterns for instagram.com
   - [ ] Archive via gallery-dl
@@ -104,37 +104,37 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
   - [ ] URL patterns for imgur.com, i.imgur.com
   - [ ] Archive via gallery-dl
   - [ ] Write tests
-- [ ] Generic HTTP handler for fallback
-  - [ ] Fetch raw HTML
-  - [ ] Extract metadata (title, OpenGraph)
-  - [ ] Extract readable text
+- [x] Generic HTTP handler for fallback
+  - [x] Fetch raw HTML
+  - [x] Extract metadata (title, OpenGraph)
+  - [x] Extract readable text
 
 ## Phase 5: Archive Pipeline
 
 ### Worker Pool
-- [ ] Implement semaphore-based concurrency limiting
-- [ ] Create worker loop to process pending archives
+- [x] Implement semaphore-based concurrency limiting
+- [x] Create worker loop to process pending archives
 - [ ] Implement per-domain rate limiting
-- [ ] Handle worker errors gracefully
+- [x] Handle worker errors gracefully
 
 ### External Tool Integration
-- [ ] yt-dlp subprocess wrapper
-  - [ ] Configure output format and options
-  - [ ] Parse metadata JSON output
-  - [ ] Handle timeouts and errors
+- [x] yt-dlp subprocess wrapper
+  - [x] Configure output format and options
+  - [x] Parse metadata JSON output
+  - [x] Handle timeouts and errors
 - [ ] gallery-dl subprocess wrapper
   - [ ] Configure output options
   - [ ] Parse output
   - [ ] Handle timeouts and errors
 
 ### Archive Processing
-- [ ] Create temp working directory per job
-- [ ] Download content via appropriate tool
-- [ ] Extract metadata from downloaded files
-- [ ] Upload artifacts to S3
-- [ ] Update database with results
-- [ ] Clean up temp files
-- [ ] Implement retry logic with exponential backoff
+- [x] Create temp working directory per job
+- [x] Download content via appropriate tool
+- [x] Extract metadata from downloaded files
+- [x] Upload artifacts to S3
+- [x] Update database with results
+- [x] Clean up temp files
+- [x] Implement retry logic with exponential backoff
 - [ ] Write integration tests for archive pipeline
 
 ### Wayback Machine Integration
@@ -145,11 +145,11 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 
 ## Phase 6: S3 Storage
 
-- [ ] Initialize S3 client with aws-sdk-s3
-- [ ] Support custom endpoints (MinIO, R2)
-- [ ] Implement file upload function
+- [x] Initialize S3 client with aws-sdk-s3
+- [x] Support custom endpoints (MinIO, R2)
+- [x] Implement file upload function
 - [ ] Implement streaming upload for large files
-- [ ] Generate consistent S3 keys per storage layout spec
+- [x] Generate consistent S3 keys per storage layout spec
 - [ ] Implement presigned URL generation (if needed)
 - [ ] Write integration tests (with localstack or minio)
 
@@ -163,36 +163,36 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 ## Phase 7: Web UI
 
 ### Server Setup
-- [ ] Initialize axum application
-- [ ] Configure tower-http middleware (CORS, compression)
+- [x] Initialize axum application
+- [x] Configure tower-http middleware (CORS, compression)
 - [ ] Set up static file serving
-- [ ] Add request logging middleware
+- [x] Add request logging middleware
 
 ### Templates
-- [ ] Create base.html layout
-- [ ] Create home.html (recent archives grid)
-- [ ] Create search.html (search form + results)
-- [ ] Create archive_detail.html (single archive view)
+- [x] Create base.html layout
+- [x] Create home.html (recent archives grid)
+- [x] Create search.html (search form + results)
+- [x] Create archive_detail.html (single archive view)
 - [ ] Create post_detail.html (archives from one post)
-- [ ] Create site_list.html (browse by site)
-- [ ] Create stats.html (statistics page)
-- [ ] Create partials (archive_card, pagination, media_embed)
+- [x] Create site_list.html (browse by site)
+- [x] Create stats.html (statistics page)
+- [x] Create partials (archive_card, pagination, media_embed)
 
 ### Routes
-- [ ] GET / - home page with recent archives
-- [ ] GET /search - search with FTS
-- [ ] GET /archive/{id} - single archive detail
+- [x] GET / - home page with recent archives
+- [x] GET /search - search with FTS
+- [x] GET /archive/{id} - single archive detail
 - [ ] GET /post/{guid} - archives from discourse post
-- [ ] GET /site/{site} - browse by source site
-- [ ] GET /stats - processing statistics
-- [ ] GET /healthz - health check
-- [ ] GET /api/archives - JSON API
-- [ ] GET /api/search - JSON search API
+- [x] GET /site/{site} - browse by source site
+- [x] GET /stats - processing statistics
+- [x] GET /healthz - health check
+- [x] GET /api/archives - JSON API
+- [x] GET /api/search - JSON search API
 
 ### Styling
-- [ ] Add PicoCSS or similar classless framework
-- [ ] Create custom styles for archive cards
-- [ ] Ensure responsive design
+- [x] Add PicoCSS or similar classless framework
+- [x] Create custom styles for archive cards
+- [x] Ensure responsive design
 - [ ] Add media player styling
 
 ### Integration Tests
@@ -216,8 +216,8 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 
 ### Configuration
 - [ ] Create config.example.toml
-- [ ] Document all environment variables
-- [ ] Add validation for required config
+- [x] Document all environment variables
+- [x] Add validation for required config
 
 ## Phase 9: Testing & Polish
 
@@ -234,4 +234,5 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 
 Add new tasks here as they are discovered during development:
 
-- [ ] (placeholder for discovered tasks)
+- [x] Create lib.rs to expose modules for integration tests
+- [x] Write database integration tests
