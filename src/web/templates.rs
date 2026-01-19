@@ -892,6 +892,7 @@ fn is_viewable_in_browser(filename: &str) -> bool {
     // HTML files
     filename_lower.ends_with(".html")
         || filename_lower.ends_with(".htm")
+        || filename_lower.ends_with(".mhtml")
         // PDF files
         || filename_lower.ends_with(".pdf")
         // Image files
