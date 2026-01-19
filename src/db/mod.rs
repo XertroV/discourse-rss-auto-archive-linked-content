@@ -43,8 +43,33 @@ impl Database {
 
         let db = Self { pool };
         db.run_migrations().await?;
+        db.verify_writable(path).await?;
 
         Ok(db)
+    }
+
+    async fn verify_writable(&self, path: &Path) -> Result<()> {
+        // Detect common deployment misconfigurations early (e.g. Docker named volume
+        // mounted as root-owned while running as non-root), which otherwise show up
+        // later as "attempt to write a readonly database" during normal operations.
+        //
+        // Starting a transaction requires write capability on SQLite.
+        // Using SQLx transactions ensures cleanup even if begin fails.
+        let tx = self
+            .pool
+            .begin()
+            .await
+            .with_context(|| {
+                format!(
+                    "SQLite database is not writable (path: {}). Check volume mount permissions/ownership",
+                    path.display()
+                )
+            })?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit SQLite writability check")?;
+        Ok(())
     }
 
     /// Run all pending migrations.

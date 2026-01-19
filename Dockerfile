@@ -95,11 +95,14 @@ COPY --from=builder /usr/local/bin/discourse-link-archiver /usr/local/bin/
 # Copy static files directory
 COPY --chown=archiver:archiver static ./static
 
+# Entrypoint to fix volume permissions then drop privileges
+COPY --chown=root:root scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 # Create data directories (including ACME certificate cache)
 RUN mkdir -p /app/data/tmp /app/data/acme_cache && chown -R archiver:archiver /app
 
-# Switch to non-root user
-USER archiver
+USER root
 
 # Expose web server ports (HTTP and HTTPS)
 EXPOSE 8080 443
@@ -132,5 +135,6 @@ ENV TLS_HTTPS_PORT=443
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/healthz || exit 1
 
-# Run the application
-CMD ["discourse-link-archiver"]
+# Run the application (entrypoint drops to non-root user)
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["/usr/local/bin/discourse-link-archiver"]
