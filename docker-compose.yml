@@ -5,6 +5,7 @@ services:
       - "8080:8080"
       # Uncomment for HTTPS (requires TLS_ENABLED=true and TLS_DOMAINS set)
       # - "443:443"
+      # - "80:80"
     environment:
       # RSS Feed Configuration
       RSS_URL: ${RSS_URL:-https://discuss.criticalfallibilism.com/posts.rss}
@@ -38,10 +39,11 @@ services:
       # HTTPS / Let's Encrypt (disabled by default to avoid rate limits)
       # Certificates are cached in /app/data/acme_cache (persisted in archiver-data volume)
       TLS_ENABLED: ${TLS_ENABLED:-false}
-      # TLS_DOMAINS: ${TLS_DOMAINS:-}  # Required when TLS_ENABLED=true, e.g., "example.com"
-      # TLS_CONTACT_EMAIL: ${TLS_CONTACT_EMAIL:-}  # Recommended for cert expiry notifications
-      # TLS_USE_STAGING: ${TLS_USE_STAGING:-false}  # Set true for testing (avoids rate limits)
-      # TLS_HTTPS_PORT: ${TLS_HTTPS_PORT:-443}
+      # These can be commented but easier to leave them uncommented when not in use
+      TLS_DOMAINS: ${TLS_DOMAINS:-}  # Required when TLS_ENABLED=true, e.g., "example.com"
+      TLS_CONTACT_EMAIL: ${TLS_CONTACT_EMAIL:-}  # Recommended for cert expiry notifications
+      TLS_USE_STAGING: ${TLS_USE_STAGING:-false}  # Set true for testing (avoids rate limits)
+      TLS_HTTPS_PORT: ${TLS_HTTPS_PORT:-443}
 
       # Wayback Machine
       WAYBACK_ENABLED: ${WAYBACK_ENABLED:-true}
