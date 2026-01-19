@@ -30,6 +30,8 @@ fn create_test_config(rss_url: &str, work_dir: &std::path::Path) -> Config {
         gallery_dl_path: "gallery-dl".to_string(),
         cookies_file_path: None,
         yt_dlp_cookies_from_browser: None,
+        youtube_max_duration_seconds: Some(3600),
+        youtube_download_timeout_seconds: 7200,
         archive_mode: ArchiveMode::All,
         archive_quote_only_links: false,
         web_host: "0.0.0.0".to_string(),

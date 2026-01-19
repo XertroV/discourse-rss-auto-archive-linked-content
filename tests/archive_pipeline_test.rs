@@ -32,6 +32,8 @@ fn create_test_config(work_dir: &std::path::Path) -> Config {
         gallery_dl_path: "gallery-dl".to_string(),
         cookies_file_path: None,
         yt_dlp_cookies_from_browser: None,
+        youtube_max_duration_seconds: Some(3600),
+        youtube_download_timeout_seconds: 7200,
         archive_mode: ArchiveMode::All,
         archive_quote_only_links: false,
         web_host: "0.0.0.0".to_string(),
@@ -302,10 +304,13 @@ async fn test_generic_handler_archives_html() {
 
     let url = format!("{}/test-page", mock_server.uri());
 
+    // Create test config
+    let config = create_test_config(&work_dir);
+
     // Find handler and archive
     let handler = HANDLERS.find_handler(&url).expect("Should find handler");
     let result = handler
-        .archive(&url, &work_dir, &CookieOptions::default())
+        .archive(&url, &work_dir, &CookieOptions::default(), &config)
         .await
         .expect("Archive should succeed");
 
@@ -341,9 +346,12 @@ async fn test_generic_handler_handles_non_html() {
 
     let url = format!("{}/data.json", mock_server.uri());
 
+    // Create test config
+    let config = create_test_config(&work_dir);
+
     let handler = HANDLERS.find_handler(&url).expect("Should find handler");
     let result = handler
-        .archive(&url, &work_dir, &CookieOptions::default())
+        .archive(&url, &work_dir, &CookieOptions::default(), &config)
         .await
         .expect("Archive should succeed");
 
@@ -368,9 +376,12 @@ async fn test_generic_handler_handles_http_error() {
 
     let url = format!("{}/not-found", mock_server.uri());
 
+    // Create test config
+    let config = create_test_config(&work_dir);
+
     let handler = HANDLERS.find_handler(&url).expect("Should find handler");
     let result = handler
-        .archive(&url, &work_dir, &CookieOptions::default())
+        .archive(&url, &work_dir, &CookieOptions::default(), &config)
         .await;
 
     assert!(result.is_err(), "Should fail on HTTP 404");
@@ -460,9 +471,13 @@ async fn test_archive_with_metadata_extraction() {
         .await;
 
     let url = format!("{}/article", mock_server.uri());
+
+    // Create test config
+    let config = create_test_config(&work_dir);
+
     let handler = HANDLERS.find_handler(&url).expect("Should find handler");
     let result = handler
-        .archive(&url, &work_dir, &CookieOptions::default())
+        .archive(&url, &work_dir, &CookieOptions::default(), &config)
         .await
         .expect("Archive should succeed");
 

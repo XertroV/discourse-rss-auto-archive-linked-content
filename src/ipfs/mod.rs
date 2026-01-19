@@ -307,6 +307,8 @@ mod tests {
             gallery_dl_path: String::new(),
             cookies_file_path: None,
             yt_dlp_cookies_from_browser: None,
+            youtube_max_duration_seconds: Some(3600),
+            youtube_download_timeout_seconds: 7200,
             archive_mode: crate::config::ArchiveMode::All,
             archive_quote_only_links: false,
             web_host: String::new(),

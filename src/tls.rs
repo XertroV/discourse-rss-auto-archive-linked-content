@@ -74,6 +74,8 @@ mod tests {
             gallery_dl_path: "gallery-dl".to_string(),
             cookies_file_path: None,
             yt_dlp_cookies_from_browser: None,
+            youtube_max_duration_seconds: Some(3600),
+            youtube_download_timeout_seconds: 7200,
             archive_mode: crate::config::ArchiveMode::Deletable,
             archive_quote_only_links: false,
             web_host: "0.0.0.0".to_string(),
