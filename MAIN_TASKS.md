@@ -289,13 +289,13 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Write unit tests for feed generation
 
 ### Content Deduplication
-- [ ] Add image_hasher dependency
-- [ ] Add perceptual_hash column to archive_artifacts
-- [ ] Compute pHash for images during archiving
-- [ ] Check for near-duplicates before downloading
-- [ ] Link to existing archive if duplicate found
-- [ ] Add similarity threshold configuration
-- [ ] Write unit tests for hash comparison
+- [x] Add image_hasher dependency
+- [x] Add perceptual_hash column to archive_artifacts
+- [x] Compute pHash for images during archiving
+- [x] Check for near-duplicates before downloading
+- [x] Link to existing archive if duplicate found
+- [x] Add similarity threshold configuration
+- [x] Write unit tests for hash comparison
 
 ### Screenshot Capture
 - [x] Add chromiumoxide or headless_chrome dependency

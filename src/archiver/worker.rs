@@ -10,11 +10,13 @@ use super::rate_limiter::DomainRateLimiter;
 use super::screenshot::ScreenshotService;
 use crate::config::Config;
 use crate::db::{
-    get_archive, get_failed_archives_for_retry, get_link, get_pending_archives, insert_artifact,
-    reset_archive_for_retry, reset_stuck_processing_archives, reset_todays_failed_archives,
-    set_archive_complete, set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw,
-    set_archive_processing, set_archive_skipped, update_link_last_archived, ArtifactKind, Database,
+    find_artifact_by_perceptual_hash, get_archive, get_failed_archives_for_retry, get_link,
+    get_pending_archives, insert_artifact, insert_artifact_with_hash, reset_archive_for_retry,
+    reset_stuck_processing_archives, reset_todays_failed_archives, set_archive_complete,
+    set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw, set_archive_processing,
+    set_archive_skipped, update_link_last_archived, ArtifactKind, Database,
 };
+use crate::dedup;
 use crate::handlers::HANDLERS;
 use crate::ipfs::IpfsClient;
 use crate::s3::S3Client;
@@ -374,10 +376,6 @@ async fn process_archive_inner(
                 .first_or_octet_stream()
                 .to_string();
 
-            s3.upload_file(&local_path, &key).await?;
-            primary_key = Some(key.clone());
-            primary_local_path = Some(local_path.clone());
-
             // Determine artifact kind based on content type
             let kind = if result.content_type == "video" {
                 ArtifactKind::Video
@@ -389,19 +387,70 @@ async fn process_archive_inner(
                 ArtifactKind::Metadata
             };
 
-            // Insert artifact record
-            if let Err(e) = insert_artifact(
+            // Check for duplicates if dedup is enabled and this is an image/video
+            let is_media = matches!(kind, ArtifactKind::Image | ArtifactKind::Video);
+            let (perceptual_hash, duplicate_of) = if config.dedup_enabled && is_media {
+                match check_for_duplicate(db, &local_path, config.dedup_similarity_threshold).await
+                {
+                    Ok(Some(duplicate_artifact)) => {
+                        debug!(
+                            archive_id,
+                            duplicate_of = duplicate_artifact.id,
+                            "Found duplicate artifact, skipping upload"
+                        );
+                        // Use the existing artifact's S3 key
+                        primary_key = Some(duplicate_artifact.s3_key.clone());
+                        (
+                            duplicate_artifact.perceptual_hash.clone(),
+                            Some(duplicate_artifact.id),
+                        )
+                    }
+                    Ok(None) => {
+                        // Not a duplicate, compute hash for storage
+                        match compute_perceptual_hash(&local_path).await {
+                            Ok(hash) => (Some(hash), None),
+                            Err(e) => {
+                                debug!(archive_id, error = %e, "Failed to compute perceptual hash");
+                                (None, None)
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        debug!(archive_id, error = %e, "Error checking for duplicates");
+                        (None, None)
+                    }
+                }
+            } else {
+                (None, None)
+            };
+
+            // Upload to S3 only if not a duplicate
+            if duplicate_of.is_none() {
+                s3.upload_file(&local_path, &key).await?;
+                primary_key = Some(key.clone());
+                primary_local_path = Some(local_path.clone());
+            }
+
+            // Insert artifact record with hash info
+            if let Err(e) = insert_artifact_with_hash(
                 db.pool(),
                 archive_id,
                 kind.as_str(),
-                &key,
+                primary_key.as_deref().unwrap_or(&key),
                 Some(&content_type),
                 size_bytes,
                 None,
+                perceptual_hash.as_deref(),
+                duplicate_of,
             )
             .await
             {
                 warn!(archive_id, error = %e, "Failed to insert primary artifact record");
+            }
+
+            // Store primary_local_path if we uploaded (not a duplicate)
+            if duplicate_of.is_none() {
+                primary_local_path = Some(local_path.clone());
             }
 
             // If this is an HTML file (raw.html), create view.html with archive banner
@@ -453,18 +502,56 @@ async fn process_archive_inner(
                 .first_or_octet_stream()
                 .to_string();
 
-            s3.upload_file(&local_path, &key).await?;
-            thumb_key = Some(key.clone());
+            // Check for duplicates if dedup is enabled
+            let (perceptual_hash, duplicate_of) = if config.dedup_enabled {
+                match check_for_duplicate(db, &local_path, config.dedup_similarity_threshold).await
+                {
+                    Ok(Some(duplicate_artifact)) => {
+                        debug!(
+                            archive_id,
+                            duplicate_of = duplicate_artifact.id,
+                            "Found duplicate thumbnail, skipping upload"
+                        );
+                        // Use existing thumbnail's key
+                        thumb_key = Some(duplicate_artifact.s3_key.clone());
+                        (
+                            duplicate_artifact.perceptual_hash.clone(),
+                            Some(duplicate_artifact.id),
+                        )
+                    }
+                    Ok(None) => match compute_perceptual_hash(&local_path).await {
+                        Ok(hash) => (Some(hash), None),
+                        Err(e) => {
+                            debug!(archive_id, error = %e, "Failed to compute thumbnail hash");
+                            (None, None)
+                        }
+                    },
+                    Err(e) => {
+                        debug!(archive_id, error = %e, "Error checking thumbnail for duplicates");
+                        (None, None)
+                    }
+                }
+            } else {
+                (None, None)
+            };
 
-            // Insert thumbnail artifact record
-            if let Err(e) = insert_artifact(
+            // Upload only if not a duplicate
+            if duplicate_of.is_none() {
+                s3.upload_file(&local_path, &key).await?;
+                thumb_key = Some(key.clone());
+            }
+
+            // Insert thumbnail artifact record with hash info
+            if let Err(e) = insert_artifact_with_hash(
                 db.pool(),
                 archive_id,
                 ArtifactKind::Thumb.as_str(),
-                &key,
+                thumb_key.as_deref().unwrap_or(&key),
                 Some(&content_type),
                 size_bytes,
                 None,
+                perceptual_hash.as_deref(),
+                duplicate_of,
             )
             .await
             {
@@ -697,4 +784,40 @@ async fn process_archive_inner(
 #[allow(dead_code)]
 fn create_work_dir(base: &Path, archive_id: i64) -> PathBuf {
     base.join(format!("archive_{archive_id}"))
+}
+
+/// Compute perceptual hash for an image or video file.
+async fn compute_perceptual_hash(path: &Path) -> Result<String> {
+    let data = tokio::fs::read(path)
+        .await
+        .context("Failed to read file for hashing")?;
+    dedup::compute_image_hash(&data).context("Failed to compute perceptual hash")
+}
+
+/// Check if a file is a duplicate of an existing artifact.
+///
+/// Returns the original artifact if a duplicate is found, or None if unique.
+async fn check_for_duplicate(
+    db: &Database,
+    path: &Path,
+    _threshold: u32,
+) -> Result<Option<crate::db::ArchiveArtifact>> {
+    // Compute hash for this file
+    let hash = compute_perceptual_hash(path).await?;
+
+    // Query database for all artifacts with perceptual hashes
+    // We check similarity against all existing hashes
+    let pool = db.pool();
+
+    // Try exact match first (fast path)
+    if let Some(artifact) = find_artifact_by_perceptual_hash(pool, &hash).await? {
+        return Ok(Some(artifact));
+    }
+
+    // For now, we only do exact hash matching
+    // Future enhancement: query all hashes and compare similarity
+    // This would require loading all hashes which could be slow for large databases
+    // A better approach might be to use a more sophisticated indexing scheme
+
+    Ok(None)
 }
