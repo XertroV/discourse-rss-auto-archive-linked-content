@@ -247,10 +247,10 @@ fn render_recent_archives_tabs(active: RecentArchivesTab, recent_failed_count: u
     };
 
     format!(
-        r#"<nav class=\"archive-tabs\" aria-label=\"Archive list tabs\">\
-            <a class=\"{recent_class}\" href=\"/\">Recent</a>\
-            <a class=\"{all_class}\" href=\"/archives/all\">All</a>\
-            <a class=\"{failed_class}\" href=\"/archives/failed\">Failed{failed_count_badge}</a>\
+        r#"<nav class="archive-tabs" aria-label="Archive list tabs">\
+            <a class="{recent_class}" href="/">Recent</a>\
+            <a class="{all_class}" href="/archives/all">All</a>\
+            <a class="{failed_class}" href="/archives/failed">Failed{failed_count_badge}</a>\
         </nav>"#,
         recent_class = recent_class,
         all_class = all_class,
@@ -615,19 +615,28 @@ pub fn render_archive_detail(
         ));
     }
 
+    let thumb_key = archive
+        .s3_key_thumb
+        .as_deref()
+        .or_else(|| artifacts.iter().find(|a| a.kind == "thumb").map(|a| a.s3_key.as_str()));
+
+    let primary_key_opt = archive.s3_key_primary.as_deref();
+    let is_html_archive = primary_key_opt
+        .map(|primary_key| {
+            primary_key.ends_with(".html") || archive.content_type.as_deref() == Some("thread")
+        })
+        .unwrap_or(false);
+
     // Show Media section for non-HTML archives (videos, images, etc.)
     // For HTML archives, we show the embedded preview instead
-    if let Some(ref primary_key) = archive.s3_key_primary {
-        let is_html_archive =
-            primary_key.ends_with(".html") || archive.content_type.as_deref() == Some("thread");
-
+    if let Some(primary_key) = primary_key_opt {
         if !is_html_archive {
             let download_name = suggested_download_filename(&link.domain, archive.id, primary_key);
             content.push_str("<section><h2>Media</h2>");
             content.push_str(&render_media_player(
                 primary_key,
                 archive.content_type.as_deref(),
-                archive.s3_key_thumb.as_deref(),
+                thumb_key,
             ));
             content.push_str(&format!(
                 r#"<p><a href="/s3/{}" class="media-download" download="{}" target="_blank" rel="noopener">
@@ -640,54 +649,74 @@ pub fn render_archive_detail(
         }
     }
 
+    // Fallback: if primary media wasn't rendered, show first video artifact inline
+    if primary_key_opt.is_none() && !is_html_archive {
+        if let Some(video_artifact) = artifacts.iter().find(|a| a.kind == "video") {
+            let download_name = suggested_download_filename(
+                &link.domain,
+                archive.id,
+                &video_artifact.s3_key,
+            );
+            content.push_str("<section><h2>Media</h2>");
+            content.push_str(&render_media_player(
+                &video_artifact.s3_key,
+                Some("video"),
+                thumb_key,
+            ));
+            content.push_str(&format!(
+                r#"<p><a href="/s3/{}" class="media-download" download="{}" target="_blank" rel="noopener">
+                    <span>Download</span>
+                </a></p>"#,
+                html_escape(&video_artifact.s3_key),
+                html_escape(&download_name)
+            ));
+            content.push_str("</section>");
+        }
+    }
+
     // Embedded HTML preview (collapsible) for webpage archives
     // Priority: complete.html (styled) > view.html (with banner) > raw.html
-    if let Some(ref primary_key) = archive.s3_key_primary {
-        let is_html_archive =
-            primary_key.ends_with(".html") || archive.content_type.as_deref() == Some("thread");
+    if archive.s3_key_primary.is_some() && is_html_archive {
+        // Find the best HTML artifact: complete.html (monolith) > view.html > raw.html
+        let preview_key = artifacts
+            .iter()
+            .find(|a| a.s3_key.ends_with("complete.html"))
+            .map(|a| &a.s3_key)
+            .or_else(|| {
+                artifacts
+                    .iter()
+                    .find(|a| a.s3_key.ends_with("view.html"))
+                    .map(|a| &a.s3_key)
+            })
+            .or_else(|| {
+                artifacts
+                    .iter()
+                    .find(|a| a.s3_key.ends_with("raw.html"))
+                    .map(|a| &a.s3_key)
+            });
 
-        if is_html_archive {
-            // Find the best HTML artifact: complete.html (monolith) > view.html > raw.html
-            let preview_key = artifacts
-                .iter()
-                .find(|a| a.s3_key.ends_with("complete.html"))
-                .map(|a| &a.s3_key)
-                .or_else(|| {
-                    artifacts
-                        .iter()
-                        .find(|a| a.s3_key.ends_with("view.html"))
-                        .map(|a| &a.s3_key)
-                })
-                .or_else(|| {
-                    artifacts
-                        .iter()
-                        .find(|a| a.s3_key.ends_with("raw.html"))
-                        .map(|a| &a.s3_key)
-                });
+        // Determine which version we're showing for the label
+        let preview_type = if preview_key.is_some_and(|k| k.ends_with("complete.html")) {
+            " (Full Archive)"
+        } else if preview_key.is_some_and(|k| k.ends_with("view.html")) {
+            " (With Banner)"
+        } else {
+            " (Original)"
+        };
 
-            // Determine which version we're showing for the label
-            let preview_type = if preview_key.is_some_and(|k| k.ends_with("complete.html")) {
-                " (Full Archive)"
-            } else if preview_key.is_some_and(|k| k.ends_with("view.html")) {
-                " (With Banner)"
-            } else {
-                " (Original)"
-            };
-
-            if let Some(embed_key) = preview_key {
-                content.push_str(&format!(
-                    r#"<section class="embedded-preview">
-                        <details open>
-                            <summary><h2 style="display: inline;">Archived Page Preview{}</h2></summary>
-                            <div class="iframe-container">
-                                <iframe src="/s3/{}" sandbox="allow-same-origin" loading="lazy" title="Archived webpage preview"></iframe>
-                            </div>
-                        </details>
-                    </section>"#,
-                    preview_type,
-                    html_escape(embed_key)
-                ));
-            }
+        if let Some(embed_key) = preview_key {
+            content.push_str(&format!(
+                r#"<section class="embedded-preview">
+                    <details open>
+                        <summary><h2 style="display: inline;">Archived Page Preview{}</h2></summary>
+                        <div class="iframe-container">
+                            <iframe src="/s3/{}" sandbox="allow-same-origin" loading="lazy" title="Archived webpage preview"></iframe>
+                        </div>
+                    </details>
+                </section>"#,
+                preview_type,
+                html_escape(embed_key)
+            ));
         }
     }
 

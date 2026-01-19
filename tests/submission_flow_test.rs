@@ -153,7 +153,7 @@ async fn submit_url(
     };
 
     // Create pending archive
-    if let Err(_) = create_pending_archive(state.db.pool(), link_id).await {
+    if let Err(_) = create_pending_archive(state.db.pool(), link_id, None).await {
         return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to queue").into_response();
     }
 

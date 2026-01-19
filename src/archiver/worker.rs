@@ -16,7 +16,9 @@ use crate::db::{
     get_pending_archives, insert_artifact, insert_artifact_with_hash, reset_archive_for_retry,
     reset_stuck_processing_archives, reset_todays_failed_archives, set_archive_complete,
     set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw, set_archive_processing,
-    set_archive_skipped, update_link_final_url, update_link_last_archived, ArtifactKind, Database,
+    set_archive_skipped, update_link_final_url, update_link_last_archived, ArchiveJobType,
+    ArtifactKind, Database, create_archive_job, set_job_completed, set_job_failed, set_job_running,
+    set_job_skipped,
 };
 use crate::dedup;
 use crate::handlers::youtube::extract_video_id;
@@ -392,8 +394,15 @@ async fn process_archive_inner(
         None
     };
 
+    let primary_job_type = if is_youtube {
+        ArchiveJobType::YtDlp
+    } else {
+        ArchiveJobType::FetchHtml
+    };
+    let main_job = start_job(db.pool(), archive_id, primary_job_type).await;
+
     // Check if video already exists on S3
-    let existing_video = if let Some(ref vid) = video_id {
+    let mut existing_video = if let Some(ref vid) = video_id {
         match check_existing_youtube_video(s3, vid).await {
             Ok(Some((existing_key, ext))) => {
                 info!(
@@ -414,11 +423,45 @@ async fn process_archive_inner(
         None
     };
 
+    // If we found an existing video, ensure it is usable (non-zero size)
+    let mut existing_video_metadata: Option<(i64, String)> = None;
+    if let Some((ref existing_key, _)) = existing_video {
+        match s3.get_object_metadata(existing_key).await {
+            Ok((size_bytes, content_type)) => {
+                if size_bytes <= 0 {
+                    warn!(
+                        archive_id,
+                        video_id = ?video_id,
+                        s3_key = %existing_key,
+                        "Existing YouTube video on S3 is empty; will re-download"
+                    );
+                    existing_video = None;
+                } else {
+                    existing_video_metadata = Some((size_bytes, content_type));
+                }
+            }
+            Err(e) => {
+                warn!(
+                    archive_id,
+                    video_id = ?video_id,
+                    s3_key = %existing_key,
+                    error = %e,
+                    "Failed to get metadata for existing video; will re-download"
+                );
+                existing_video = None;
+            }
+        }
+    }
+
     // Create work directory
     let work_dir = config.work_dir.join(format!("archive_{archive_id}"));
     tokio::fs::create_dir_all(&work_dir)
         .await
         .context("Failed to create work directory")?;
+
+    let mut primary_key: Option<String> = None;
+    let mut thumb_key: Option<String> = None;
+    let mut primary_local_path: Option<PathBuf> = None;
 
     // If video already exists, fetch metadata without re-downloading
     let (result, _existing_video_handled) = if let Some((existing_key, _ext)) = existing_video {
@@ -466,40 +509,38 @@ async fn process_archive_inner(
         result.primary_file = Some(filename);
         result.video_id = video_id.clone();
 
-        // Get existing video size from S3 and create artifact record
-        match s3.get_object_metadata(&existing_key).await {
-            Ok((size_bytes, content_type)) => {
-                // Insert artifact record for the existing video
-                if let Err(e) = insert_artifact(
-                    db.pool(),
+        // Reuse the existing S3 object as the primary artifact for this archive
+        primary_key = Some(existing_key.clone());
+
+        if let Some((size_bytes, content_type)) = existing_video_metadata.clone() {
+            if let Err(e) = insert_artifact(
+                db.pool(),
+                archive_id,
+                ArtifactKind::Video.as_str(),
+                &existing_key,
+                Some(&content_type),
+                Some(size_bytes),
+                None,
+            )
+            .await
+            {
+                warn!(archive_id, error = %e, "Failed to insert existing video artifact record");
+            } else {
+                debug!(
                     archive_id,
-                    ArtifactKind::Video.as_str(),
-                    &existing_key,
-                    Some(&content_type),
-                    Some(size_bytes),
-                    None,
-                )
-                .await
-                {
-                    warn!(archive_id, error = %e, "Failed to insert existing video artifact record");
-                } else {
-                    debug!(
-                        archive_id,
-                        video_id = ?video_id,
-                        s3_key = %existing_key,
-                        size = size_bytes,
-                        "Created artifact record for existing video"
-                    );
-                }
-            }
-            Err(e) => {
-                warn!(
-                    archive_id,
+                    video_id = ?video_id,
                     s3_key = %existing_key,
-                    error = %e,
-                    "Failed to get existing video metadata from S3"
+                    size = size_bytes,
+                    "Created artifact record for existing video"
                 );
             }
+        } else {
+            warn!(
+                archive_id,
+                video_id = ?video_id,
+                s3_key = %existing_key,
+                "Missing metadata for existing video; skipping artifact record"
+            );
         }
 
         // Save metadata JSON alongside video at videos/<video_id>.json
@@ -542,6 +583,9 @@ async fn process_archive_inner(
             }
         }
 
+        complete_job(db.pool(), main_job, Some("Reused existing video"))
+            .await;
+
         (result, true)
     } else {
         // Run the archive normally
@@ -559,18 +603,25 @@ async fn process_archive_inner(
             cookies_file,
             browser_profile: config.yt_dlp_cookies_from_browser.as_deref(),
         };
-        let result = handler
+        let result = match handler
             .archive(&link.normalized_url, &work_dir, &cookies, config)
             .await
-            .context("Handler archive failed")?;
+        {
+            Ok(res) => {
+                complete_job(db.pool(), main_job, None).await;
+                res
+            }
+            Err(e) => {
+                fail_job(db.pool(), main_job, &format!("{e:#}")).await;
+                return Err(e.context("Handler archive failed"));
+            }
+        };
+
         (result, false)
     };
 
     // Upload artifacts to S3
     let s3_prefix = format!("{}{}/", config.s3_prefix, link_id);
-    let mut primary_key = None;
-    let mut thumb_key = None;
-    let mut primary_local_path = None;
 
     if let Some(ref primary) = result.primary_file {
         let local_path = work_dir.join(primary);
@@ -726,6 +777,13 @@ async fn process_archive_inner(
                         link.normalized_url.clone()
                     };
 
+                    let monolith_job = start_job(
+                        db.pool(),
+                        archive_id,
+                        ArchiveJobType::Monolith,
+                    )
+                    .await;
+
                     match create_complete_html(
                         &monolith_input,
                         &complete_path,
@@ -758,6 +816,15 @@ async fn process_archive_inner(
                                 .await
                                 {
                                     warn!(archive_id, error = %e, "Failed to insert complete.html artifact record");
+                                } else {
+                                    let size_meta =
+                                        size_bytes.map(|s| format!("{s} bytes"));
+                                    complete_job(
+                                        db.pool(),
+                                        monolith_job,
+                                        size_meta.as_deref(),
+                                    )
+                                    .await;
                                 }
                             }
                         }
@@ -773,8 +840,10 @@ async fn process_archive_inner(
                                     "Monolith crashed processing this page - likely a tool limitation with this content type"
                                 );
                                 // This is expected for certain content types, continue with other formats
+                                fail_job(db.pool(), monolith_job, &err_str).await;
                             } else {
                                 warn!(archive_id, error = %e, "Failed to create complete.html with monolith");
+                                fail_job(db.pool(), monolith_job, &err_str).await;
                             }
                         }
                     }
@@ -984,7 +1053,10 @@ async fn process_archive_inner(
     // Capture screenshot if enabled (non-fatal if it fails)
     // Skip screenshots for direct PDF files - they're already archived
     let is_pdf = result.content_type == "pdf";
-    if screenshot.is_enabled() && !is_pdf {
+    let skip_browser_captures = is_pdf || is_youtube;
+
+    if screenshot.is_enabled() && !skip_browser_captures {
+        let screenshot_job = start_job(db.pool(), archive_id, ArchiveJobType::Screenshot).await;
         match screenshot.capture(&link.normalized_url).await {
             Ok(webp_data) => {
                 let screenshot_key = format!("{s3_prefix}render/screenshot.webp");
@@ -1010,17 +1082,34 @@ async fn process_archive_inner(
                     {
                         warn!(archive_id, error = %e, "Failed to insert screenshot artifact record");
                     }
+                    let size_meta = size_bytes.map(|s| format!("{s} bytes"));
+                    complete_job(
+                        db.pool(),
+                        screenshot_job,
+                        size_meta.as_deref(),
+                    )
+                    .await;
                 }
             }
             Err(e) => {
                 warn!(archive_id, error = %e, "Failed to capture screenshot");
+                fail_job(db.pool(), screenshot_job, &format!("{e:#}")).await;
             }
         }
+    } else if is_youtube && screenshot.is_enabled() {
+        skip_job(
+            db.pool(),
+            archive_id,
+            ArchiveJobType::Screenshot,
+            "Disabled for YouTube content",
+        )
+        .await;
     }
 
     // Generate PDF if enabled (non-fatal if it fails)
     // Skip PDF generation for direct PDF files - they're already archived
-    if screenshot.is_pdf_enabled() && !is_pdf {
+    if screenshot.is_pdf_enabled() && !skip_browser_captures {
+        let pdf_job = start_job(db.pool(), archive_id, ArchiveJobType::Pdf).await;
         match screenshot.capture_pdf(&link.normalized_url).await {
             Ok(pdf_data) => {
                 let pdf_key = format!("{s3_prefix}render/page.pdf");
@@ -1046,17 +1135,29 @@ async fn process_archive_inner(
                     {
                         warn!(archive_id, error = %e, "Failed to insert PDF artifact record");
                     }
+                    let size_meta = size_bytes.map(|s| format!("{s} bytes"));
+                    complete_job(db.pool(), pdf_job, size_meta.as_deref()).await;
                 }
             }
             Err(e) => {
                 warn!(archive_id, error = %e, "Failed to generate PDF");
+                fail_job(db.pool(), pdf_job, &format!("{e:#}")).await;
             }
         }
+    } else if is_youtube && screenshot.is_pdf_enabled() {
+        skip_job(
+            db.pool(),
+            archive_id,
+            ArchiveJobType::Pdf,
+            "Disabled for YouTube content",
+        )
+        .await;
     }
 
     // Generate MHTML archive if enabled (non-fatal if it fails)
     // Skip MHTML for direct PDF files - they're already archived
-    if screenshot.is_mhtml_enabled() && !is_pdf {
+    if screenshot.is_mhtml_enabled() && !skip_browser_captures {
+        let mhtml_job = start_job(db.pool(), archive_id, ArchiveJobType::Mhtml).await;
         match screenshot.capture_mhtml(&link.normalized_url).await {
             Ok(mhtml_data) => {
                 let mhtml_key = format!("{s3_prefix}render/complete.mhtml");
@@ -1082,12 +1183,28 @@ async fn process_archive_inner(
                     {
                         warn!(archive_id, error = %e, "Failed to insert MHTML artifact record");
                     }
+                    let size_meta = size_bytes.map(|s| format!("{s} bytes"));
+                    complete_job(
+                        db.pool(),
+                        mhtml_job,
+                        size_meta.as_deref(),
+                    )
+                    .await;
                 }
             }
             Err(e) => {
                 warn!(archive_id, error = %e, "Failed to generate MHTML archive");
+                fail_job(db.pool(), mhtml_job, &format!("{e:#}")).await;
             }
         }
+    } else if is_youtube && screenshot.is_mhtml_enabled() {
+        skip_job(
+            db.pool(),
+            archive_id,
+            ArchiveJobType::Mhtml,
+            "Disabled for YouTube content",
+        )
+        .await;
     }
 
     // Pin to IPFS if enabled
@@ -1233,6 +1350,55 @@ async fn copy_video_to_predictable_path(
     );
 
     Ok(target_key)
+}
+
+/// Create a job record and mark it running. Returns the job ID when successful.
+async fn start_job(
+    pool: &sqlx::SqlitePool,
+    archive_id: i64,
+    job_type: ArchiveJobType,
+) -> Option<i64> {
+    match create_archive_job(pool, archive_id, job_type).await {
+        Ok(id) => {
+            if let Err(e) = set_job_running(pool, id).await {
+                warn!(archive_id, job_type = ?job_type, error = %e, "Failed to set job running");
+                None
+            } else {
+                Some(id)
+            }
+        }
+        Err(e) => {
+            warn!(archive_id, job_type = ?job_type, error = %e, "Failed to create archive job");
+            None
+        }
+    }
+}
+
+async fn complete_job(pool: &sqlx::SqlitePool, job_id: Option<i64>, metadata: Option<&str>) {
+    if let Some(id) = job_id {
+        if let Err(e) = set_job_completed(pool, id, metadata).await {
+            warn!(job_id = id, error = %e, "Failed to mark job completed");
+        }
+    }
+}
+
+async fn fail_job(pool: &sqlx::SqlitePool, job_id: Option<i64>, error: &str) {
+    if let Some(id) = job_id {
+        if let Err(e) = set_job_failed(pool, id, error).await {
+            warn!(job_id = id, error = %e, "Failed to mark job failed");
+        }
+    }
+}
+
+async fn skip_job(pool: &sqlx::SqlitePool, archive_id: i64, job_type: ArchiveJobType, reason: &str) {
+    match create_archive_job(pool, archive_id, job_type).await {
+        Ok(id) => {
+            if let Err(e) = set_job_skipped(pool, id, Some(reason)).await {
+                warn!(archive_id, job_id = id, error = %e, "Failed to mark job skipped");
+            }
+        }
+        Err(e) => warn!(archive_id, job_type = ?job_type, error = %e, "Failed to record skipped job"),
+    }
 }
 
 /// Compute perceptual hash for an image or video file.
