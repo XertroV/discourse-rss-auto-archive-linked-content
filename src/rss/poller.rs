@@ -175,6 +175,16 @@ async fn process_single_link(
         }
     }
 
+    // Skip specific domains that shouldn't be archived
+    const SKIP_DOMAINS: &[&str] = &["curi.us"];
+    let domain_lower = domain.to_lowercase();
+    for skip_domain in SKIP_DOMAINS {
+        if domain_lower == *skip_domain || domain_lower.ends_with(&format!(".{skip_domain}")) {
+            debug!(url = %link.url, domain = %domain, "Skipping domain from archiving");
+            return Ok(());
+        }
+    }
+
     // Check if we already have this link
     let existing_link = get_link_by_normalized_url(db.pool(), &normalized).await?;
 

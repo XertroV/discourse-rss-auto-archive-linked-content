@@ -31,6 +31,8 @@ pub struct ArchiveResult {
     pub nsfw_source: Option<String>,
     /// Final URL after following redirects (if different from original).
     pub final_url: Option<String>,
+    /// Video ID for content like YouTube (for predictable S3 paths).
+    pub video_id: Option<String>,
 }
 
 impl Default for ArchiveResult {
@@ -47,6 +49,7 @@ impl Default for ArchiveResult {
             is_nsfw: None,
             nsfw_source: None,
             final_url: None,
+            video_id: None,
         }
     }
 }

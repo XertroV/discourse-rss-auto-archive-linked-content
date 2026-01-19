@@ -4,8 +4,9 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use regex::Regex;
-use serde::Deserialize;
-use tracing::debug;
+use reqwest::header::COOKIE;
+use scraper::{Html, Selector};
+use tracing::{debug, info, warn};
 
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::{ytdlp, CookieOptions};
@@ -52,38 +53,12 @@ const NSFW_SUBREDDIT_PATTERNS: &[&str] = &[
     "tits",
 ];
 
-/// Reddit JSON API response structures
-#[derive(Debug, Deserialize)]
-struct RedditListing {
-    data: ListingData,
-}
-
-#[derive(Debug, Deserialize)]
-struct ListingData {
-    children: Vec<RedditChild>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RedditChild {
-    data: PostData,
-}
-
-#[derive(Debug, Deserialize)]
-struct PostData {
-    title: Option<String>,
-    author: Option<String>,
-    selftext: Option<String>,
-    selftext_html: Option<String>,
-    score: Option<i64>,
-    num_comments: Option<i64>,
-    created_utc: Option<f64>,
-    subreddit: Option<String>,
-    permalink: Option<String>,
-    url: Option<String>,
-    is_video: Option<bool>,
-    is_self: Option<bool>,
-    thumbnail: Option<String>,
-    over_18: Option<bool>,
+/// Extracted media from Reddit page.
+#[derive(Debug, Default)]
+struct RedditMedia {
+    video_url: Option<String>,
+    image_urls: Vec<String>,
+    thumbnail_url: Option<String>,
 }
 
 pub struct RedditHandler;
@@ -179,292 +154,366 @@ impl SiteHandler for RedditHandler {
         // Check if the subreddit name suggests NSFW content
         let subreddit_nsfw = is_nsfw_subreddit(archive_url);
 
-        // Always try to fetch Reddit JSON API data for metadata (this is additive)
-        let json_result = fetch_reddit_json(archive_url, work_dir).await;
-        let json_metadata = json_result.as_ref().ok();
+        // ALWAYS fetch HTML - this is required for Reddit archives
+        // Use cookies if available for logged-in access
+        let html_result = fetch_reddit_html(archive_url, work_dir, cookies).await;
 
-        // Check if JSON API indicates NSFW
-        let api_nsfw = json_metadata.and_then(|r| r.is_nsfw).unwrap_or(false);
-
-        // Use yt-dlp for video/media content
-        let ytdlp_result = ytdlp::download(archive_url, work_dir, cookies).await;
-
-        match ytdlp_result {
-            Ok(mut result) => {
-                // Merge JSON metadata with yt-dlp result
-                if let Some(json_data) = json_metadata {
-                    // Keep existing yt-dlp metadata but supplement with JSON data
-                    if result.title.is_none() {
-                        result.title = json_data.title.clone();
-                    }
-                    if result.author.is_none() {
-                        result.author = json_data.author.clone();
-                    }
-                    if result.text.is_none() {
-                        result.text = json_data.text.clone();
-                    }
-                    // Always include the JSON metadata alongside
-                    if result.metadata_json.is_none() {
-                        result.metadata_json = json_data.metadata_json.clone();
-                    }
-                }
-
-                // Set NSFW status - check multiple sources
-                if result.is_nsfw.is_none() {
-                    if api_nsfw {
-                        result.is_nsfw = Some(true);
-                        result.nsfw_source = Some("api".to_string());
-                    } else if subreddit_nsfw {
-                        result.is_nsfw = Some(true);
-                        result.nsfw_source = Some("subreddit".to_string());
-                    }
-                }
-
-                // Also check the metadata JSON for Reddit's over_18 field (from yt-dlp)
-                if result.is_nsfw.is_none() {
-                    if let Some(ref json_str) = result.metadata_json {
-                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
-                            if json
-                                .get("over_18")
-                                .and_then(serde_json::Value::as_bool)
-                                .unwrap_or(false)
-                            {
-                                result.is_nsfw = Some(true);
-                                result.nsfw_source = Some("metadata".to_string());
-                            }
-                        }
-                    }
-                }
-
-                // Set final URL if it's different from the normalized URL
-                result.final_url = final_url.clone();
-
-                Ok(result)
-            }
+        // Extract media URLs from HTML if successful
+        let (html_content, media) = match &html_result {
+            Ok((html, media)) => (Some(html.clone()), Some(media.clone())),
             Err(e) => {
-                // If yt-dlp fails, use JSON API result if available
-                // Extract archive_id from work_dir path (format: archive_{archive_id})
-                let archive_id = work_dir
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .and_then(|name| name.strip_prefix("archive_"))
-                    .and_then(|id_str| id_str.parse::<i64>().ok());
-                debug!(
-                    archive_id = ?archive_id,
-                    "yt-dlp failed for Reddit URL: {e}"
-                );
-                match json_result {
-                    Ok(mut result) => {
-                        // Set NSFW status from API or subreddit detection
-                        if result.is_nsfw.is_none() {
-                            if api_nsfw {
-                                result.is_nsfw = Some(true);
-                                result.nsfw_source = Some("api".to_string());
-                            } else if subreddit_nsfw {
-                                result.is_nsfw = Some(true);
-                                result.nsfw_source = Some("subreddit".to_string());
-                            }
-                        }
-                        // Set final URL if it's different from the normalized URL
-                        result.final_url = final_url.clone();
-                        Ok(result)
-                    }
-                    Err(json_err) => {
-                        debug!("JSON API also failed: {json_err}");
-                        // Return a minimal result indicating the archive attempt
-                        let mut result = ArchiveResult {
-                            content_type: "thread".to_string(),
-                            ..Default::default()
-                        };
-                        // Still check subreddit name for NSFW
-                        if subreddit_nsfw {
-                            result.is_nsfw = Some(true);
-                            result.nsfw_source = Some("subreddit".to_string());
-                        }
-                        // Set final URL if it's different from the normalized URL
-                        result.final_url = final_url.clone();
-                        Ok(result)
-                    }
+                warn!("Failed to fetch Reddit HTML: {e}");
+                (None, None)
+            }
+        };
+
+        // Try yt-dlp for video/media content (only if we detected video)
+        let has_video = media
+            .as_ref()
+            .map(|m| m.video_url.is_some())
+            .unwrap_or(false);
+        let ytdlp_result = if has_video {
+            match ytdlp::download(archive_url, work_dir, cookies).await {
+                Ok(result) => Some(result),
+                Err(e) => {
+                    debug!("yt-dlp failed for Reddit video: {e}");
+                    None
+                }
+            }
+        } else {
+            // Try yt-dlp anyway in case there's embedded media we didn't detect
+            match ytdlp::download(archive_url, work_dir, cookies).await {
+                Ok(result) => Some(result),
+                Err(e) => {
+                    debug!("yt-dlp found no media: {e}");
+                    None
+                }
+            }
+        };
+
+        // We MUST have HTML content - fail if we don't
+        if html_content.is_none() {
+            anyhow::bail!(
+                "Failed to archive Reddit page: could not fetch HTML content. {}",
+                html_result.err().map(|e| e.to_string()).unwrap_or_default()
+            );
+        }
+
+        // Build the result
+        let mut result = if let Some(ytdlp_data) = ytdlp_result {
+            // Got video/media via yt-dlp
+            ytdlp_data
+        } else {
+            // No media, just HTML
+            ArchiveResult {
+                content_type: "thread".to_string(),
+                primary_file: Some("raw.html".to_string()),
+                ..Default::default()
+            }
+        };
+
+        // Extract metadata from HTML
+        if let Some(ref html) = html_content {
+            let doc = Html::parse_document(html);
+            if result.title.is_none() {
+                result.title = extract_title_from_html(&doc);
+            }
+            if result.author.is_none() {
+                result.author = extract_author_from_html(&doc);
+            }
+        }
+
+        // Add detected media URLs to extra_files for downloading
+        if let Some(ref media) = media {
+            // Store image URLs in metadata for later download
+            if !media.image_urls.is_empty() {
+                let metadata = serde_json::json!({
+                    "detected_images": media.image_urls,
+                    "detected_video": media.video_url,
+                    "detected_thumbnail": media.thumbnail_url,
+                });
+                result.metadata_json = Some(metadata.to_string());
+            }
+        }
+
+        // Set NSFW status from subreddit detection or HTML content
+        if result.is_nsfw.is_none() && subreddit_nsfw {
+            result.is_nsfw = Some(true);
+            result.nsfw_source = Some("subreddit".to_string());
+        }
+
+        // Check HTML for NSFW indicators
+        if result.is_nsfw.is_none() {
+            if let Some(ref html) = html_content {
+                if html.contains("over18") || html.contains("nsfw") || html.contains("NSFW") {
+                    result.is_nsfw = Some(true);
+                    result.nsfw_source = Some("html".to_string());
                 }
             }
         }
+
+        // Set final URL if it's different from the normalized URL
+        result.final_url = final_url.clone();
+
+        Ok(result)
     }
 }
 
-/// Fetch Reddit post data from the JSON API and create an archive result.
-async fn fetch_reddit_json(url: &str, work_dir: &Path) -> Result<ArchiveResult> {
-    // Convert URL to JSON endpoint
-    let json_url = make_json_url(url);
-
+/// Fetch Reddit HTML page and extract media URLs.
+///
+/// Returns the HTML content and detected media information.
+/// Uses cookies if available for authenticated access.
+async fn fetch_reddit_html(
+    url: &str,
+    work_dir: &Path,
+    cookies: &CookieOptions<'_>,
+) -> Result<(String, RedditMedia)> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
         .context("Failed to build HTTP client")?;
 
-    let response = client
-        .get(&json_url)
-        .header("User-Agent", ARCHIVAL_USER_AGENT)
-        .send()
-        .await
-        .context("Failed to fetch Reddit JSON")?;
+    // Build request with optional cookies
+    let mut request = client.get(url).header("User-Agent", ARCHIVAL_USER_AGENT);
 
-    if !response.status().is_success() {
-        anyhow::bail!("Reddit JSON API returned status {}", response.status());
+    // Add cookies if available
+    if let Some(cookie_header) = build_cookie_header(cookies, "reddit.com") {
+        info!("Using cookies for Reddit request");
+        request = request.header(COOKIE, cookie_header);
     }
 
-    let body = response
+    let response = request
+        .send()
+        .await
+        .context("Failed to fetch Reddit HTML")?;
+
+    let status = response.status();
+    if !status.is_success() {
+        anyhow::bail!("Reddit returned HTTP status {}", status);
+    }
+
+    let html = response
         .text()
         .await
         .context("Failed to read response body")?;
 
-    // Save raw JSON
-    let json_path = work_dir.join("reddit_data.json");
-    tokio::fs::write(&json_path, &body)
+    // Save raw HTML
+    let html_path = work_dir.join("raw.html");
+    tokio::fs::write(&html_path, &html)
         .await
-        .context("Failed to write JSON file")?;
+        .context("Failed to write HTML file")?;
 
-    // Parse the response - Reddit returns an array for post pages
-    let post_data = parse_reddit_json(&body)?;
+    // Parse HTML and extract media URLs
+    let doc = Html::parse_document(&html);
+    let media = extract_media_from_html(&doc);
 
-    // Build text content from post data
-    let text = build_post_text(&post_data);
+    debug!(
+        video = ?media.video_url,
+        images = media.image_urls.len(),
+        "Extracted media from Reddit HTML"
+    );
 
-    // Determine content type
-    let content_type = if post_data.is_video.unwrap_or(false) {
-        "video"
-    } else if post_data.is_self.unwrap_or(false) {
-        "thread"
-    } else {
-        "text"
-    };
+    Ok((html, media))
+}
 
-    // Build metadata JSON
-    let metadata = serde_json::json!({
-        "title": post_data.title,
-        "author": post_data.author,
-        "subreddit": post_data.subreddit,
-        "score": post_data.score,
-        "num_comments": post_data.num_comments,
-        "created_utc": post_data.created_utc,
-        "permalink": post_data.permalink,
-        "url": post_data.url,
-        "is_video": post_data.is_video,
-        "is_self": post_data.is_self,
-        "over_18": post_data.over_18,
-    });
+/// Build a cookie header string from CookieOptions for a specific domain.
+///
+/// Reads cookies from the Netscape format cookies file if available.
+fn build_cookie_header(cookies: &CookieOptions<'_>, domain: &str) -> Option<String> {
+    // Try to read cookies from file
+    let cookies_path = cookies.cookies_file?;
 
-    // Determine NSFW status from API
-    let is_nsfw = post_data.over_18;
-    let nsfw_source = if is_nsfw == Some(true) {
-        Some("api".to_string())
-    } else {
+    if !cookies_path.exists() {
+        return None;
+    }
+
+    // Read and parse Netscape format cookies file
+    let content = std::fs::read_to_string(cookies_path).ok()?;
+    let mut cookie_pairs = Vec::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+
+        // Skip comments and empty lines
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        // Netscape format: domain, include_subdomains, path, secure, expires, name, value
+        let fields: Vec<&str> = line.split('\t').collect();
+        if fields.len() < 7 {
+            continue;
+        }
+
+        let cookie_domain = fields[0].trim_start_matches('.');
+        let name = fields[5];
+        let value = fields[6];
+
+        // Check if cookie applies to this domain
+        if cookie_domain == domain
+            || cookie_domain.ends_with(&format!(".{domain}"))
+            || domain.ends_with(&format!(".{cookie_domain}"))
+            || domain.ends_with(cookie_domain)
+        {
+            cookie_pairs.push(format!("{name}={value}"));
+        }
+    }
+
+    if cookie_pairs.is_empty() {
         None
-    };
-
-    Ok(ArchiveResult {
-        title: post_data.title,
-        author: post_data.author,
-        text: Some(text),
-        content_type: content_type.to_string(),
-        metadata_json: Some(metadata.to_string()),
-        primary_file: Some("reddit_data.json".to_string()),
-        is_nsfw,
-        nsfw_source,
-        ..Default::default()
-    })
+    } else {
+        debug!(
+            count = cookie_pairs.len(),
+            domain = %domain,
+            "Loaded cookies for domain"
+        );
+        Some(cookie_pairs.join("; "))
+    }
 }
 
-/// Convert a Reddit URL to its JSON API equivalent.
-fn make_json_url(url: &str) -> String {
-    // Remove query parameters and trailing slashes for clean JSON URL
-    let base_url = url.split('?').next().unwrap_or(url).trim_end_matches('/');
+/// Extract media URLs from Reddit HTML page.
+fn extract_media_from_html(doc: &Html) -> RedditMedia {
+    let mut media = RedditMedia::default();
 
-    format!("{base_url}.json")
-}
-
-/// Parse Reddit JSON response to extract post data.
-fn parse_reddit_json(body: &str) -> Result<PostData> {
-    // Reddit post pages return an array of listings
-    // First element is the post, second is comments
-    let listings: Vec<RedditListing> = match serde_json::from_str(body) {
-        Ok(l) => l,
-        Err(_) => {
-            // Try parsing as a single listing (for some subreddit pages)
-            let listing: RedditListing =
-                serde_json::from_str(body).context("Failed to parse Reddit JSON")?;
-            vec![listing]
-        }
-    };
-
-    let post = listings
-        .first()
-        .and_then(|l| l.data.children.first())
-        .map(|c| c.data.clone())
-        .context("No post data found in Reddit response")?;
-
-    Ok(post)
-}
-
-/// Build readable text content from Reddit post data.
-fn build_post_text(post: &PostData) -> String {
-    let mut parts = Vec::new();
-
-    if let Some(title) = &post.title {
-        parts.push(format!("Title: {title}"));
-    }
-
-    if let Some(author) = &post.author {
-        parts.push(format!("Author: u/{author}"));
-    }
-
-    if let Some(subreddit) = &post.subreddit {
-        parts.push(format!("Subreddit: r/{subreddit}"));
-    }
-
-    if let Some(score) = post.score {
-        parts.push(format!("Score: {score}"));
-    }
-
-    if let Some(comments) = post.num_comments {
-        parts.push(format!("Comments: {comments}"));
-    }
-
-    parts.push(String::new()); // Empty line
-
-    // Add selftext if present
-    if let Some(text) = &post.selftext {
-        if !text.is_empty() {
-            parts.push(text.clone());
+    // Look for video sources
+    // Reddit videos are often in <source> tags or data attributes
+    if let Ok(video_selector) = Selector::parse("video source, shreddit-player") {
+        for element in doc.select(&video_selector) {
+            if let Some(src) = element.value().attr("src") {
+                if src.contains("v.redd.it") || src.contains("reddit") {
+                    media.video_url = Some(src.to_string());
+                    break;
+                }
+            }
         }
     }
 
-    // Add URL if it's a link post
-    if let Some(url) = &post.url {
-        if post.is_self != Some(true) && !url.contains("reddit.com") {
-            parts.push(format!("\nLinked URL: {url}"));
+    // Look for post images
+    // Reddit images are in i.redd.it or preview.redd.it
+    if let Ok(img_selector) = Selector::parse("img[src*='redd.it'], img[src*='redditmedia']") {
+        for element in doc.select(&img_selector) {
+            if let Some(src) = element.value().attr("src") {
+                // Skip tiny thumbnails and icons
+                if !src.contains("icon") && !src.contains("avatar") {
+                    media.image_urls.push(src.to_string());
+                }
+            }
         }
     }
 
-    parts.join("\n")
+    // Look for gallery images (Reddit galleries)
+    if let Ok(gallery_selector) = Selector::parse("[data-gallery-item] img, .gallery-tile img") {
+        for element in doc.select(&gallery_selector) {
+            if let Some(src) = element.value().attr("src") {
+                media.image_urls.push(src.to_string());
+            }
+        }
+    }
+
+    // Look for linked media in the post
+    if let Ok(link_selector) = Selector::parse("a[href*='i.redd.it'], a[href*='imgur']") {
+        for element in doc.select(&link_selector) {
+            if let Some(href) = element.value().attr("href") {
+                if href.ends_with(".jpg")
+                    || href.ends_with(".png")
+                    || href.ends_with(".gif")
+                    || href.ends_with(".webp")
+                {
+                    if !media.image_urls.contains(&href.to_string()) {
+                        media.image_urls.push(href.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Look for thumbnail
+    if let Ok(thumb_selector) = Selector::parse("[data-thumbnail], .thumbnail img") {
+        if let Some(element) = doc.select(&thumb_selector).next() {
+            if let Some(src) = element
+                .value()
+                .attr("src")
+                .or(element.value().attr("data-src"))
+            {
+                media.thumbnail_url = Some(src.to_string());
+            }
+        }
+    }
+
+    // Deduplicate image URLs
+    media.image_urls.sort();
+    media.image_urls.dedup();
+
+    media
 }
 
-impl Clone for PostData {
+/// Extract title from Reddit HTML page.
+fn extract_title_from_html(doc: &Html) -> Option<String> {
+    // Try various selectors for the title
+    let selectors = [
+        "h1[slot='title']",
+        "h1.title",
+        "[data-test-id='post-title']",
+        "title",
+    ];
+
+    for selector_str in selectors {
+        if let Ok(selector) = Selector::parse(selector_str) {
+            if let Some(element) = doc.select(&selector).next() {
+                let text: String = element.text().collect();
+                let text = text.trim();
+                if !text.is_empty() && !text.starts_with("reddit") {
+                    return Some(text.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Extract author from Reddit HTML page.
+fn extract_author_from_html(doc: &Html) -> Option<String> {
+    let selectors = [
+        "a[href*='/user/']",
+        "[data-author]",
+        ".author",
+        "span[slot='authorName']",
+    ];
+
+    for selector_str in selectors {
+        if let Ok(selector) = Selector::parse(selector_str) {
+            if let Some(element) = doc.select(&selector).next() {
+                // Try data-author attribute first
+                if let Some(author) = element.value().attr("data-author") {
+                    return Some(author.to_string());
+                }
+                // Try href extraction
+                if let Some(href) = element.value().attr("href") {
+                    if let Some(user) = href.strip_prefix("/user/") {
+                        let user = user.split('/').next().unwrap_or(user);
+                        return Some(user.to_string());
+                    }
+                }
+                // Try text content
+                let text: String = element.text().collect();
+                let text = text.trim();
+                if !text.is_empty() && text.starts_with("u/") {
+                    return Some(text.trim_start_matches("u/").to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
+impl Clone for RedditMedia {
     fn clone(&self) -> Self {
         Self {
-            title: self.title.clone(),
-            author: self.author.clone(),
-            selftext: self.selftext.clone(),
-            selftext_html: self.selftext_html.clone(),
-            score: self.score,
-            num_comments: self.num_comments,
-            created_utc: self.created_utc,
-            subreddit: self.subreddit.clone(),
-            permalink: self.permalink.clone(),
-            url: self.url.clone(),
-            is_video: self.is_video,
-            is_self: self.is_self,
-            thumbnail: self.thumbnail.clone(),
-            over_18: self.over_18,
+            video_url: self.video_url.clone(),
+            image_urls: self.image_urls.clone(),
+            thumbnail_url: self.thumbnail_url.clone(),
         }
     }
 }
@@ -632,109 +681,5 @@ mod tests {
         assert!(!is_nsfw_subreddit("https://i.redd.it/image.jpg"));
         assert!(!is_nsfw_subreddit("https://reddit.com/"));
         assert!(!is_nsfw_subreddit("https://www.reddit.com"));
-    }
-
-    #[test]
-    fn test_make_json_url() {
-        assert_eq!(
-            make_json_url("https://old.reddit.com/r/rust/comments/abc123/title"),
-            "https://old.reddit.com/r/rust/comments/abc123/title.json"
-        );
-        assert_eq!(
-            make_json_url("https://old.reddit.com/r/rust/comments/abc123/title/"),
-            "https://old.reddit.com/r/rust/comments/abc123/title.json"
-        );
-        assert_eq!(
-            make_json_url("https://old.reddit.com/r/rust/comments/abc123/title?sort=top"),
-            "https://old.reddit.com/r/rust/comments/abc123/title.json"
-        );
-    }
-
-    #[test]
-    fn test_parse_reddit_json() {
-        let json = r#"[
-            {
-                "data": {
-                    "children": [
-                        {
-                            "data": {
-                                "title": "Test Post Title",
-                                "author": "testuser",
-                                "selftext": "This is the post content",
-                                "score": 100,
-                                "num_comments": 50,
-                                "subreddit": "rust",
-                                "is_self": true,
-                                "is_video": false,
-                                "over_18": false
-                            }
-                        }
-                    ]
-                }
-            }
-        ]"#;
-
-        let result = parse_reddit_json(json).expect("Should parse successfully");
-        assert_eq!(result.title.as_deref(), Some("Test Post Title"));
-        assert_eq!(result.author.as_deref(), Some("testuser"));
-        assert_eq!(result.selftext.as_deref(), Some("This is the post content"));
-        assert_eq!(result.score, Some(100));
-        assert_eq!(result.num_comments, Some(50));
-        assert_eq!(result.subreddit.as_deref(), Some("rust"));
-        assert_eq!(result.is_self, Some(true));
-        assert_eq!(result.is_video, Some(false));
-        assert_eq!(result.over_18, Some(false));
-    }
-
-    #[test]
-    fn test_build_post_text() {
-        let post = PostData {
-            title: Some("My Test Post".to_string()),
-            author: Some("testuser".to_string()),
-            selftext: Some("Hello, world!".to_string()),
-            selftext_html: None,
-            score: Some(42),
-            num_comments: Some(10),
-            created_utc: None,
-            subreddit: Some("testing".to_string()),
-            permalink: None,
-            url: None,
-            is_video: Some(false),
-            is_self: Some(true),
-            thumbnail: None,
-            over_18: None,
-        };
-
-        let text = build_post_text(&post);
-        assert!(text.contains("Title: My Test Post"));
-        assert!(text.contains("Author: u/testuser"));
-        assert!(text.contains("Subreddit: r/testing"));
-        assert!(text.contains("Score: 42"));
-        assert!(text.contains("Comments: 10"));
-        assert!(text.contains("Hello, world!"));
-    }
-
-    #[test]
-    fn test_build_post_text_with_link() {
-        let post = PostData {
-            title: Some("Link Post".to_string()),
-            author: Some("linkposter".to_string()),
-            selftext: None,
-            selftext_html: None,
-            score: Some(100),
-            num_comments: Some(25),
-            created_utc: None,
-            subreddit: Some("news".to_string()),
-            permalink: None,
-            url: Some("https://example.com/article".to_string()),
-            is_video: Some(false),
-            is_self: Some(false),
-            thumbnail: None,
-            over_18: None,
-        };
-
-        let text = build_post_text(&post);
-        assert!(text.contains("Title: Link Post"));
-        assert!(text.contains("Linked URL: https://example.com/article"));
     }
 }

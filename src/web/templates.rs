@@ -320,26 +320,37 @@ pub fn render_archive_detail(
         ));
     }
 
+    // Show Media section for non-HTML archives (videos, images, etc.)
+    // For HTML archives, we show the embedded preview instead
     if let Some(ref primary_key) = archive.s3_key_primary {
-        content.push_str("<section><h2>Media</h2>");
-        content.push_str(&render_media_player(
-            primary_key,
-            archive.content_type.as_deref(),
-            archive.s3_key_thumb.as_deref(),
-        ));
-        content.push_str(&format!(
-            r#"<p><a href="/s3/{}" class="media-download" download>
-                <span>Download</span>
-            </a></p>"#,
-            html_escape(primary_key)
-        ));
-        content.push_str("</section>");
+        let is_html_archive =
+            primary_key.ends_with(".html") || archive.content_type.as_deref() == Some("thread");
+
+        if !is_html_archive {
+            content.push_str("<section><h2>Media</h2>");
+            content.push_str(&render_media_player(
+                primary_key,
+                archive.content_type.as_deref(),
+                archive.s3_key_thumb.as_deref(),
+            ));
+            content.push_str(&format!(
+                r#"<p><a href="/s3/{}" class="media-download" download>
+                    <span>Download</span>
+                </a></p>"#,
+                html_escape(primary_key)
+            ));
+            content.push_str("</section>");
+        }
     }
 
     // Embedded HTML preview (collapsible) for webpage archives
+    // Prefer view.html (with banner) over raw.html
     if let Some(ref primary_key) = archive.s3_key_primary {
-        if primary_key.ends_with("raw.html") || primary_key.ends_with("view.html") {
-            // Find the view.html artifact, or fall back to raw.html
+        let is_html_archive =
+            primary_key.ends_with(".html") || archive.content_type.as_deref() == Some("thread");
+
+        if is_html_archive {
+            // Find the view.html artifact first, or fall back to raw.html
             let view_key = artifacts
                 .iter()
                 .find(|a| a.s3_key.ends_with("view.html"))
@@ -354,8 +365,8 @@ pub fn render_archive_detail(
             if let Some(embed_key) = view_key {
                 content.push_str(&format!(
                     r#"<section class="embedded-preview">
-                        <details>
-                            <summary><h2 style="display: inline;">Embedded Preview</h2></summary>
+                        <details open>
+                            <summary><h2 style="display: inline;">Archived Page Preview</h2></summary>
                             <div class="iframe-container">
                                 <iframe src="/s3/{}" sandbox="allow-same-origin" loading="lazy" title="Archived webpage preview"></iframe>
                             </div>
@@ -370,7 +381,7 @@ pub fn render_archive_detail(
     // Archived Files section (list of all artifacts)
     if !artifacts.is_empty() {
         content.push_str("<section><h2>Archived Files</h2>");
-        content.push_str(r#"<table class="artifacts-table"><thead><tr><th>Type</th><th>File</th><th>Size</th><th>Dedup</th><th>Download</th></tr></thead><tbody>"#);
+        content.push_str(r#"<table class="artifacts-table"><thead><tr><th>Type</th><th>File</th><th>Size</th><th>Dedup</th><th>Actions</th></tr></thead><tbody>"#);
 
         for artifact in artifacts {
             let kind_display = artifact_kind_display(&artifact.kind);
@@ -398,22 +409,40 @@ pub fn render_archive_detail(
                 "—".to_string()
             };
 
+            // Determine if this artifact is viewable in browser
+            let is_viewable = is_viewable_in_browser(filename);
+            let actions = if is_viewable {
+                format!(
+                    r#"<a href="/s3/{}" target="_blank" title="View {}" class="action-link">View</a> <a href="/s3/{}" download title="Download {}" class="action-link">{}</a>"#,
+                    html_escape(&artifact.s3_key),
+                    html_escape(filename),
+                    html_escape(&artifact.s3_key),
+                    html_escape(filename),
+                    download_icon()
+                )
+            } else {
+                format!(
+                    r#"<a href="/s3/{}" download title="Download {}" class="action-link">{}</a>"#,
+                    html_escape(&artifact.s3_key),
+                    html_escape(filename),
+                    download_icon()
+                )
+            };
+
             content.push_str(&format!(
                 r#"<tr>
                     <td><span class="artifact-kind artifact-kind-{}">{}</span></td>
                     <td><code>{}</code></td>
                     <td>{}</td>
                     <td>{}</td>
-                    <td><a href="/s3/{}" download title="Download {}">{}</a></td>
+                    <td>{}</td>
                 </tr>"#,
                 html_escape(&artifact.kind),
                 html_escape(kind_display),
                 html_escape(filename),
                 html_escape(&size_display),
                 dedup_info,
-                html_escape(&artifact.s3_key),
-                html_escape(filename),
-                download_icon()
+                actions
             ));
         }
 
@@ -632,6 +661,35 @@ fn artifact_kind_display(kind: &str) -> &'static str {
 /// Return a download icon SVG.
 fn download_icon() -> &'static str {
     r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>"#
+}
+
+/// Check if a file can be viewed directly in a browser.
+fn is_viewable_in_browser(filename: &str) -> bool {
+    let filename_lower = filename.to_lowercase();
+    // HTML files
+    filename_lower.ends_with(".html")
+        || filename_lower.ends_with(".htm")
+        // PDF files
+        || filename_lower.ends_with(".pdf")
+        // Image files
+        || filename_lower.ends_with(".jpg")
+        || filename_lower.ends_with(".jpeg")
+        || filename_lower.ends_with(".png")
+        || filename_lower.ends_with(".gif")
+        || filename_lower.ends_with(".webp")
+        || filename_lower.ends_with(".svg")
+        || filename_lower.ends_with(".bmp")
+        // Video files (modern browsers support these)
+        || filename_lower.ends_with(".mp4")
+        || filename_lower.ends_with(".webm")
+        // Audio files
+        || filename_lower.ends_with(".mp3")
+        || filename_lower.ends_with(".ogg")
+        || filename_lower.ends_with(".wav")
+        // Text files
+        || filename_lower.ends_with(".txt")
+        || filename_lower.ends_with(".json")
+        || filename_lower.ends_with(".xml")
 }
 
 /// Render site list page.

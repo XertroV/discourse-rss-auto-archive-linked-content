@@ -11,7 +11,7 @@ mod reddit;
 mod streamable;
 mod tiktok;
 mod twitter;
-mod youtube;
+pub mod youtube;
 
 pub use normalize::normalize_url;
 pub use registry::HandlerRegistry;
