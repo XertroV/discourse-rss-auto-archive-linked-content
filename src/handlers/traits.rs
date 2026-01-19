@@ -29,6 +29,8 @@ pub struct ArchiveResult {
     pub is_nsfw: Option<bool>,
     /// Source of the NSFW determination (api, metadata, subreddit).
     pub nsfw_source: Option<String>,
+    /// Final URL after following redirects (if different from original).
+    pub final_url: Option<String>,
 }
 
 impl Default for ArchiveResult {
@@ -44,6 +46,7 @@ impl Default for ArchiveResult {
             metadata_json: None,
             is_nsfw: None,
             nsfw_source: None,
+            final_url: None,
         }
     }
 }

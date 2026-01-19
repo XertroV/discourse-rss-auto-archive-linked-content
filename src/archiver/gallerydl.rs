@@ -160,6 +160,7 @@ async fn find_and_parse_files(work_dir: &Path) -> Result<ArchiveResult> {
         metadata_json,
         is_nsfw: None,
         nsfw_source: None,
+        final_url: None,
     })
 }
 
