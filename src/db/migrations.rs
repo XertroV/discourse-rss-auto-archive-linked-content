@@ -49,6 +49,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 7).await?;
     }
 
+    if current_version < 8 {
+        debug!("Running migration v8");
+        run_migration_v8(pool).await?;
+        set_schema_version(pool, 8).await?;
+    }
+
     Ok(())
 }
 
@@ -451,6 +457,43 @@ async fn run_migration_v7(pool: &SqlitePool) -> Result<()> {
         .execute(pool)
         .await
         .context("Failed to create archive_jobs status index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v8(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v8: adding exports table for bulk export tracking");
+
+    // Create exports table for tracking bulk export downloads and rate limiting
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS exports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            site_domain TEXT NOT NULL,
+            exported_by_ip TEXT NOT NULL,
+            archive_count INTEGER NOT NULL DEFAULT 0,
+            total_size_bytes INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create exports table")?;
+
+    // Index for rate limiting by IP
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_exports_ip_created ON exports(exported_by_ip, created_at)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create exports IP index")?;
+
+    // Index for site statistics
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_exports_site ON exports(site_domain)")
+        .execute(pool)
+        .await
+        .context("Failed to create exports site index")?;
 
     Ok(())
 }

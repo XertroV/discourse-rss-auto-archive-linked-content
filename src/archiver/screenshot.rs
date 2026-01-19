@@ -342,8 +342,10 @@ impl ScreenshotService {
             .await
             .context("Navigation timeout")?;
 
-        // Give the page a bit more time to render dynamic content
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Wait for resources to load (images, CSS, JS, fonts, etc.)
+        // Longer timeout than before to ensure complete page loading
+        // TODO: Use network idle detection when chromiumoxide supports it
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
         // Capture full page screenshot using webp format for better compression
         let screenshot_params = ScreenshotParams::builder()
@@ -362,7 +364,15 @@ impl ScreenshotService {
             warn!("Failed to close page: {e}");
         }
 
-        debug!(url = %url, size = webp_data.len(), "Screenshot captured (webp)");
+        // Warn if screenshot is suspiciously small (likely blank/failed)
+        let size = webp_data.len();
+        if size == 0 {
+            warn!(url = %url, "Screenshot is empty (0 bytes) - page may not have loaded properly");
+        } else if size < 100 {
+            warn!(url = %url, size, "Screenshot is very small (<100 bytes) - may be corrupted");
+        }
+
+        debug!(url = %url, size, "Screenshot captured (webp)");
 
         Ok(webp_data)
     }
@@ -429,8 +439,9 @@ impl ScreenshotService {
             .await
             .context("Navigation timeout")?;
 
-        // Give the page a bit more time to render dynamic content
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Wait for resources to load before PDF generation
+        // Longer timeout ensures CSS, fonts, and images are loaded
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
         // Generate PDF with configured paper size
         let pdf_params = PrintToPdfParams::builder()
@@ -449,7 +460,15 @@ impl ScreenshotService {
             warn!("Failed to close page: {e}");
         }
 
-        debug!(url = %url, size = pdf_data.len(), "PDF generated");
+        // Warn if PDF is suspiciously small (likely blank/failed)
+        let size = pdf_data.len();
+        if size == 0 {
+            warn!(url = %url, "PDF is empty (0 bytes) - page may not have loaded properly");
+        } else if size < 1000 {
+            warn!(url = %url, size, "PDF is very small (<1KB) - may be corrupted or blank");
+        }
+
+        debug!(url = %url, size, "PDF generated");
 
         Ok(pdf_data)
     }
@@ -517,8 +536,9 @@ impl ScreenshotService {
             .await
             .context("Navigation timeout")?;
 
-        // Give the page more time to render dynamic content and load resources
-        tokio::time::sleep(Duration::from_millis(1000)).await;
+        // Wait longer for MHTML to ensure all resources are loaded
+        // MHTML captures complete page state including all assets
+        tokio::time::sleep(Duration::from_secs(4)).await;
 
         // Capture MHTML using CDP Page.captureSnapshot
         let snapshot_params = CaptureSnapshotParams::builder()

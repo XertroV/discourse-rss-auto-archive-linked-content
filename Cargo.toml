@@ -70,6 +70,7 @@ urlencoding = "2"
 
 # Compression
 zstd = "0.13"
+zip = "2"
 
 # Text diffing
 similar = "2"

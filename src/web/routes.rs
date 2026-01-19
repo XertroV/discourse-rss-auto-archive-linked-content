@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
 use super::diff;
+use super::export;
 use super::feeds;
 use super::templates;
 use super::AppState;
@@ -44,6 +45,7 @@ pub fn router() -> Router<AppState> {
         .route("/favicon.ico", get(favicon))
         .route("/feed.rss", get(feed_rss))
         .route("/feed.atom", get(feed_atom))
+        .route("/export/:site", get(export::export_site))
         .route("/api/archives", get(api_archives))
         .route("/api/search", get(api_search))
         .route("/s3/*path", get(serve_s3_file))
