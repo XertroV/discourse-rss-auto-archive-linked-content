@@ -96,6 +96,11 @@ mod tests {
             ipfs_gateway_urls: vec![],
             submission_enabled: false,
             submission_rate_limit_per_hour: 10,
+            screenshot_enabled: false,
+            screenshot_viewport_width: 1280,
+            screenshot_viewport_height: 800,
+            screenshot_timeout_secs: 30,
+            screenshot_chrome_path: None,
         }
     }
 

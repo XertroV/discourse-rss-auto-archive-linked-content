@@ -90,6 +90,13 @@ pub struct Config {
     // Manual Submission
     pub submission_enabled: bool,
     pub submission_rate_limit_per_hour: u32,
+
+    // Screenshot Capture
+    pub screenshot_enabled: bool,
+    pub screenshot_viewport_width: u32,
+    pub screenshot_viewport_height: u32,
+    pub screenshot_timeout_secs: u64,
+    pub screenshot_chrome_path: Option<String>,
 }
 
 /// Configuration file structure (all fields optional, loaded from TOML).
@@ -122,6 +129,8 @@ pub struct FileConfig {
     pub ipfs: IpfsConfig,
     #[serde(default)]
     pub submission: SubmissionConfig,
+    #[serde(default)]
+    pub screenshot: ScreenshotCaptureConfig,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -224,6 +233,16 @@ pub struct IpfsConfig {
 pub struct SubmissionConfig {
     pub enabled: Option<bool>,
     pub rate_limit_per_hour: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct ScreenshotCaptureConfig {
+    pub enabled: Option<bool>,
+    pub viewport_width: Option<u32>,
+    pub viewport_height: Option<u32>,
+    pub timeout_secs: Option<u64>,
+    pub chrome_path: Option<String>,
 }
 
 /// Log output format.
@@ -461,7 +480,39 @@ impl Config {
                 "SUBMISSION_RATE_LIMIT_PER_HOUR",
                 fc.submission.rate_limit_per_hour.unwrap_or(60),
             )?,
+
+            // Screenshot Capture
+            screenshot_enabled: parse_env_bool(
+                "SCREENSHOT_ENABLED",
+                fc.screenshot.enabled.unwrap_or(false),
+            )?,
+            screenshot_viewport_width: parse_env_u32(
+                "SCREENSHOT_VIEWPORT_WIDTH",
+                fc.screenshot.viewport_width.unwrap_or(1280),
+            )?,
+            screenshot_viewport_height: parse_env_u32(
+                "SCREENSHOT_VIEWPORT_HEIGHT",
+                fc.screenshot.viewport_height.unwrap_or(800),
+            )?,
+            screenshot_timeout_secs: parse_env_u64(
+                "SCREENSHOT_TIMEOUT_SECS",
+                fc.screenshot.timeout_secs.unwrap_or(30),
+            )?,
+            screenshot_chrome_path: optional_env("SCREENSHOT_CHROME_PATH")
+                .or(fc.screenshot.chrome_path),
         })
+    }
+
+    /// Create a ScreenshotConfig from this config.
+    #[must_use]
+    pub fn screenshot_config(&self) -> crate::archiver::ScreenshotConfig {
+        crate::archiver::ScreenshotConfig {
+            viewport_width: self.screenshot_viewport_width,
+            viewport_height: self.screenshot_viewport_height,
+            page_timeout: std::time::Duration::from_secs(self.screenshot_timeout_secs),
+            chrome_path: self.screenshot_chrome_path.clone(),
+            enabled: self.screenshot_enabled,
+        }
     }
 
     /// Validate that the configuration is usable.

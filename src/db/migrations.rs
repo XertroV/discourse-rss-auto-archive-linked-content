@@ -31,6 +31,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 4).await?;
     }
 
+    if current_version < 5 {
+        debug!("Running migration v5");
+        run_migration_v5(pool).await?;
+        set_schema_version(pool, 5).await?;
+    }
+
     Ok(())
 }
 
@@ -333,6 +339,31 @@ async fn run_migration_v4(pool: &SqlitePool) -> Result<()> {
         .execute(pool)
         .await
         .context("Failed to create is_nsfw index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v5(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v5: adding retry backoff columns");
+
+    // Add next_retry_at column to archives table for exponential backoff
+    // This stores when the archive is eligible to be retried
+    sqlx::query("ALTER TABLE archives ADD COLUMN next_retry_at TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add next_retry_at column")?;
+
+    // Add last_attempt_at column to track when we last tried archiving
+    sqlx::query("ALTER TABLE archives ADD COLUMN last_attempt_at TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add last_attempt_at column")?;
+
+    // Create index for efficient querying of retryable archives
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_archives_next_retry_at ON archives(next_retry_at)")
+        .execute(pool)
+        .await
+        .context("Failed to create next_retry_at index")?;
 
     Ok(())
 }
