@@ -83,13 +83,17 @@ pub async fn poll_once(client: &reqwest::Client, config: &Config, db: &Database)
         // Use the minimum post ID from this batch as the 'before' cursor for the next request
         before_post_id = min_post_id;
 
-        // If we got no new posts (all were already in DB), we might want to continue
-        // a bit further to catch older posts we might have missed
-        if page_new_count == 0 && page_num > 0 {
-            debug!(
-                page = page_num,
-                "No new posts on this page, stopping pagination"
-            );
+        // Optimization: If the first page has no new posts, all posts are already in DB
+        // No need to fetch older pages - stop immediately to save resources
+        if page_new_count == 0 {
+            if page_num == 0 {
+                debug!("First page has no new posts, all content is up to date");
+            } else {
+                debug!(
+                    page = page_num,
+                    "No new posts on this page, stopping pagination"
+                );
+            }
             break;
         }
 

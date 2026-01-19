@@ -26,6 +26,15 @@ use crate::db::{
 };
 use crate::handlers::normalize_url;
 
+/// Pagination query parameters.
+#[derive(Debug, Deserialize)]
+struct PaginationParams {
+    #[serde(default)]
+    page: usize,
+}
+
+const ITEMS_PER_PAGE: i64 = 50;
+
 /// Create the router with all routes.
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -58,7 +67,9 @@ pub fn router() -> Router<AppState> {
 
 // ========== HTML Routes ==========
 
-async fn home(State(state): State<AppState>) -> Response {
+async fn home(State(state): State<AppState>, Query(params): Query<PaginationParams>) -> Response {
+    let page = params.page;
+
     let all_recent = match get_recent_archives_display(state.db.pool(), 100).await {
         Ok(a) => a,
         Err(e) => {
@@ -71,16 +82,28 @@ async fn home(State(state): State<AppState>) -> Response {
 
     // Home page: show pending + processing + complete, but not failed.
     // Skipped is intentionally excluded to keep the page focused.
-    let archives: Vec<_> = all_recent
+    let mut archives: Vec<_> = all_recent
         .into_iter()
         .filter(|a| matches!(a.status.as_str(), "pending" | "processing" | "complete"))
         .collect();
 
-    let html = templates::render_home(&archives, recent_failed_count);
+    // Apply pagination
+    let total_items = archives.len();
+    let total_pages = (total_items + ITEMS_PER_PAGE as usize - 1) / ITEMS_PER_PAGE as usize;
+    let start = (page * ITEMS_PER_PAGE as usize).min(total_items);
+    let end = ((page + 1) * ITEMS_PER_PAGE as usize).min(total_items);
+    archives = archives.into_iter().skip(start).take(end - start).collect();
+
+    let html = templates::render_home_paginated(&archives, recent_failed_count, page, total_pages);
     Html(html).into_response()
 }
 
-async fn recent_failed_archives(State(state): State<AppState>) -> Response {
+async fn recent_failed_archives(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> Response {
+    let page = params.page;
+
     let all_recent = match get_recent_archives_display(state.db.pool(), 100).await {
         Ok(a) => a,
         Err(e) => {
@@ -91,16 +114,33 @@ async fn recent_failed_archives(State(state): State<AppState>) -> Response {
 
     let recent_failed_count = all_recent.iter().filter(|a| a.status == "failed").count();
 
-    let failed: Vec<_> = all_recent
+    let mut failed: Vec<_> = all_recent
         .into_iter()
         .filter(|a| a.status == "failed")
         .collect();
 
-    let html = templates::render_recent_failed_archives(&failed, recent_failed_count);
+    // Apply pagination
+    let total_items = failed.len();
+    let total_pages = (total_items + ITEMS_PER_PAGE as usize - 1) / ITEMS_PER_PAGE as usize;
+    let start = (page * ITEMS_PER_PAGE as usize).min(total_items);
+    let end = ((page + 1) * ITEMS_PER_PAGE as usize).min(total_items);
+    failed = failed.into_iter().skip(start).take(end - start).collect();
+
+    let html = templates::render_recent_failed_archives_paginated(
+        &failed,
+        recent_failed_count,
+        page,
+        total_pages,
+    );
     Html(html).into_response()
 }
 
-async fn recent_all_archives(State(state): State<AppState>) -> Response {
+async fn recent_all_archives(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> Response {
+    let page = params.page;
+
     let all_recent = match get_recent_archives_display(state.db.pool(), 100).await {
         Ok(a) => a,
         Err(e) => {
@@ -111,7 +151,23 @@ async fn recent_all_archives(State(state): State<AppState>) -> Response {
 
     let recent_failed_count = all_recent.iter().filter(|a| a.status == "failed").count();
 
-    let html = templates::render_recent_all_archives(&all_recent, recent_failed_count);
+    // Apply pagination
+    let total_items = all_recent.len();
+    let total_pages = (total_items + ITEMS_PER_PAGE as usize - 1) / ITEMS_PER_PAGE as usize;
+    let start = (page * ITEMS_PER_PAGE as usize).min(total_items);
+    let end = ((page + 1) * ITEMS_PER_PAGE as usize).min(total_items);
+    let archives = all_recent
+        .into_iter()
+        .skip(start)
+        .take(end - start)
+        .collect::<Vec<_>>();
+
+    let html = templates::render_recent_all_archives_paginated(
+        &archives,
+        recent_failed_count,
+        page,
+        total_pages,
+    );
     Html(html).into_response()
 }
 
@@ -804,12 +860,13 @@ async fn api_archives(
 
     let archives = match get_recent_archives_filtered(
         state.db.pool(),
-        i64::from(per_page) + offset,
+        i64::from(per_page),
+        offset,
         nsfw_filter,
     )
     .await
     {
-        Ok(a) => a.into_iter().skip(offset as usize).collect::<Vec<_>>(),
+        Ok(a) => a,
         Err(e) => {
             tracing::error!("Failed to fetch archives: {e}");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
