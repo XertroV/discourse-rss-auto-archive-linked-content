@@ -52,6 +52,14 @@ pub struct Config {
     pub web_host: String,
     pub web_port: u16,
 
+    // TLS / Let's Encrypt
+    pub tls_enabled: bool,
+    pub tls_domains: Vec<String>,
+    pub tls_contact_email: Option<String>,
+    pub tls_cache_dir: PathBuf,
+    pub tls_use_staging: bool,
+    pub tls_https_port: u16,
+
     // Wayback Machine
     pub wayback_enabled: bool,
     pub wayback_rate_limit_per_min: u32,
@@ -130,6 +138,14 @@ impl Config {
             web_host: env_or_default("WEB_HOST", "0.0.0.0"),
             web_port: parse_env_u16("WEB_PORT", 8080)?,
 
+            // TLS / Let's Encrypt
+            tls_enabled: parse_env_bool("TLS_ENABLED", false)?,
+            tls_domains: parse_domain_list(&env_or_default("TLS_DOMAINS", "")),
+            tls_contact_email: optional_env("TLS_CONTACT_EMAIL"),
+            tls_cache_dir: PathBuf::from(env_or_default("TLS_CACHE_DIR", "./data/acme_cache")),
+            tls_use_staging: parse_env_bool("TLS_USE_STAGING", false)?,
+            tls_https_port: parse_env_u16("TLS_HTTPS_PORT", 443)?,
+
             // Wayback Machine
             wayback_enabled: parse_env_bool("WAYBACK_ENABLED", true)?,
             wayback_rate_limit_per_min: parse_env_u32("WAYBACK_RATE_LIMIT_PER_MIN", 5)?,
@@ -184,6 +200,12 @@ impl Config {
             return Err(ConfigError::InvalidValue {
                 name: "S3_BUCKET".to_string(),
                 message: "cannot be empty".to_string(),
+            });
+        }
+        if self.tls_enabled && self.tls_domains.is_empty() {
+            return Err(ConfigError::InvalidValue {
+                name: "TLS_DOMAINS".to_string(),
+                message: "at least one domain required when TLS is enabled".to_string(),
             });
         }
         Ok(())
@@ -282,6 +304,15 @@ fn parse_log_format(value: &str) -> Result<LogFormat, ConfigError> {
 }
 
 fn parse_gateway_urls(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+fn parse_domain_list(value: &str) -> Vec<String> {
     value
         .split(',')
         .map(str::trim)

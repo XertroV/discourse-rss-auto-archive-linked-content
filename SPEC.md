@@ -402,6 +402,14 @@ ARCHIVE_QUOTE_ONLY_LINKS=false
 WEB_HOST=0.0.0.0
 WEB_PORT=8080
 
+# HTTPS / Let's Encrypt (optional)
+TLS_ENABLED=false
+TLS_DOMAINS=example.com,www.example.com  # Comma-separated domains
+TLS_CONTACT_EMAIL=admin@example.com      # Optional, for cert expiry notifications
+TLS_CACHE_DIR=./data/acme_cache          # Certificate cache directory
+TLS_USE_STAGING=false                     # Use Let's Encrypt staging for testing
+TLS_HTTPS_PORT=443                        # HTTPS port
+
 # Wayback
 WAYBACK_ENABLED=true
 WAYBACK_RATE_LIMIT_PER_MIN=5

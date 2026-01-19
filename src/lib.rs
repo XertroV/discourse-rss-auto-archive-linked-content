@@ -14,5 +14,6 @@ pub mod handlers;
 pub mod ipfs;
 pub mod rss;
 pub mod s3;
+pub mod tls;
 pub mod wayback;
 pub mod web;
