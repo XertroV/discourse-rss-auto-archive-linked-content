@@ -12,13 +12,13 @@ use super::rate_limiter::DomainRateLimiter;
 use super::screenshot::ScreenshotService;
 use crate::config::Config;
 use crate::db::{
-    find_artifact_by_perceptual_hash, get_archive, get_failed_archives_for_retry, get_link,
-    get_pending_archives, insert_artifact, insert_artifact_with_hash, reset_archive_for_retry,
-    reset_stuck_processing_archives, reset_todays_failed_archives, set_archive_complete,
-    set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw, set_archive_processing,
-    set_archive_skipped, update_link_final_url, update_link_last_archived, ArchiveJobType,
-    ArtifactKind, Database, create_archive_job, set_job_completed, set_job_failed, set_job_running,
-    set_job_skipped,
+    create_archive_job, find_artifact_by_perceptual_hash, get_archive,
+    get_failed_archives_for_retry, get_link, get_pending_archives, insert_artifact,
+    insert_artifact_with_hash, reset_archive_for_retry, reset_stuck_processing_archives,
+    reset_todays_failed_archives, set_archive_complete, set_archive_failed, set_archive_ipfs_cid,
+    set_archive_nsfw, set_archive_processing, set_archive_skipped, set_job_completed,
+    set_job_failed, set_job_running, set_job_skipped, update_link_final_url,
+    update_link_last_archived, ArchiveJobType, ArtifactKind, Database,
 };
 use crate::dedup;
 use crate::handlers::youtube::extract_video_id;
@@ -583,8 +583,7 @@ async fn process_archive_inner(
             }
         }
 
-        complete_job(db.pool(), main_job, Some("Reused existing video"))
-            .await;
+        complete_job(db.pool(), main_job, Some("Reused existing video")).await;
 
         (result, true)
     } else {
@@ -780,7 +779,10 @@ async fn process_archive_inner(
             let metadata = tokio::fs::metadata(&raw_html_path).await.ok();
             let size_bytes = metadata.map(|m| m.len() as i64);
 
-            match s3.upload_file(&raw_html_path, &raw_key, Some(archive_id)).await {
+            match s3
+                .upload_file(&raw_html_path, &raw_key, Some(archive_id))
+                .await
+            {
                 Ok(()) => {
                     if let Err(e) = insert_artifact(
                         db.pool(),
@@ -1078,12 +1080,7 @@ async fn process_archive_inner(
                         warn!(archive_id, error = %e, "Failed to insert screenshot artifact record");
                     }
                     let size_meta = size_bytes.map(|s| format!("{s} bytes"));
-                    complete_job(
-                        db.pool(),
-                        screenshot_job,
-                        size_meta.as_deref(),
-                    )
-                    .await;
+                    complete_job(db.pool(), screenshot_job, size_meta.as_deref()).await;
                 }
             }
             Err(e) => {
@@ -1179,12 +1176,7 @@ async fn process_archive_inner(
                         warn!(archive_id, error = %e, "Failed to insert MHTML artifact record");
                     }
                     let size_meta = size_bytes.map(|s| format!("{s} bytes"));
-                    complete_job(
-                        db.pool(),
-                        mhtml_job,
-                        size_meta.as_deref(),
-                    )
-                    .await;
+                    complete_job(db.pool(), mhtml_job, size_meta.as_deref()).await;
                 }
             }
             Err(e) => {
@@ -1385,14 +1377,21 @@ async fn fail_job(pool: &sqlx::SqlitePool, job_id: Option<i64>, error: &str) {
     }
 }
 
-async fn skip_job(pool: &sqlx::SqlitePool, archive_id: i64, job_type: ArchiveJobType, reason: &str) {
+async fn skip_job(
+    pool: &sqlx::SqlitePool,
+    archive_id: i64,
+    job_type: ArchiveJobType,
+    reason: &str,
+) {
     match create_archive_job(pool, archive_id, job_type).await {
         Ok(id) => {
             if let Err(e) = set_job_skipped(pool, id, Some(reason)).await {
                 warn!(archive_id, job_id = id, error = %e, "Failed to mark job skipped");
             }
         }
-        Err(e) => warn!(archive_id, job_type = ?job_type, error = %e, "Failed to record skipped job"),
+        Err(e) => {
+            warn!(archive_id, job_type = ?job_type, error = %e, "Failed to record skipped job")
+        }
     }
 }
 

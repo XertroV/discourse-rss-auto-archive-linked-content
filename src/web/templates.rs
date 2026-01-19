@@ -1,8 +1,9 @@
 use crate::db::{
-    Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, Link, LinkOccurrenceWithPost, Post,
-    QueueStats, ThreadDisplay,
+    thread_key_from_url, Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, Link,
+    LinkOccurrenceWithPost, Post, QueueStats, ThreadDisplay,
 };
 use crate::web::diff::DiffResult;
+use urlencoding::encode;
 
 /// Base HTML layout.
 fn base_layout(title: &str, content: &str) -> String {
@@ -615,10 +616,12 @@ pub fn render_archive_detail(
         ));
     }
 
-    let thumb_key = archive
-        .s3_key_thumb
-        .as_deref()
-        .or_else(|| artifacts.iter().find(|a| a.kind == "thumb").map(|a| a.s3_key.as_str()));
+    let thumb_key = archive.s3_key_thumb.as_deref().or_else(|| {
+        artifacts
+            .iter()
+            .find(|a| a.kind == "thumb")
+            .map(|a| a.s3_key.as_str())
+    });
 
     let primary_key_opt = archive.s3_key_primary.as_deref();
     let is_html_archive = primary_key_opt
@@ -652,11 +655,8 @@ pub fn render_archive_detail(
     // Fallback: if primary media wasn't rendered, show first video artifact inline
     if primary_key_opt.is_none() && !is_html_archive {
         if let Some(video_artifact) = artifacts.iter().find(|a| a.kind == "video") {
-            let download_name = suggested_download_filename(
-                &link.domain,
-                archive.id,
-                &video_artifact.s3_key,
-            );
+            let download_name =
+                suggested_download_filename(&link.domain, archive.id, &video_artifact.s3_key);
             content.push_str("<section><h2>Media</h2>");
             content.push_str(&render_media_player(
                 &video_artifact.s3_key,
@@ -1323,6 +1323,98 @@ pub fn render_post_detail(post: &Post, archives: &[ArchiveDisplay]) -> String {
     base_layout(&format!("Post: {title}"), &content)
 }
 
+/// Render a thread detail page showing archives across all posts in the thread.
+pub fn render_thread_detail(
+    thread_key: &str,
+    posts: &[Post],
+    archives: &[ArchiveDisplay],
+) -> String {
+    let title = posts
+        .iter()
+        .find_map(|p| p.title.clone())
+        .unwrap_or_else(|| "Untitled Thread".to_string());
+
+    let author = posts
+        .iter()
+        .find_map(|p| p.author.clone())
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    let published = posts
+        .iter()
+        .filter_map(|p| p.published_at.clone())
+        .min()
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    let discourse_url = posts
+        .first()
+        .map(|p| p.discourse_url.as_str())
+        .unwrap_or("");
+
+    let last_activity = archives
+        .iter()
+        .filter_map(|a| a.archived_at.clone())
+        .max()
+        .unwrap_or_else(|| "No archives yet".to_string());
+
+    let mut content = format!(
+        r#"<h1>{}</h1>
+        <article>
+            <header>
+                <p class="meta">
+                    <strong>Author:</strong> {}<br>
+                    <strong>Published:</strong> {}<br>
+                    <strong>Posts in thread:</strong> {}<br>
+                    <strong>Archives found:</strong> {}<br>
+                    <strong>Last activity:</strong> {}<br>
+                    <strong>Source:</strong> <a href="{}" target="_blank" rel="noopener">{}</a>
+                </p>
+                <p><small>Thread key: {}</small></p>
+            </header>"#,
+        html_escape(&title),
+        html_escape(&author),
+        published,
+        posts.len(),
+        archives.len(),
+        last_activity,
+        html_escape(discourse_url),
+        html_escape(discourse_url),
+        html_escape(thread_key)
+    );
+
+    // Optional quick list of posts in the thread for navigation context.
+    content.push_str("<section><h2>Posts</h2><ul>");
+    for post in posts {
+        let post_title = post.title.as_deref().unwrap_or("Untitled Post");
+        content.push_str(&format!(
+            r#"<li><a href="/post/{guid}">{title}</a> — {published}</li>"#,
+            guid = html_escape(&post.guid),
+            title = html_escape(post_title),
+            published = post.published_at.as_deref().unwrap_or("Unknown"),
+        ));
+    }
+    content.push_str("</ul></section>");
+
+    content.push_str("<section><h2>Archived Links</h2>");
+
+    if archives.is_empty() {
+        content.push_str("<p>No archives from this thread.</p>");
+    } else {
+        content.push_str(&format!(
+            "<p>Found {} archived link(s) across the thread.</p>",
+            archives.len()
+        ));
+        content.push_str(r#"<div class="archive-grid">"#);
+        for archive in archives {
+            content.push_str(&render_archive_card_display(archive));
+        }
+        content.push_str("</div>");
+    }
+
+    content.push_str("</section></article>");
+
+    base_layout(&format!("Thread: {title}"), &content)
+}
+
 /// Render threads list page with sorting and pagination.
 pub fn render_threads_list(threads: &[ThreadDisplay], sort_by: &str, page: u32) -> String {
     let mut content = String::from("<h1>Discourse Threads</h1>");
@@ -1381,28 +1473,31 @@ fn render_thread_card(thread: &ThreadDisplay) -> String {
         .as_deref()
         .unwrap_or("No archives yet");
 
+    let thread_key = thread_key_from_url(&thread.discourse_url);
+    let thread_key_encoded = encode(&thread_key);
+
     format!(
         r#"<article class="archive-card">
             <header>
-                <h3><a href="/post/{}">{}</a></h3>
+                <h3><a href="/thread/{thread_key}">{title}</a></h3>
             </header>
             <div>
-                <p><strong>Author:</strong> {}</p>
-                <p><strong>Published:</strong> {}</p>
-                <p><strong>Links:</strong> {}</p>
-                <p><strong>Archives:</strong> {}</p>
-                <p><strong>Last Activity:</strong> {}</p>
-                <p><a href="{}" target="_blank" rel="noopener">View on Discourse →</a></p>
+                <p><strong>Author:</strong> {author}</p>
+                <p><strong>Published:</strong> {published}</p>
+                <p><strong>Links:</strong> {link_count}</p>
+                <p><strong>Archives:</strong> {archive_count}</p>
+                <p><strong>Last Activity:</strong> {last_activity}</p>
+                <p><a href="{discourse_url}" target="_blank" rel="noopener">View on Discourse →</a></p>
             </div>
         </article>"#,
-        html_escape(&thread.guid),
-        html_escape(title),
-        html_escape(author),
-        published,
-        thread.link_count,
-        thread.archive_count,
-        last_activity,
-        html_escape(&thread.discourse_url)
+        thread_key = thread_key_encoded,
+        title = html_escape(title),
+        author = html_escape(author),
+        published = published,
+        link_count = thread.link_count,
+        archive_count = thread.archive_count,
+        last_activity = last_activity,
+        discourse_url = html_escape(&thread.discourse_url)
     )
 }
 

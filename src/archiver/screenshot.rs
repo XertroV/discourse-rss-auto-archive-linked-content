@@ -22,8 +22,8 @@ use tracing::{debug, error, info, warn};
 use url::Url;
 
 use crate::chromium_profile::chromium_user_data_and_profile_from_spec;
-use crate::fs_utils::copy_dir_best_effort;
 use crate::constants::ARCHIVAL_USER_AGENT;
+use crate::fs_utils::copy_dir_best_effort;
 
 /// Default viewport width in pixels.
 pub const DEFAULT_VIEWPORT_WIDTH: u32 = 1280;

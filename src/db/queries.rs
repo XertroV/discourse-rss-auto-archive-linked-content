@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
-use std::collections::HashMap;
 use sqlx::SqlitePool;
+use std::collections::HashMap;
+use std::iter;
 
 use super::models::{
     Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, ArchiveJobType, Link, LinkOccurrence,
@@ -93,7 +94,7 @@ pub async fn get_all_threads(
         LEFT JOIN archives a ON l.id = a.link_id
         GROUP BY p.id
         ORDER BY p.published_at DESC
-        "
+        ",
     )
     .fetch_all(pool)
     .await
@@ -110,8 +111,10 @@ pub async fn get_all_threads(
             .and_modify(|agg| {
                 agg.link_count += row.link_count;
                 agg.archive_count += row.archive_count;
-                agg.last_archived_at = max_opt_string(agg.last_archived_at.take(), row.last_archived_at.clone());
-                agg.published_at = min_opt_string(agg.published_at.take(), row.published_at.clone());
+                agg.last_archived_at =
+                    max_opt_string(agg.last_archived_at.take(), row.last_archived_at.clone());
+                agg.published_at =
+                    min_opt_string(agg.published_at.take(), row.published_at.clone());
             })
             .or_insert(row);
     }
@@ -120,12 +123,13 @@ pub async fn get_all_threads(
 
     // Sort according to requested order, nulls last for dates.
     match sort_by {
-        "name" => threads.sort_by(|a, b| a
-            .title
-            .as_deref()
-            .unwrap_or("")
-            .to_lowercase()
-            .cmp(&b.title.as_deref().unwrap_or("").to_lowercase())),
+        "name" => threads.sort_by(|a, b| {
+            a.title
+                .as_deref()
+                .unwrap_or("")
+                .to_lowercase()
+                .cmp(&b.title.as_deref().unwrap_or("").to_lowercase())
+        }),
         "updated" => threads.sort_by(|a, b| cmp_opt_desc(&a.last_archived_at, &b.last_archived_at)),
         _ => threads.sort_by(|a, b| cmp_opt_desc(&a.published_at, &b.published_at)),
     }
@@ -141,7 +145,47 @@ pub async fn get_all_threads(
     })
 }
 
-fn thread_key_from_url(url: &str) -> String {
+/// Fetch all posts that belong to the given thread key (host + topic id/path).
+pub async fn get_posts_by_thread_key(pool: &SqlitePool, thread_key: &str) -> Result<Vec<Post>> {
+    let Some((host, rest)) = thread_key.split_once(':') else {
+        return Ok(Vec::new());
+    };
+
+    // Primary Discourse pattern: /t/<slug>/<topic_id>/<post_no?>
+    if rest.chars().all(|c| c.is_ascii_digit()) {
+        let pattern_base = format!("%://{host}/t/%/{rest}");
+        let pattern_with_post = format!("%://{host}/t/%/{rest}/%");
+
+        return sqlx::query_as(
+            r#"
+            SELECT * FROM posts
+            WHERE discourse_url LIKE ? OR discourse_url LIKE ?
+            ORDER BY published_at IS NULL, published_at, processed_at
+            "#,
+        )
+        .bind(pattern_base)
+        .bind(pattern_with_post)
+        .fetch_all(pool)
+        .await
+        .context("Failed to fetch posts for thread key");
+    }
+
+    // Fallback: match on host + path prefix.
+    let pattern = format!("%://{host}{rest}%");
+    sqlx::query_as(
+        r#"
+        SELECT * FROM posts
+        WHERE discourse_url LIKE ?
+        ORDER BY published_at IS NULL, published_at, processed_at
+        "#,
+    )
+    .bind(pattern)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch posts for thread key")
+}
+
+pub fn thread_key_from_url(url: &str) -> String {
     if let Ok(parsed) = url::Url::parse(url) {
         let host = parsed.host_str().unwrap_or("");
         let segments: Vec<_> = parsed
@@ -773,8 +817,25 @@ pub async fn get_archives_for_post_display(
     pool: &SqlitePool,
     post_id: i64,
 ) -> Result<Vec<ArchiveDisplay>> {
-    sqlx::query_as(
-        r"
+    get_archives_for_posts_display(pool, &[post_id]).await
+}
+
+/// Get archives for multiple posts with link info for display.
+pub async fn get_archives_for_posts_display(
+    pool: &SqlitePool,
+    post_ids: &[i64],
+) -> Result<Vec<ArchiveDisplay>> {
+    if post_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let placeholders = iter::repeat("?")
+        .take(post_ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let query = format!(
+        r#"
         SELECT DISTINCT
             a.id, a.link_id, a.status, a.archived_at,
             a.content_title, a.content_author, a.content_type,
@@ -785,18 +846,24 @@ pub async fn get_archives_for_post_display(
         JOIN links l ON a.link_id = l.id
         JOIN link_occurrences lo ON l.id = lo.link_id
         LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
-        WHERE lo.post_id = ?
+        WHERE lo.post_id IN ({placeholders})
         GROUP BY a.id, a.link_id, a.status, a.archived_at,
                  a.content_title, a.content_author, a.content_type,
                  a.is_nsfw, a.error_message, a.retry_count,
                  l.original_url, l.domain
         ORDER BY COALESCE(a.post_date, a.archived_at, a.created_at) DESC
-        ",
-    )
-    .bind(post_id)
-    .fetch_all(pool)
-    .await
-    .context("Failed to fetch archives for post with links")
+        "#
+    );
+
+    let mut query = sqlx::query_as(&query);
+    for id in post_ids {
+        query = query.bind(id);
+    }
+
+    query
+        .fetch_all(pool)
+        .await
+        .context("Failed to fetch archives for posts with links")
 }
 
 /// Search archives using FTS.
