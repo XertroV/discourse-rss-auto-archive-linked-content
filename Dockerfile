@@ -55,14 +55,14 @@ WORKDIR /app
 # Copy binary from builder stage
 COPY --from=builder /app/target/release/discourse-link-archiver /usr/local/bin/
 
-# Create data directories
-RUN mkdir -p /app/data/tmp && chown -R archiver:archiver /app
+# Create data directories (including ACME certificate cache)
+RUN mkdir -p /app/data/tmp /app/data/acme_cache && chown -R archiver:archiver /app
 
 # Switch to non-root user
 USER archiver
 
-# Expose web server port
-EXPOSE 8080
+# Expose web server ports (HTTP and HTTPS)
+EXPOSE 8080 443
 
 # Set default environment variables
 ENV DATABASE_PATH=/app/data/archive.sqlite
@@ -71,6 +71,14 @@ ENV WEB_HOST=0.0.0.0
 ENV WEB_PORT=8080
 ENV YT_DLP_PATH=yt-dlp
 ENV GALLERY_DL_PATH=gallery-dl
+
+# TLS settings (disabled by default; set TLS_ENABLED=true and TLS_DOMAINS to enable)
+ENV TLS_ENABLED=false
+ENV TLS_CACHE_DIR=/app/data/acme_cache
+ENV TLS_HTTPS_PORT=443
+# TLS_DOMAINS - comma-separated list of domains (required when TLS_ENABLED=true)
+# TLS_CONTACT_EMAIL - optional, recommended for cert expiry notifications
+# TLS_USE_STAGING - set to true for testing with staging certificates
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

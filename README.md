@@ -10,6 +10,7 @@ A Rust service that monitors a Discourse forum's RSS feed and automatically arch
 - Stores artifacts in S3-compatible storage (AWS S3, MinIO, Cloudflare R2)
 - SQLite database with full-text search
 - Public web UI for browsing and searching archives
+- Automatic HTTPS with Let's Encrypt certificates
 - Wayback Machine submission for redundancy
 - Optional IPFS pinning for decentralized storage
 - Manual URL submission form with rate limiting
@@ -176,6 +177,25 @@ All configuration is done via environment variables. Create a `.env` file or set
 | `S3_BUCKET` | S3 bucket name |
 | `AWS_ACCESS_KEY_ID` | AWS/S3 access key |
 | `AWS_SECRET_ACCESS_KEY` | AWS/S3 secret key |
+
+### HTTPS with Let's Encrypt
+
+The service supports automatic HTTPS with Let's Encrypt certificates:
+
+```bash
+TLS_ENABLED=true
+TLS_DOMAINS=cf-archiver.xk.io  # Your domain(s), comma-separated
+TLS_CONTACT_EMAIL=admin@example.com  # Optional but recommended
+TLS_HTTPS_PORT=443
+```
+
+When TLS is enabled:
+- HTTPS server runs on `TLS_HTTPS_PORT` (default: 443)
+- HTTP server on `WEB_PORT` redirects all traffic to HTTPS
+- Certificates are automatically obtained and renewed via ACME TLS-ALPN-01
+- Certificates are cached in `TLS_CACHE_DIR` (default: `./data/acme_cache`)
+
+For testing, set `TLS_USE_STAGING=true` to use Let's Encrypt staging (avoids rate limits).
 
 ### Optional
 

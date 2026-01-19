@@ -12,7 +12,12 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "syn
 
 # Web framework
 axum = { version = "0.7", features = ["macros"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
 tower-http = { version = "0.5", features = ["cors", "compression-gzip", "fs", "trace"] }
+
+# TLS / Let's Encrypt ACME
+rustls-acme = { version = "0.11", features = ["axum"] }
+futures-util = "0.3"
 
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
