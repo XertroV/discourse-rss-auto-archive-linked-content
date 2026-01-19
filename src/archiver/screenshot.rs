@@ -684,32 +684,51 @@ async fn load_cookies_for_url(cookies_file: &Path, url: &str) -> Result<Vec<Cook
         }
 
         // Netscape format: domain, include_subdomains, path, secure, expires, name, value
+        // Some exporters add an 8th field for httpOnly
         let fields: Vec<&str> = line.split('\t').collect();
         if fields.len() < 7 {
             continue;
         }
 
-        let cookie_domain = fields[0].trim_start_matches('.');
+        // Preserve the leading dot if present - it has semantic meaning:
+        // .reddit.com = applies to reddit.com and all subdomains
+        // reddit.com = applies ONLY to reddit.com (no subdomains)
+        let cookie_domain = fields[0];
         let path = fields[2];
         let secure = fields[3].to_lowercase() == "true";
         let expires: Option<f64> = fields[4].parse().ok();
         let name = fields[5];
         let value = fields[6];
 
+        // Check for optional 8th field for httpOnly (some exporters include this)
+        let http_only = if fields.len() >= 8 {
+            fields[7].to_lowercase() == "true"
+        } else {
+            false
+        };
+
         // Check if cookie applies to this domain
-        let domain_matches = cookie_domain == domain
-            || cookie_domain.ends_with(&format!(".{domain}"))
-            || domain.ends_with(&format!(".{cookie_domain}"))
-            || domain.ends_with(cookie_domain);
+        // Domain matching rules:
+        // 1. If cookie domain starts with dot (.reddit.com), it matches that domain and all subdomains
+        // 2. If cookie domain has no dot (reddit.com), it matches only exact domain
+        let domain_matches = if cookie_domain.starts_with('.') {
+            // Cookie with leading dot: matches domain and all subdomains
+            let cookie_domain_without_dot = cookie_domain.trim_start_matches('.');
+            domain == cookie_domain_without_dot
+                || domain.ends_with(&format!(".{cookie_domain_without_dot}"))
+        } else {
+            // Cookie without leading dot: exact match only
+            domain == cookie_domain
+        };
 
         if domain_matches {
             let mut builder = CookieParam::builder()
                 .name(name.to_string())
                 .value(value.to_string())
-                .domain(format!(".{cookie_domain}"))
+                .domain(cookie_domain.to_string())
                 .path(path.to_string())
                 .secure(secure)
-                .http_only(false);
+                .http_only(http_only);
 
             // Set expiration if valid
             if let Some(exp) = expires {

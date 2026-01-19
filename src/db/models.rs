@@ -249,6 +249,19 @@ pub struct ArchiveDisplay {
     pub total_size_bytes: Option<i64>,
 }
 
+/// Thread (post) with aggregated stats for list display.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ThreadDisplay {
+    pub guid: String,
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub discourse_url: String,
+    pub published_at: Option<String>,
+    pub link_count: i64,
+    pub archive_count: i64,
+    pub last_archived_at: Option<String>,
+}
+
 /// Submission status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

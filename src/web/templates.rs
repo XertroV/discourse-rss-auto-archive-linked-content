@@ -1,6 +1,6 @@
 use crate::db::{
     Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, Link, LinkOccurrenceWithPost, Post,
-    QueueStats,
+    QueueStats, ThreadDisplay,
 };
 use crate::web::diff::DiffResult;
 
@@ -57,6 +57,7 @@ fn base_layout(title: &str, content: &str) -> String {
             </ul>
             <ul>
                 <li><a href="/">Home</a></li>
+                <li><a href="/threads">Threads</a></li>
                 <li><a href="/search">Search</a></li>
                 <li><a href="/submit">Submit</a></li>
                 <li><a href="/stats">Stats</a></li>
@@ -575,7 +576,8 @@ pub fn render_archive_detail(
 
         // MHTML link
         if let Some(mhtml) = mhtml_artifact {
-            let download_name = suggested_download_filename(&link.domain, archive.id, &mhtml.s3_key);
+            let download_name =
+                suggested_download_filename(&link.domain, archive.id, &mhtml.s3_key);
             content.push_str(&format!(
                 r#"<div class="capture-item">
                     <h4>MHTML Archive</h4>
@@ -615,7 +617,8 @@ pub fn render_archive_detail(
                 .rsplit('/')
                 .next()
                 .unwrap_or(&artifact.s3_key);
-            let download_name = suggested_download_filename(&link.domain, archive.id, &artifact.s3_key);
+            let download_name =
+                suggested_download_filename(&link.domain, archive.id, &artifact.s3_key);
             let size_display = artifact
                 .size_bytes
                 .map_or_else(|| "Unknown".to_string(), format_bytes);
@@ -743,7 +746,7 @@ pub fn render_archive_detail(
 
             content.push_str(&format!(
                 r#"<tr>
-                    <td><a href="/post/{}">{}</a></td>
+                    <td><a href="/post/{}" title="View all archives from this post">{} →</a></td>
                     <td>{}</td>
                     <td>{}</td>
                     <td>{}</td>
@@ -1022,7 +1025,7 @@ fn suggested_download_filename(domain: &str, archive_id: i64, s3_key: &str) -> S
 fn sanitize_filename_component(s: &str) -> String {
     s.chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' ) {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
                 c
             } else {
                 '_'
@@ -1124,6 +1127,89 @@ pub fn render_post_detail(post: &Post, archives: &[ArchiveDisplay]) -> String {
     content.push_str("</section></article>");
 
     base_layout(&format!("Post: {title}"), &content)
+}
+
+/// Render threads list page with sorting and pagination.
+pub fn render_threads_list(threads: &[ThreadDisplay], sort_by: &str, page: u32) -> String {
+    let mut content = String::from("<h1>Discourse Threads</h1>");
+
+    // Sort navigation
+    content.push_str(r#"<nav class="sort-nav" style="margin-bottom: 1.5rem;">"#);
+    content.push_str("<span>Sort by: </span>");
+
+    let sort_links = [
+        ("created", "Most Recent"),
+        ("updated", "Recently Updated"),
+        ("name", "Name"),
+    ];
+
+    for (sort_key, label) in sort_links {
+        if sort_key == sort_by {
+            content.push_str(&format!(r#"<strong>{label}</strong> "#));
+        } else {
+            content.push_str(&format!(
+                r#"<a href="/threads?sort={sort_key}">{label}</a> "#
+            ));
+        }
+    }
+    content.push_str("</nav>");
+
+    if threads.is_empty() {
+        content.push_str("<p>No threads found.</p>");
+    } else {
+        content.push_str(r#"<div class="archive-grid">"#);
+        for thread in threads {
+            content.push_str(&render_thread_card(thread));
+        }
+        content.push_str("</div>");
+
+        // Pagination
+        if threads.len() >= 20 {
+            content.push_str(&format!(
+                r#"<nav style="margin-top: 1.5rem;">
+                    <a href="/threads?sort={sort_by}&page={}">Next page</a>
+                </nav>"#,
+                page + 1
+            ));
+        }
+    }
+
+    base_layout("Threads", &content)
+}
+
+/// Render a single thread card for the threads list.
+fn render_thread_card(thread: &ThreadDisplay) -> String {
+    let title = thread.title.as_deref().unwrap_or("Untitled Thread");
+    let author = thread.author.as_deref().unwrap_or("Unknown");
+    let published = thread.published_at.as_deref().unwrap_or("Unknown");
+    let last_activity = thread
+        .last_archived_at
+        .as_deref()
+        .unwrap_or("No archives yet");
+
+    format!(
+        r#"<article class="archive-card">
+            <header>
+                <h3><a href="/post/{}">{}</a></h3>
+            </header>
+            <div>
+                <p><strong>Author:</strong> {}</p>
+                <p><strong>Published:</strong> {}</p>
+                <p><strong>Links:</strong> {}</p>
+                <p><strong>Archives:</strong> {}</p>
+                <p><strong>Last Activity:</strong> {}</p>
+                <p><a href="{}" target="_blank" rel="noopener">View on Discourse →</a></p>
+            </div>
+        </article>"#,
+        html_escape(&thread.guid),
+        html_escape(title),
+        html_escape(author),
+        published,
+        thread.link_count,
+        thread.archive_count,
+        last_activity,
+        html_escape(&thread.discourse_url)
+    )
 }
 
 /// Render an archive card with link info (for display in lists).
