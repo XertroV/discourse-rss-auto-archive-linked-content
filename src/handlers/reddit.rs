@@ -260,15 +260,6 @@ impl SiteHandler for RedditHandler {
                 let downloaded = download_reddit_images(&media.image_urls, work_dir).await;
                 if !downloaded.is_empty() {
                     result.extra_files.extend(downloaded.clone());
-                    // If no primary file yet (no video), use first image as primary
-                    if result.primary_file.is_none()
-                        || result.primary_file.as_deref() == Some("raw.html")
-                    {
-                        if let Some(first_image) = downloaded.first() {
-                            result.primary_file = Some(first_image.clone());
-                            result.content_type = "image".to_string();
-                        }
-                    }
                 }
             }
             // Store detected media info in metadata
