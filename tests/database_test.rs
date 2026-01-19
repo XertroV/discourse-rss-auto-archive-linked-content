@@ -133,7 +133,9 @@ async fn test_archive_workflow() {
     let link_id = insert_link(db.pool(), &new_link).await.unwrap();
 
     // Create pending archive
-    let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
+        .await
+        .unwrap();
 
     // Get archive by ID
     let archive = get_archive(db.pool(), archive_id)

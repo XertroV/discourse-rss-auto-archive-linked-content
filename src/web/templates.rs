@@ -132,7 +132,29 @@ pub fn render_home(archives: &[ArchiveDisplay], recent_failed_count: usize) -> S
     )
 }
 
-pub fn render_recent_failed_archives(archives: &[ArchiveDisplay], recent_failed_count: usize) -> String {
+/// Render home page with recent archives and pagination.
+pub fn render_home_paginated(
+    archives: &[ArchiveDisplay],
+    recent_failed_count: usize,
+    page: usize,
+    total_pages: usize,
+) -> String {
+    render_recent_archives_page_paginated(
+        "Recent Archives",
+        "Home",
+        archives,
+        RecentArchivesTab::Recent,
+        recent_failed_count,
+        page,
+        total_pages,
+        "/",
+    )
+}
+
+pub fn render_recent_failed_archives(
+    archives: &[ArchiveDisplay],
+    recent_failed_count: usize,
+) -> String {
     render_recent_archives_page(
         "Recent Failed Archives",
         "Failed Archives",
@@ -142,13 +164,52 @@ pub fn render_recent_failed_archives(archives: &[ArchiveDisplay], recent_failed_
     )
 }
 
-pub fn render_recent_all_archives(archives: &[ArchiveDisplay], recent_failed_count: usize) -> String {
+pub fn render_recent_failed_archives_paginated(
+    archives: &[ArchiveDisplay],
+    recent_failed_count: usize,
+    page: usize,
+    total_pages: usize,
+) -> String {
+    render_recent_archives_page_paginated(
+        "Recent Failed Archives",
+        "Failed Archives",
+        archives,
+        RecentArchivesTab::Failed,
+        recent_failed_count,
+        page,
+        total_pages,
+        "/archives/failed",
+    )
+}
+
+pub fn render_recent_all_archives(
+    archives: &[ArchiveDisplay],
+    recent_failed_count: usize,
+) -> String {
     render_recent_archives_page(
         "All Recent Archives",
         "All Archives",
         archives,
         RecentArchivesTab::All,
         recent_failed_count,
+    )
+}
+
+pub fn render_recent_all_archives_paginated(
+    archives: &[ArchiveDisplay],
+    recent_failed_count: usize,
+    page: usize,
+    total_pages: usize,
+) -> String {
+    render_recent_archives_page_paginated(
+        "All Recent Archives",
+        "All Archives",
+        archives,
+        RecentArchivesTab::All,
+        recent_failed_count,
+        page,
+        total_pages,
+        "/archives/all",
     )
 }
 
@@ -207,12 +268,15 @@ fn render_recent_archives_page(
 ) -> String {
     let mut content = String::new();
     content.push_str(&format!("<h1>{}</h1>", html_escape(heading)));
-    content.push_str(&render_recent_archives_tabs(active_tab, recent_failed_count));
+    content.push_str(&render_recent_archives_tabs(
+        active_tab,
+        recent_failed_count,
+    ));
 
     if archives.is_empty() {
         content.push_str("<p>No archives yet.</p>");
     } else {
-        content.push_str(r#"<div class=\"archive-grid\">"#);
+        content.push_str(r#"<div class="archive-grid">"#);
         for archive in archives {
             content.push_str(&render_archive_card_display(archive));
         }
@@ -220,6 +284,107 @@ fn render_recent_archives_page(
     }
 
     base_layout(page_title, &content)
+}
+
+fn render_recent_archives_page_paginated(
+    heading: &str,
+    page_title: &str,
+    archives: &[ArchiveDisplay],
+    active_tab: RecentArchivesTab,
+    recent_failed_count: usize,
+    page: usize,
+    total_pages: usize,
+    base_url: &str,
+) -> String {
+    let mut content = String::new();
+    content.push_str(&format!("<h1>{}</h1>", html_escape(heading)));
+    content.push_str(&render_recent_archives_tabs(
+        active_tab,
+        recent_failed_count,
+    ));
+
+    if archives.is_empty() {
+        content.push_str("<p>No archives yet.</p>");
+    } else {
+        content.push_str(r#"<div class="archive-grid">"#);
+        for archive in archives {
+            content.push_str(&render_archive_card_display(archive));
+        }
+        content.push_str("</div>");
+
+        // Add pagination controls if needed
+        if total_pages > 1 {
+            content.push_str(&render_pagination(page, total_pages, base_url));
+        }
+    }
+
+    base_layout(page_title, &content)
+}
+
+/// Render pagination controls.
+fn render_pagination(current_page: usize, total_pages: usize, base_url: &str) -> String {
+    let mut html = String::from(r#"<nav class="pagination">"#);
+
+    // Previous button
+    if current_page > 0 {
+        let prev_url = if current_page == 1 {
+            base_url.to_string()
+        } else {
+            format!("{}?page={}", base_url, current_page - 1)
+        };
+        html.push_str(&format!(r#"<a href="{}">&laquo; Previous</a>"#, prev_url));
+    } else {
+        html.push_str(r#"<span class="disabled">&laquo; Previous</span>"#);
+    }
+
+    // Page numbers (show current, ±2, and first/last)
+    let start = current_page.saturating_sub(2);
+    let end = (current_page + 3).min(total_pages);
+
+    if start > 0 {
+        let url = if 0 == 0 {
+            base_url
+        } else {
+            &format!("{}?page=0", base_url)
+        };
+        html.push_str(&format!(r#"<a href="{}">1</a>"#, url));
+        if start > 1 {
+            html.push_str("<span>...</span>");
+        }
+    }
+
+    for page_num in start..end {
+        let url = if page_num == 0 {
+            base_url.to_string()
+        } else {
+            format!("{}?page={}", base_url, page_num)
+        };
+
+        if page_num == current_page {
+            html.push_str(&format!(r#"<span class="current">{}</span>"#, page_num + 1));
+        } else {
+            html.push_str(&format!(r#"<a href="{}">{}</a>"#, url, page_num + 1));
+        }
+    }
+
+    if end < total_pages {
+        if end < total_pages - 1 {
+            html.push_str("<span>...</span>");
+        }
+        let url = format!("{}?page={}", base_url, total_pages - 1);
+        html.push_str(&format!(r#"<a href="{}">{}</a>"#, url, total_pages));
+    }
+
+    // Next button
+    if current_page + 1 < total_pages {
+        let next_url = format!("{}?page={}", base_url, current_page + 1);
+        html.push_str(&format!(r#"<a href="{}">Next &raquo;</a>"#, next_url));
+    } else {
+        html.push_str(r#"<span class="disabled">Next &raquo;</span>"#);
+    }
+
+    html.push_str("</nav>");
+    html
 }
 
 /// Render search results page.

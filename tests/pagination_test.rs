@@ -186,7 +186,7 @@ async fn create_test_archives(db: &Database, count: usize, domain: &str) {
         let link_id = insert_link(db.pool(), &new_link)
             .await
             .expect("Failed to insert link");
-        let archive_id = create_pending_archive(db.pool(), link_id)
+        let archive_id = create_pending_archive(db.pool(), link_id, None)
             .await
             .expect("Failed to create archive");
 

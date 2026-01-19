@@ -55,6 +55,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 8).await?;
     }
 
+    if current_version < 9 {
+        debug!("Running migration v9");
+        run_migration_v9(pool).await?;
+        set_schema_version(pool, 9).await?;
+    }
+
     Ok(())
 }
 
@@ -494,6 +500,48 @@ async fn run_migration_v8(pool: &SqlitePool) -> Result<()> {
         .execute(pool)
         .await
         .context("Failed to create exports site index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v9(pool: &SqlitePool) -> Result<()> {
+    debug!(
+        "Running migration v9: adding post_date to archives for sorting by post publication date"
+    );
+
+    // Add post_date column to archives table
+    // This stores when the Discourse post (containing the link) was published
+    // Enables sorting archives by the date of the post, not the archive date
+    sqlx::query("ALTER TABLE archives ADD COLUMN post_date TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add post_date column")?;
+
+    // Populate post_date from the first link occurrence's post published_at
+    // This backfills existing archives with the post date
+    sqlx::query(
+        r"
+        UPDATE archives
+        SET post_date = (
+            SELECT p.published_at
+            FROM link_occurrences lo
+            JOIN posts p ON lo.post_id = p.id
+            WHERE lo.link_id = archives.link_id
+            ORDER BY lo.seen_at ASC
+            LIMIT 1
+        )
+        WHERE post_date IS NULL
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to backfill post_date")?;
+
+    // Create index for efficient sorting by post date
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_archives_post_date ON archives(post_date DESC)")
+        .execute(pool)
+        .await
+        .context("Failed to create post_date index")?;
 
     Ok(())
 }

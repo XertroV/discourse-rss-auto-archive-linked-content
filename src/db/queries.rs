@@ -227,12 +227,18 @@ pub async fn get_archive_by_link_id(pool: &SqlitePool, link_id: i64) -> Result<O
 }
 
 /// Create a pending archive for a link.
-pub async fn create_pending_archive(pool: &SqlitePool, link_id: i64) -> Result<i64> {
-    let result = sqlx::query("INSERT INTO archives (link_id, status) VALUES (?, 'pending')")
-        .bind(link_id)
-        .execute(pool)
-        .await
-        .context("Failed to create pending archive")?;
+pub async fn create_pending_archive(
+    pool: &SqlitePool,
+    link_id: i64,
+    post_date: Option<&str>,
+) -> Result<i64> {
+    let result =
+        sqlx::query("INSERT INTO archives (link_id, status, post_date) VALUES (?, 'pending', ?)")
+            .bind(link_id)
+            .bind(post_date)
+            .execute(pool)
+            .await
+            .context("Failed to create pending archive")?;
 
     Ok(result.last_insert_rowid())
 }
@@ -422,7 +428,7 @@ pub async fn get_recent_archives(pool: &SqlitePool, limit: i64) -> Result<Vec<Ar
         r"
         SELECT * FROM archives
         WHERE status = 'complete'
-        ORDER BY archived_at DESC
+        ORDER BY COALESCE(post_date, archived_at, created_at) DESC
         LIMIT ?
         ",
     )
@@ -432,10 +438,11 @@ pub async fn get_recent_archives(pool: &SqlitePool, limit: i64) -> Result<Vec<Ar
     .context("Failed to fetch recent archives")
 }
 
-/// Get recent archives with NSFW filter.
+/// Get recent archives with NSFW filter and pagination.
 pub async fn get_recent_archives_filtered(
     pool: &SqlitePool,
     limit: i64,
+    offset: i64,
     nsfw_filter: Option<bool>,
 ) -> Result<Vec<Archive>> {
     match nsfw_filter {
@@ -445,11 +452,12 @@ pub async fn get_recent_archives_filtered(
                 r"
                 SELECT * FROM archives
                 WHERE status = 'complete' AND is_nsfw = 1
-                ORDER BY archived_at DESC
-                LIMIT ?
+                ORDER BY COALESCE(post_date, archived_at, created_at) DESC
+                LIMIT ? OFFSET ?
                 ",
             )
             .bind(limit)
+            .bind(offset)
             .fetch_all(pool)
             .await
             .context("Failed to fetch NSFW archives")
@@ -460,20 +468,58 @@ pub async fn get_recent_archives_filtered(
                 r"
                 SELECT * FROM archives
                 WHERE status = 'complete' AND (is_nsfw = 0 OR is_nsfw IS NULL)
-                ORDER BY archived_at DESC
-                LIMIT ?
+                ORDER BY COALESCE(post_date, archived_at, created_at) DESC
+                LIMIT ? OFFSET ?
                 ",
             )
             .bind(limit)
+            .bind(offset)
             .fetch_all(pool)
             .await
             .context("Failed to fetch SFW archives")
         }
         None => {
             // Show all
-            get_recent_archives(pool, limit).await
+            sqlx::query_as(
+                r"
+                SELECT * FROM archives
+                WHERE status = 'complete'
+                ORDER BY COALESCE(post_date, archived_at, created_at) DESC
+                LIMIT ? OFFSET ?
+                ",
+            )
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(pool)
+            .await
+            .context("Failed to fetch archives")
         }
     }
+}
+
+/// Get total count of archives with NSFW filter.
+pub async fn get_archives_count(pool: &SqlitePool, nsfw_filter: Option<bool>) -> Result<i64> {
+    let count: (i64,) = match nsfw_filter {
+        Some(true) => {
+            sqlx::query_as("SELECT COUNT(*) FROM archives WHERE status = 'complete' AND is_nsfw = 1")
+                .fetch_one(pool)
+                .await
+                .context("Failed to count NSFW archives")?
+        }
+        Some(false) => {
+            sqlx::query_as("SELECT COUNT(*) FROM archives WHERE status = 'complete' AND (is_nsfw = 0 OR is_nsfw IS NULL)")
+                .fetch_one(pool)
+                .await
+                .context("Failed to count SFW archives")?
+        }
+        None => {
+            sqlx::query_as("SELECT COUNT(*) FROM archives WHERE status = 'complete'")
+                .fetch_one(pool)
+                .await
+                .context("Failed to count archives")?
+        }
+    };
+    Ok(count.0)
 }
 
 /// Get recent archives with domain and content_type filters.
@@ -492,7 +538,7 @@ pub async fn get_recent_archives_with_filters(
                 SELECT a.* FROM archives a
                 JOIN links l ON a.link_id = l.id
                 WHERE a.status = 'complete' AND l.domain = ? AND a.content_type = ?
-                ORDER BY a.archived_at DESC
+                ORDER BY COALESCE(a.post_date, a.archived_at, a.created_at) DESC
                 LIMIT ?
                 ",
             )
@@ -510,7 +556,7 @@ pub async fn get_recent_archives_with_filters(
                 SELECT a.* FROM archives a
                 JOIN links l ON a.link_id = l.id
                 WHERE a.status = 'complete' AND l.domain = ?
-                ORDER BY a.archived_at DESC
+                ORDER BY COALESCE(a.post_date, a.archived_at, a.created_at) DESC
                 LIMIT ?
                 ",
             )
@@ -526,7 +572,7 @@ pub async fn get_recent_archives_with_filters(
                 r"
                 SELECT * FROM archives
                 WHERE status = 'complete' AND content_type = ?
-                ORDER BY archived_at DESC
+                ORDER BY COALESCE(post_date, archived_at, created_at) DESC
                 LIMIT ?
                 ",
             )
@@ -664,7 +710,7 @@ pub async fn get_archives_for_post_display(
                  a.content_title, a.content_author, a.content_type,
                  a.is_nsfw, a.error_message, a.retry_count,
                  l.original_url, l.domain
-        ORDER BY a.archived_at DESC
+        ORDER BY COALESCE(a.post_date, a.archived_at, a.created_at) DESC
         ",
     )
     .bind(post_id)

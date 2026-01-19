@@ -129,6 +129,9 @@ pub struct Archive {
     pub last_attempt_at: Option<String>,
     /// HTTP status code from the original page fetch (200, 404, 401, etc.).
     pub http_status_code: Option<i32>,
+    /// Publication date of the Discourse post containing this link.
+    /// Used for sorting archives by when the post was made, not when archived.
+    pub post_date: Option<String>,
 }
 
 impl Archive {

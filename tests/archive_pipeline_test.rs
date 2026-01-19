@@ -47,7 +47,7 @@ async fn test_pending_archive_workflow() {
         .expect("Failed to insert link");
 
     // Create pending archive
-    let archive_id = create_pending_archive(db.pool(), link_id)
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
         .await
         .expect("Failed to create pending archive");
 
@@ -93,7 +93,7 @@ async fn test_archive_completion() {
         .await
         .expect("Failed to insert link");
 
-    let archive_id = create_pending_archive(db.pool(), link_id)
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
         .await
         .expect("Failed to create pending archive");
 
@@ -141,7 +141,7 @@ async fn test_archive_failure() {
         .await
         .expect("Failed to insert link");
 
-    let archive_id = create_pending_archive(db.pool(), link_id)
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
         .await
         .expect("Failed to create pending archive");
 
@@ -358,7 +358,7 @@ async fn test_multiple_pending_archives() {
         let link_id = insert_link(db.pool(), &new_link)
             .await
             .expect("Failed to insert link");
-        let archive_id = create_pending_archive(db.pool(), link_id)
+        let archive_id = create_pending_archive(db.pool(), link_id, None)
             .await
             .expect("Failed to create archive");
         archive_ids.push(archive_id);

@@ -459,7 +459,7 @@ See STAGE2_STREAMING_UPLOAD.md for full details:
   - [ ] Add video_id → S3 path mapping table in database
   - [ ] Look up existing S3 path when duplicate video_id encountered
   - [ ] Eliminate redundant storage on S3 (like a symlink/hardlink system)
-- [ ] Request largest RSS feed size via GET parameters
+- [x] Request largest RSS feed size via GET parameters (implemented via RSS_MAX_PAGES pagination)
 - [ ] Upgrade axum from 0.7 to 0.8 (breaking change: path syntax changes from `:param` to `{param}`)
 - [x] Archive failed log messages should include domain (e.g., `domain=old.reddit.com`) similar to `archive_id`
 
