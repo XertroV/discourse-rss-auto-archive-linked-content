@@ -7,6 +7,8 @@ use tokio::sync::Semaphore;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
+use crate::constants::ARCHIVAL_USER_AGENT;
+
 /// Rate-limited Archive.today client.
 pub struct ArchiveTodayClient {
     client: Client,
@@ -29,7 +31,7 @@ impl ArchiveTodayClient {
 
         let client = Client::builder()
             .timeout(Duration::from_secs(60))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .user_agent(ARCHIVAL_USER_AGENT)
             .redirect(reqwest::redirect::Policy::limited(10))
             .build()
             .expect("Failed to create HTTP client");

@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
+use crate::constants::ARCHIVAL_USER_AGENT;
 use super::traits::{ArchiveResult, SiteHandler};
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
@@ -30,7 +31,7 @@ impl BlueskyHandler {
     pub fn new() -> Self {
         Self {
             client: reqwest::Client::builder()
-                .user_agent("discourse-link-archiver/1.0")
+                .user_agent(ARCHIVAL_USER_AGENT)
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
                 .expect("Failed to build HTTP client"),

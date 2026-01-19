@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use regex::Regex;
 use scraper::{Html, Selector};
 
+use crate::constants::ARCHIVAL_USER_AGENT;
 use super::traits::{ArchiveResult, SiteHandler};
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
@@ -56,10 +57,7 @@ impl SiteHandler for GenericHandler {
 
         let response = client
             .get(url)
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (compatible; discourse-link-archiver/0.1)",
-            )
+            .header("User-Agent", ARCHIVAL_USER_AGENT)
             .send()
             .await
             .context("Failed to fetch URL")?;

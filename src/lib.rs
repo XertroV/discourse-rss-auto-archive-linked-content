@@ -32,6 +32,7 @@ pub mod archive_today;
 pub mod archiver;
 pub mod backup;
 pub mod config;
+pub mod constants;
 pub mod db;
 pub mod handlers;
 pub mod ipfs;

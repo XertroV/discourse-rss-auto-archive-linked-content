@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use regex::Regex;
 
+use crate::constants::ARCHIVAL_USER_AGENT;
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::ytdlp;
 
@@ -72,6 +73,7 @@ async fn resolve_short_url(short_url: &str) -> Result<String> {
 
     let response = client
         .get(short_url)
+        .header("User-Agent", ARCHIVAL_USER_AGENT)
         .send()
         .await
         .context("Failed to resolve short URL")?;

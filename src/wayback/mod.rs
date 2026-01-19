@@ -7,6 +7,8 @@ use tokio::sync::Semaphore;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
+use crate::constants::ARCHIVAL_USER_AGENT;
+
 /// Rate-limited Wayback Machine client.
 pub struct WaybackClient {
     client: Client,
@@ -29,7 +31,7 @@ impl WaybackClient {
 
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
-            .user_agent("discourse-link-archiver/1.0")
+            .user_agent(ARCHIVAL_USER_AGENT)
             .build()
             .expect("Failed to create HTTP client");
 

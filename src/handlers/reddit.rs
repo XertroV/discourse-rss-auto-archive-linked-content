@@ -7,6 +7,7 @@ use regex::Regex;
 use serde::Deserialize;
 use tracing::debug;
 
+use crate::constants::ARCHIVAL_USER_AGENT;
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::ytdlp;
 
@@ -272,10 +273,7 @@ async fn fetch_reddit_json(url: &str, work_dir: &Path) -> Result<ArchiveResult> 
 
     let response = client
         .get(&json_url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (compatible; discourse-link-archiver/0.1)",
-        )
+        .header("User-Agent", ARCHIVAL_USER_AGENT)
         .send()
         .await
         .context("Failed to fetch Reddit JSON")?;
@@ -471,6 +469,7 @@ pub async fn resolve_short_url(short_url: &str) -> Result<String> {
 
     let response = client
         .head(short_url)
+        .header("User-Agent", ARCHIVAL_USER_AGENT)
         .send()
         .await
         .context("Failed to resolve short URL")?;
