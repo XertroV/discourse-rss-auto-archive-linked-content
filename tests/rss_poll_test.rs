@@ -29,6 +29,7 @@ fn create_test_config(rss_url: &str, work_dir: &std::path::Path) -> Config {
         yt_dlp_path: "yt-dlp".to_string(),
         gallery_dl_path: "gallery-dl".to_string(),
         cookies_file_path: None,
+        yt_dlp_cookies_from_browser: None,
         archive_mode: ArchiveMode::All,
         archive_quote_only_links: false,
         web_host: "0.0.0.0".to_string(),

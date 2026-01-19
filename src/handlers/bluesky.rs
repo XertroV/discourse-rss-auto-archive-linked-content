@@ -6,6 +6,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use super::traits::{ArchiveResult, SiteHandler};
+use crate::archiver::CookieOptions;
 use crate::constants::ARCHIVAL_USER_AGENT;
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
@@ -262,7 +263,7 @@ impl SiteHandler for BlueskyHandler {
         &self,
         url: &str,
         work_dir: &Path,
-        _cookies_file: Option<&Path>,
+        _cookies: &CookieOptions<'_>,
     ) -> Result<ArchiveResult> {
         // Parse URL to get handle and post ID
         let (handle, post_id) = Self::parse_url(url).context("Invalid Bluesky URL format")?;

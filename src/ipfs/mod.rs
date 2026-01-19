@@ -306,6 +306,7 @@ mod tests {
             yt_dlp_path: String::new(),
             gallery_dl_path: String::new(),
             cookies_file_path: None,
+            yt_dlp_cookies_from_browser: None,
             archive_mode: crate::config::ArchiveMode::All,
             archive_quote_only_links: false,
             web_host: String::new(),

@@ -338,8 +338,12 @@ async fn process_archive_inner(
         }
         None => None,
     };
+    let cookies = super::CookieOptions {
+        cookies_file,
+        browser_profile: config.yt_dlp_cookies_from_browser.as_deref(),
+    };
     let result = handler
-        .archive(&link.normalized_url, &work_dir, cookies_file)
+        .archive(&link.normalized_url, &work_dir, &cookies)
         .await
         .context("Handler archive failed")?;
 

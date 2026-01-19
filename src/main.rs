@@ -35,15 +35,19 @@ async fn run() -> Result<()> {
 
     info!(rss_url = %config.rss_url, "Configuration loaded");
 
-    // Log cookies file status
+    // Log cookie configuration status
+    if let Some(ref browser_profile) = config.yt_dlp_cookies_from_browser {
+        info!(spec = %browser_profile, "Browser profile configured for yt-dlp cookies");
+    }
     if let Some(ref cookies_path) = config.cookies_file_path {
         if cookies_path.exists() {
             info!(path = %cookies_path.display(), "Cookies file configured and found");
         } else {
-            warn!(path = %cookies_path.display(), "Cookies file configured but not found - cookies will not be used");
+            warn!(path = %cookies_path.display(), "Cookies file configured but not found - will not be used until created");
         }
-    } else {
-        debug!("No cookies file configured");
+    }
+    if config.cookies_file_path.is_none() && config.yt_dlp_cookies_from_browser.is_none() {
+        debug!("No cookies configured - authenticated downloads may fail");
     }
 
     // Ensure data directories exist

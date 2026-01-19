@@ -397,55 +397,6 @@ pub fn render_post_detail(post: &Post, archives: &[ArchiveDisplay]) -> String {
     base_layout(&format!("Post: {title}"), &content)
 }
 
-/// Render an archive card.
-fn render_archive_card(archive: &Archive) -> String {
-    let title = archive.content_title.as_deref().unwrap_or("Untitled");
-    let content_type = archive.content_type.as_deref().unwrap_or("unknown");
-
-    // NSFW data attribute for filtering
-    let nsfw_attr = if archive.is_nsfw {
-        r#" data-nsfw="true""#
-    } else {
-        ""
-    };
-
-    // NSFW badge
-    let nsfw_badge = if archive.is_nsfw {
-        r#"<span class="nsfw-badge">NSFW</span>"#
-    } else {
-        ""
-    };
-
-    // Content type badge with appropriate styling
-    let type_badge = match content_type {
-        "video" => r#"<span class="media-type-badge media-type-video">Video</span>"#,
-        "audio" => r#"<span class="media-type-badge media-type-audio">Audio</span>"#,
-        "image" | "gallery" => r#"<span class="media-type-badge media-type-image">Image</span>"#,
-        "text" | "thread" => r#"<span class="media-type-badge media-type-text">Text</span>"#,
-        _ => &format!(
-            r#"<span class="media-type-badge">{}</span>"#,
-            html_escape(content_type)
-        ),
-    };
-
-    format!(
-        r#"<article class="archive-card"{nsfw_attr}>
-            <h3><a href="/archive/{}">{}</a>{nsfw_badge}</h3>
-            <p class="meta">
-                <span class="status-{}">{}</span>
-                {type_badge}
-                <span>{}</span>
-            </p>
-        </article>"#,
-        archive.id,
-        html_escape(title),
-        archive.status,
-        archive.status,
-        archive.archived_at.as_deref().unwrap_or("pending"),
-        type_badge = type_badge
-    )
-}
-
 /// Render an archive card with link info (for display in lists).
 fn render_archive_card_display(archive: &ArchiveDisplay) -> String {
     let title = archive.content_title.as_deref().unwrap_or("Untitled");

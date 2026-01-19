@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use discourse_link_archiver::archiver::CookieOptions;
 use discourse_link_archiver::config::{ArchiveMode, Config, LogFormat};
 use discourse_link_archiver::db::{
     create_pending_archive, get_archive, get_pending_archives, insert_link, set_archive_complete,
@@ -30,6 +31,7 @@ fn create_test_config(work_dir: &std::path::Path) -> Config {
         yt_dlp_path: "yt-dlp".to_string(),
         gallery_dl_path: "gallery-dl".to_string(),
         cookies_file_path: None,
+        yt_dlp_cookies_from_browser: None,
         archive_mode: ArchiveMode::All,
         archive_quote_only_links: false,
         web_host: "0.0.0.0".to_string(),
@@ -296,7 +298,7 @@ async fn test_generic_handler_archives_html() {
     // Find handler and archive
     let handler = HANDLERS.find_handler(&url).expect("Should find handler");
     let result = handler
-        .archive(&url, &work_dir, None)
+        .archive(&url, &work_dir, &CookieOptions::default())
         .await
         .expect("Archive should succeed");
 
@@ -334,7 +336,7 @@ async fn test_generic_handler_handles_non_html() {
 
     let handler = HANDLERS.find_handler(&url).expect("Should find handler");
     let result = handler
-        .archive(&url, &work_dir, None)
+        .archive(&url, &work_dir, &CookieOptions::default())
         .await
         .expect("Archive should succeed");
 
@@ -360,7 +362,9 @@ async fn test_generic_handler_handles_http_error() {
     let url = format!("{}/not-found", mock_server.uri());
 
     let handler = HANDLERS.find_handler(&url).expect("Should find handler");
-    let result = handler.archive(&url, &work_dir, None).await;
+    let result = handler
+        .archive(&url, &work_dir, &CookieOptions::default())
+        .await;
 
     assert!(result.is_err(), "Should fail on HTTP 404");
 }
@@ -451,7 +455,7 @@ async fn test_archive_with_metadata_extraction() {
     let url = format!("{}/article", mock_server.uri());
     let handler = HANDLERS.find_handler(&url).expect("Should find handler");
     let result = handler
-        .archive(&url, &work_dir, None)
+        .archive(&url, &work_dir, &CookieOptions::default())
         .await
         .expect("Archive should succeed");
 

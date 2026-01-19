@@ -8,7 +8,7 @@ use serde::Deserialize;
 use tracing::debug;
 
 use super::traits::{ArchiveResult, SiteHandler};
-use crate::archiver::ytdlp;
+use crate::archiver::{ytdlp, CookieOptions};
 use crate::constants::ARCHIVAL_USER_AGENT;
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
@@ -132,7 +132,7 @@ impl SiteHandler for RedditHandler {
         &self,
         url: &str,
         work_dir: &Path,
-        cookies_file: Option<&Path>,
+        cookies: &CookieOptions<'_>,
     ) -> Result<ArchiveResult> {
         // Resolve redd.it shortlinks first
         let resolved_url = if is_shortlink(url) {
@@ -164,7 +164,7 @@ impl SiteHandler for RedditHandler {
         let api_nsfw = json_metadata.and_then(|r| r.is_nsfw).unwrap_or(false);
 
         // Use yt-dlp for video/media content
-        let ytdlp_result = ytdlp::download(&normalized_url, work_dir, cookies_file).await;
+        let ytdlp_result = ytdlp::download(&normalized_url, work_dir, cookies).await;
 
         match ytdlp_result {
             Ok(mut result) => {
