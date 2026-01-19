@@ -2,8 +2,8 @@ use anyhow::{Context, Result};
 use sqlx::SqlitePool;
 
 use super::models::{
-    Archive, ArchiveArtifact, ArchiveDisplay, Link, LinkOccurrence, NewLink, NewLinkOccurrence,
-    NewPost, NewSubmission, Post, Submission,
+    Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, ArchiveJobType, Link, LinkOccurrence,
+    NewLink, NewLinkOccurrence, NewPost, NewSubmission, Post, Submission,
 };
 
 // ========== Posts ==========
@@ -1407,6 +1407,13 @@ pub async fn reset_archive_for_rearchive(pool: &SqlitePool, id: i64) -> Result<(
         .await
         .context("Failed to delete artifacts")?;
 
+    // Delete existing jobs for this archive
+    sqlx::query("DELETE FROM archive_jobs WHERE archive_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .context("Failed to delete jobs")?;
+
     // Reset archive to pending state with cleared results
     sqlx::query(
         r"
@@ -1428,7 +1435,8 @@ pub async fn reset_archive_for_rearchive(pool: &SqlitePool, id: i64) -> Result<(
             next_retry_at = NULL,
             last_attempt_at = NULL,
             is_nsfw = 0,
-            nsfw_source = NULL
+            nsfw_source = NULL,
+            http_status_code = NULL
         WHERE id = ?
         ",
     )
@@ -1438,6 +1446,148 @@ pub async fn reset_archive_for_rearchive(pool: &SqlitePool, id: i64) -> Result<(
     .context("Failed to reset archive")?;
 
     tx.commit().await.context("Failed to commit reset")?;
+
+    Ok(())
+}
+
+// ========== HTTP Status Code ==========
+
+/// Set the HTTP status code for an archive.
+pub async fn set_archive_http_status_code(
+    pool: &SqlitePool,
+    id: i64,
+    status_code: u16,
+) -> Result<()> {
+    sqlx::query("UPDATE archives SET http_status_code = ? WHERE id = ?")
+        .bind(i32::from(status_code))
+        .bind(id)
+        .execute(pool)
+        .await
+        .context("Failed to set HTTP status code")?;
+
+    Ok(())
+}
+
+// ========== Archive Jobs ==========
+
+/// Create a new archive job.
+pub async fn create_archive_job(
+    pool: &SqlitePool,
+    archive_id: i64,
+    job_type: ArchiveJobType,
+) -> Result<i64> {
+    let result = sqlx::query(
+        r"
+        INSERT INTO archive_jobs (archive_id, job_type, status)
+        VALUES (?, ?, 'pending')
+        ",
+    )
+    .bind(archive_id)
+    .bind(job_type.as_str())
+    .execute(pool)
+    .await
+    .context("Failed to create archive job")?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Set job status to running.
+pub async fn set_job_running(pool: &SqlitePool, job_id: i64) -> Result<()> {
+    sqlx::query(
+        "UPDATE archive_jobs SET status = 'running', started_at = datetime('now') WHERE id = ?",
+    )
+    .bind(job_id)
+    .execute(pool)
+    .await
+    .context("Failed to set job running")?;
+
+    Ok(())
+}
+
+/// Set job status to completed.
+pub async fn set_job_completed(
+    pool: &SqlitePool,
+    job_id: i64,
+    metadata: Option<&str>,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE archive_jobs SET status = 'completed', completed_at = datetime('now'), metadata = ? WHERE id = ?",
+    )
+    .bind(metadata)
+    .bind(job_id)
+    .execute(pool)
+    .await
+    .context("Failed to set job completed")?;
+
+    Ok(())
+}
+
+/// Set job status to failed with error message.
+pub async fn set_job_failed(pool: &SqlitePool, job_id: i64, error: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE archive_jobs SET status = 'failed', completed_at = datetime('now'), error_message = ? WHERE id = ?",
+    )
+    .bind(error)
+    .bind(job_id)
+    .execute(pool)
+    .await
+    .context("Failed to set job failed")?;
+
+    Ok(())
+}
+
+/// Set job status to skipped with optional reason.
+pub async fn set_job_skipped(pool: &SqlitePool, job_id: i64, reason: Option<&str>) -> Result<()> {
+    sqlx::query(
+        "UPDATE archive_jobs SET status = 'skipped', completed_at = datetime('now'), error_message = ? WHERE id = ?",
+    )
+    .bind(reason)
+    .bind(job_id)
+    .execute(pool)
+    .await
+    .context("Failed to set job skipped")?;
+
+    Ok(())
+}
+
+/// Get all jobs for an archive.
+pub async fn get_jobs_for_archive(pool: &SqlitePool, archive_id: i64) -> Result<Vec<ArchiveJob>> {
+    sqlx::query_as(
+        r"
+        SELECT * FROM archive_jobs
+        WHERE archive_id = ?
+        ORDER BY created_at ASC
+        ",
+    )
+    .bind(archive_id)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch jobs for archive")
+}
+
+/// Check if all jobs for an archive succeeded (completed or skipped).
+pub async fn all_jobs_succeeded(pool: &SqlitePool, archive_id: i64) -> Result<bool> {
+    let row: (i64,) = sqlx::query_as(
+        r"
+        SELECT COUNT(*) FROM archive_jobs
+        WHERE archive_id = ?
+          AND status NOT IN ('completed', 'skipped')
+        ",
+    )
+    .bind(archive_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(row.0 == 0)
+}
+
+/// Delete all jobs for an archive.
+pub async fn delete_jobs_for_archive(pool: &SqlitePool, archive_id: i64) -> Result<()> {
+    sqlx::query("DELETE FROM archive_jobs WHERE archive_id = ?")
+        .bind(archive_id)
+        .execute(pool)
+        .await
+        .context("Failed to delete jobs for archive")?;
 
     Ok(())
 }

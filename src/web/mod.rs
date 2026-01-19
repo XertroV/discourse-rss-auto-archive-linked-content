@@ -8,11 +8,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use axum::extract::Host;
 use axum::extract::ConnectInfo;
+use axum::extract::Host;
 use axum::handler::HandlerWithoutStateExt;
-use axum::http::Uri;
 use axum::http::Request;
+use axum::http::Uri;
 use axum::response::Redirect;
 use axum::Router;
 use futures_util::StreamExt;
@@ -230,11 +230,7 @@ fn best_effort_client_ip<B>(req: &Request<B>) -> Option<String> {
         }
     }
 
-    if let Some(v) = req
-        .headers()
-        .get("x-real-ip")
-        .and_then(|v| v.to_str().ok())
-    {
+    if let Some(v) = req.headers().get("x-real-ip").and_then(|v| v.to_str().ok()) {
         let v = v.trim();
         if !v.is_empty() {
             return Some(strip_port_and_brackets(v));
@@ -254,7 +250,9 @@ fn parse_forwarded_for(header_value: &str) -> Option<String> {
     let first_elem = header_value.split(',').next()?.trim();
     for part in first_elem.split(';') {
         let part = part.trim();
-        let Some(rest) = part.strip_prefix("for=") else { continue };
+        let Some(rest) = part.strip_prefix("for=") else {
+            continue;
+        };
         let rest = rest.trim().trim_matches('"');
         if rest.is_empty() {
             continue;

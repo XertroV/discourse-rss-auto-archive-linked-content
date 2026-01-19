@@ -420,21 +420,129 @@ async fn process_archive_inner(
         .await
         .context("Failed to create work directory")?;
 
-    // If video already exists, create a result without downloading
-    let result = if let Some((existing_key, _ext)) = existing_video {
-        // Create a minimal result referencing existing video
-        use crate::handlers::ArchiveResult;
+    // If video already exists, fetch metadata without re-downloading
+    let (result, _existing_video_handled) = if let Some((existing_key, _ext)) = existing_video {
+        // Fetch metadata using yt-dlp without downloading the video
+        let cookies_file = match config.cookies_file_path.as_deref() {
+            Some(path) if path.exists() => Some(path),
+            _ => None,
+        };
+        let cookies = super::CookieOptions {
+            cookies_file,
+            browser_profile: config.yt_dlp_cookies_from_browser.as_deref(),
+        };
+
+        let mut result =
+            match super::ytdlp::fetch_metadata_only(&link.normalized_url, &cookies).await {
+                Ok(meta) => {
+                    debug!(
+                        url = %link.normalized_url,
+                        title = ?meta.title,
+                        "Fetched metadata for existing YouTube video"
+                    );
+                    meta
+                }
+                Err(e) => {
+                    // If metadata fetch fails, continue with minimal info
+                    warn!(
+                        url = %link.normalized_url,
+                        error = %e,
+                        "Failed to fetch metadata for existing video, using minimal info"
+                    );
+                    use crate::handlers::ArchiveResult;
+                    ArchiveResult {
+                        content_type: "video".to_string(),
+                        ..Default::default()
+                    }
+                }
+            };
+
+        // Set the primary file to the existing video filename
         let filename = existing_key
             .rsplit('/')
             .next()
             .unwrap_or(&existing_key)
             .to_string();
-        ArchiveResult {
-            content_type: "video".to_string(),
-            primary_file: Some(filename),
-            video_id: video_id.clone(),
-            ..Default::default()
+        result.primary_file = Some(filename);
+        result.video_id = video_id.clone();
+
+        // Get existing video size from S3 and create artifact record
+        match s3.get_object_metadata(&existing_key).await {
+            Ok((size_bytes, content_type)) => {
+                // Insert artifact record for the existing video
+                if let Err(e) = insert_artifact(
+                    db.pool(),
+                    archive_id,
+                    ArtifactKind::Video.as_str(),
+                    &existing_key,
+                    Some(&content_type),
+                    Some(size_bytes),
+                    None,
+                )
+                .await
+                {
+                    warn!(archive_id, error = %e, "Failed to insert existing video artifact record");
+                } else {
+                    debug!(
+                        archive_id,
+                        video_id = ?video_id,
+                        s3_key = %existing_key,
+                        size = size_bytes,
+                        "Created artifact record for existing video"
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    archive_id,
+                    s3_key = %existing_key,
+                    error = %e,
+                    "Failed to get existing video metadata from S3"
+                );
+            }
         }
+
+        // Save metadata JSON alongside video at videos/<video_id>.json
+        if let (Some(ref vid), Some(ref meta_json)) = (&video_id, &result.metadata_json) {
+            let metadata_key = format!("videos/{vid}.json");
+            match s3
+                .upload_bytes(meta_json.as_bytes(), &metadata_key, "application/json")
+                .await
+            {
+                Ok(()) => {
+                    debug!(
+                        archive_id,
+                        video_id = %vid,
+                        s3_key = %metadata_key,
+                        "Saved yt-dlp metadata JSON alongside video"
+                    );
+                    // Also create artifact record for metadata
+                    if let Err(e) = insert_artifact(
+                        db.pool(),
+                        archive_id,
+                        ArtifactKind::Metadata.as_str(),
+                        &metadata_key,
+                        Some("application/json"),
+                        Some(meta_json.len() as i64),
+                        None,
+                    )
+                    .await
+                    {
+                        warn!(archive_id, error = %e, "Failed to insert metadata artifact record");
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        archive_id,
+                        video_id = %vid,
+                        error = %e,
+                        "Failed to save yt-dlp metadata JSON"
+                    );
+                }
+            }
+        }
+
+        (result, true)
     } else {
         // Run the archive normally
         // Only use cookies if the file actually exists; this keeps the service working
@@ -451,10 +559,11 @@ async fn process_archive_inner(
             cookies_file,
             browser_profile: config.yt_dlp_cookies_from_browser.as_deref(),
         };
-        handler
+        let result = handler
             .archive(&link.normalized_url, &work_dir, &cookies)
             .await
-            .context("Handler archive failed")?
+            .context("Handler archive failed")?;
+        (result, false)
     };
 
     // Upload artifacts to S3
@@ -624,7 +733,10 @@ async fn process_archive_inner(
                             let complete_key = format!("{s3_prefix}media/complete.html");
                             let metadata = tokio::fs::metadata(&complete_path).await.ok();
                             let size_bytes = metadata.map(|m| m.len() as i64);
-                            if let Err(e) = s3.upload_file(&complete_path, &complete_key, Some(archive_id)).await {
+                            if let Err(e) = s3
+                                .upload_file(&complete_path, &complete_key, Some(archive_id))
+                                .await
+                            {
                                 warn!(archive_id, error = %e, "Failed to upload complete.html");
                             } else {
                                 debug!(archive_id, key = %complete_key, "Uploaded complete.html");
@@ -671,6 +783,36 @@ async fn process_archive_inner(
                                     error = %e,
                                     "Failed to copy video to predictable path"
                                 );
+                            }
+                        }
+
+                        // Save metadata JSON alongside video at videos/<video_id>.json
+                        if let Some(ref meta_json) = result.metadata_json {
+                            let metadata_key = format!("videos/{vid}.json");
+                            match s3
+                                .upload_bytes(
+                                    meta_json.as_bytes(),
+                                    &metadata_key,
+                                    "application/json",
+                                )
+                                .await
+                            {
+                                Ok(()) => {
+                                    debug!(
+                                        archive_id,
+                                        video_id = %vid,
+                                        s3_key = %metadata_key,
+                                        "Saved yt-dlp metadata JSON alongside video"
+                                    );
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        archive_id,
+                                        video_id = %vid,
+                                        error = %e,
+                                        "Failed to save yt-dlp metadata JSON alongside video"
+                                    );
+                                }
                             }
                         }
                     }
@@ -824,11 +966,11 @@ async fn process_archive_inner(
     // Capture screenshot if enabled (non-fatal if it fails)
     if screenshot.is_enabled() {
         match screenshot.capture(&link.normalized_url).await {
-            Ok(png_data) => {
-                let screenshot_key = format!("{s3_prefix}render/screenshot.png");
-                let size_bytes = Some(png_data.len() as i64);
+            Ok(webp_data) => {
+                let screenshot_key = format!("{s3_prefix}render/screenshot.webp");
+                let size_bytes = Some(webp_data.len() as i64);
                 if let Err(e) = s3
-                    .upload_bytes(&png_data, &screenshot_key, "image/png")
+                    .upload_bytes(&webp_data, &screenshot_key, "image/webp")
                     .await
                 {
                     warn!(archive_id, error = %e, "Failed to upload screenshot");
@@ -840,7 +982,7 @@ async fn process_archive_inner(
                         archive_id,
                         ArtifactKind::Screenshot.as_str(),
                         &screenshot_key,
-                        Some("image/png"),
+                        Some("image/webp"),
                         size_bytes,
                         None,
                     )
