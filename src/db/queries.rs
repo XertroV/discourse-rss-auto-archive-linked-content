@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::collections::HashMap;
 use sqlx::SqlitePool;
 
 use super::models::{
@@ -73,14 +74,9 @@ pub async fn get_all_threads(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<ThreadDisplay>> {
-    let order_clause = match sort_by {
-        "name" => "ORDER BY p.title ASC",
-        "created" => "ORDER BY p.published_at DESC",
-        "updated" => "ORDER BY last_archived_at DESC NULLS LAST",
-        _ => "ORDER BY p.published_at DESC", // default to created
-    };
-
-    let query = format!(
+    // Fetch per-post thread stats, then aggregate by thread/topic so we only
+    // show one card per thread regardless of post count.
+    let rows: Vec<ThreadDisplay> = sqlx::query_as(
         r"
         SELECT
             p.guid,
@@ -96,17 +92,101 @@ pub async fn get_all_threads(
         LEFT JOIN links l ON lo.link_id = l.id
         LEFT JOIN archives a ON l.id = a.link_id
         GROUP BY p.id
-        {order_clause}
-        LIMIT ? OFFSET ?
+        ORDER BY p.published_at DESC
         "
-    );
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch thread rows")?;
 
-    sqlx::query_as(&query)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await
-        .context("Failed to fetch threads")
+    // Aggregate rows by thread key.
+    let mut threads: HashMap<String, ThreadDisplay> = HashMap::new();
+
+    for row in rows {
+        let key = thread_key_from_url(&row.discourse_url);
+
+        threads
+            .entry(key)
+            .and_modify(|agg| {
+                agg.link_count += row.link_count;
+                agg.archive_count += row.archive_count;
+                agg.last_archived_at = max_opt_string(agg.last_archived_at.take(), row.last_archived_at.clone());
+                agg.published_at = min_opt_string(agg.published_at.take(), row.published_at.clone());
+            })
+            .or_insert(row);
+    }
+
+    let mut threads: Vec<ThreadDisplay> = threads.into_values().collect();
+
+    // Sort according to requested order, nulls last for dates.
+    match sort_by {
+        "name" => threads.sort_by(|a, b| a
+            .title
+            .as_deref()
+            .unwrap_or("")
+            .to_lowercase()
+            .cmp(&b.title.as_deref().unwrap_or("").to_lowercase())),
+        "updated" => threads.sort_by(|a, b| cmp_opt_desc(&a.last_archived_at, &b.last_archived_at)),
+        _ => threads.sort_by(|a, b| cmp_opt_desc(&a.published_at, &b.published_at)),
+    }
+
+    // Apply pagination after aggregation.
+    let start = offset.max(0) as usize;
+    let end = (start + limit.max(0) as usize).min(threads.len());
+
+    Ok(if start >= threads.len() {
+        Vec::new()
+    } else {
+        threads[start..end].to_vec()
+    })
+}
+
+fn thread_key_from_url(url: &str) -> String {
+    if let Ok(parsed) = url::Url::parse(url) {
+        let host = parsed.host_str().unwrap_or("");
+        let segments: Vec<_> = parsed
+            .path_segments()
+            .map(|s| s.collect())
+            .unwrap_or_else(Vec::new);
+
+        if segments.len() >= 3 && segments[0] == "t" {
+            // /t/<slug>/<topic_id>/<post_no?>
+            let topic_id = segments[2];
+            return format!("{host}:{topic_id}");
+        }
+
+        return format!("{host}:{}", parsed.path());
+    }
+
+    // Fallback to the raw URL if parsing fails
+    url.to_string()
+}
+
+fn cmp_opt_desc(a: &Option<String>, b: &Option<String>) -> std::cmp::Ordering {
+    match (a, b) {
+        (Some(a), Some(b)) => b.cmp(a),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
+}
+
+fn max_opt_string(a: Option<String>, b: Option<String>) -> Option<String> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(std::cmp::max(a, b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
+}
+
+fn min_opt_string(a: Option<String>, b: Option<String>) -> Option<String> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(std::cmp::min(a, b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
 }
 
 // ========== Links ==========
