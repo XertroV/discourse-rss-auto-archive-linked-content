@@ -1,4 +1,5 @@
 use crate::db::{Archive, Link, Post};
+use crate::web::diff::DiffResult;
 
 /// Base HTML layout.
 fn base_layout(title: &str, content: &str) -> String {
@@ -42,6 +43,79 @@ fn base_layout(title: &str, content: &str) -> String {
         }}
         .nsfw-toggle {{ cursor: pointer; }}
         .nsfw-toggle.active {{ background-color: #dc3545; color: white; border-color: #dc3545; }}
+        /* Diff styles */
+        .diff-container {{
+            font-family: monospace;
+            font-size: 0.9em;
+            overflow-x: auto;
+            border: 1px solid var(--pico-muted-border-color);
+            border-radius: 4px;
+        }}
+        .diff-line {{
+            display: flex;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }}
+        .diff-line-num {{
+            min-width: 3em;
+            padding: 0 0.5em;
+            text-align: right;
+            user-select: none;
+            color: var(--pico-muted-color);
+            border-right: 1px solid var(--pico-muted-border-color);
+        }}
+        .diff-line-content {{
+            padding: 0 0.5em;
+            flex: 1;
+        }}
+        .diff-symbol {{
+            width: 1.5em;
+            text-align: center;
+            font-weight: bold;
+        }}
+        .diff-added {{
+            background-color: rgba(40, 167, 69, 0.2);
+        }}
+        .diff-added .diff-symbol {{
+            color: #28a745;
+        }}
+        .diff-removed {{
+            background-color: rgba(220, 53, 69, 0.2);
+        }}
+        .diff-removed .diff-symbol {{
+            color: #dc3545;
+        }}
+        .diff-unchanged {{
+            background-color: transparent;
+        }}
+        .diff-stats {{
+            display: flex;
+            gap: 1em;
+            margin-bottom: 1em;
+        }}
+        .diff-stat-additions {{
+            color: #28a745;
+        }}
+        .diff-stat-deletions {{
+            color: #dc3545;
+        }}
+        .comparison-header {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1em;
+            margin-bottom: 1em;
+        }}
+        .comparison-archive {{
+            padding: 1em;
+            border: 1px solid var(--pico-muted-border-color);
+            border-radius: 4px;
+        }}
+        [data-theme="dark"] .diff-added {{
+            background-color: rgba(40, 167, 69, 0.3);
+        }}
+        [data-theme="dark"] .diff-removed {{
+            background-color: rgba(220, 53, 69, 0.3);
+        }}
     </style>
     <script>
         (function() {{
@@ -295,6 +369,19 @@ pub fn render_archive_detail(archive: &Archive, link: &Link) -> String {
     }
 
     content.push_str("</article>");
+
+    // Comparison form
+    content.push_str(&format!(
+        r#"<section class="comparison-form">
+            <h2>Compare with Another Archive</h2>
+            <form method="get" action="/compare/{}/{{}}" onsubmit="this.action = '/compare/{}/'+this.archiveId.value; return true;">
+                <input type="number" name="archiveId" placeholder="Archive ID" required min="1" style="width: 150px;">
+                <button type="submit">Compare</button>
+            </form>
+            <p><small>Enter an archive ID to compare content differences.</small></p>
+        </section>"#,
+        archive.id, archive.id
+    ));
 
     base_layout(title, &content)
 }
@@ -639,4 +726,130 @@ fn html_escape(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#x27;")
+}
+
+/// Render archive comparison page with diff view.
+pub fn render_comparison(
+    archive1: &Archive,
+    link1: &Link,
+    archive2: &Archive,
+    link2: &Link,
+    diff_result: &DiffResult,
+) -> String {
+    let title1 = archive1
+        .content_title
+        .as_deref()
+        .unwrap_or("Untitled Archive");
+    let title2 = archive2
+        .content_title
+        .as_deref()
+        .unwrap_or("Untitled Archive");
+
+    let mut content = String::from("<h1>Archive Comparison</h1>");
+
+    // Comparison header with both archives' info
+    content.push_str(r#"<div class="comparison-header">"#);
+
+    // Archive 1 info
+    content.push_str(&format!(
+        r#"<div class="comparison-archive">
+            <h3><a href="/archive/{}">{}</a></h3>
+            <p class="meta">
+                <strong>URL:</strong> <a href="{}">{}</a><br>
+                <strong>Archived:</strong> {}
+            </p>
+        </div>"#,
+        archive1.id,
+        html_escape(title1),
+        html_escape(&link1.normalized_url),
+        truncate_url(&link1.normalized_url, 50),
+        archive1.archived_at.as_deref().unwrap_or("pending")
+    ));
+
+    // Archive 2 info
+    content.push_str(&format!(
+        r#"<div class="comparison-archive">
+            <h3><a href="/archive/{}">{}</a></h3>
+            <p class="meta">
+                <strong>URL:</strong> <a href="{}">{}</a><br>
+                <strong>Archived:</strong> {}
+            </p>
+        </div>"#,
+        archive2.id,
+        html_escape(title2),
+        html_escape(&link2.normalized_url),
+        truncate_url(&link2.normalized_url, 50),
+        archive2.archived_at.as_deref().unwrap_or("pending")
+    ));
+
+    content.push_str("</div>");
+
+    // Diff statistics
+    content.push_str("<section><h2>Content Diff</h2>");
+
+    if diff_result.is_identical {
+        content.push_str("<p><em>The content text of these archives is identical.</em></p>");
+    } else {
+        content.push_str(&format!(
+            r#"<div class="diff-stats">
+                <span class="diff-stat-additions">+{} additions</span>
+                <span class="diff-stat-deletions">-{} deletions</span>
+            </div>"#,
+            diff_result.additions, diff_result.deletions
+        ));
+
+        // Render diff lines
+        content.push_str(r#"<div class="diff-container">"#);
+
+        for line in &diff_result.lines {
+            let css_class = line.change_type.css_class();
+            let symbol = line.change_type.symbol();
+            let line_num = match line.change_type {
+                crate::web::diff::ChangeType::Added => {
+                    line.new_line_num.map_or(String::new(), |n| n.to_string())
+                }
+                crate::web::diff::ChangeType::Removed => {
+                    line.old_line_num.map_or(String::new(), |n| n.to_string())
+                }
+                crate::web::diff::ChangeType::Unchanged => {
+                    line.old_line_num.map_or(String::new(), |n| n.to_string())
+                }
+            };
+
+            content.push_str(&format!(
+                r#"<div class="diff-line {}">
+                    <span class="diff-line-num">{}</span>
+                    <span class="diff-symbol">{}</span>
+                    <span class="diff-line-content">{}</span>
+                </div>"#,
+                css_class,
+                line_num,
+                symbol,
+                html_escape(&line.content)
+            ));
+        }
+
+        content.push_str("</div>");
+    }
+
+    // Handle case where both archives have no content text
+    if archive1.content_text.is_none() && archive2.content_text.is_none() {
+        content.push_str(
+            "<p><em>Neither archive has text content to compare. They may contain only media.</em></p>",
+        );
+    }
+
+    content.push_str("</section>");
+
+    base_layout("Archive Comparison", &content)
+}
+
+/// Truncate a URL for display.
+fn truncate_url(url: &str, max_len: usize) -> String {
+    if url.len() <= max_len {
+        html_escape(url)
+    } else {
+        let truncated = &url[..max_len];
+        format!("{}...", html_escape(truncated))
+    }
 }
