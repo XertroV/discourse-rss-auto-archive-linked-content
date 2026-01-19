@@ -367,7 +367,9 @@ impl ScreenshotService {
         // Reject empty or corrupted screenshots
         let size = webp_data.len();
         if size == 0 {
-            anyhow::bail!("Screenshot is empty (0 bytes) - page may not have loaded properly for {url}");
+            anyhow::bail!(
+                "Screenshot is empty (0 bytes) - page may not have loaded properly for {url}"
+            );
         } else if size < 100 {
             // Very small files are likely corrupted or blank pages
             // This is a warning case that we convert to an error for consistency
