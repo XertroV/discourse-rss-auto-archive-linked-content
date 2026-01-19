@@ -2,13 +2,12 @@ use std::path::Path;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use once_cell::sync::Lazy;
 use regex::Regex;
 
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::gallerydl;
 
-static PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
     vec![
         // Standard Instagram URLs
         Regex::new(r"^https?://(www\.)?instagram\.com/p/[A-Za-z0-9_-]+").unwrap(),
@@ -26,7 +25,7 @@ pub struct InstagramHandler;
 
 impl InstagramHandler {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 }

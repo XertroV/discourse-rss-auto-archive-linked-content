@@ -2,13 +2,12 @@ use std::path::Path;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use once_cell::sync::Lazy;
 use regex::Regex;
 
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::ytdlp;
 
-static PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
     vec![
         Regex::new(r"^https?://(www\.)?youtube\.com/watch").unwrap(),
         Regex::new(r"^https?://(www\.)?youtube\.com/shorts/").unwrap(),
@@ -23,7 +22,7 @@ pub struct YouTubeHandler;
 
 impl YouTubeHandler {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 }

@@ -252,8 +252,7 @@ pub fn render_stats(status_counts: &[(String, i64)], link_count: i64, post_count
 
     for (status, count) in status_counts {
         content.push_str(&format!(
-            "<tr><td class=\"status-{}\">{}</td><td>{}</td></tr>",
-            status, status, count
+            "<tr><td class=\"status-{status}\">{status}</td><td>{count}</td></tr>"
         ));
     }
 

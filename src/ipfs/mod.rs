@@ -51,7 +51,7 @@ impl IpfsClient {
 
     /// Check if IPFS is enabled.
     #[must_use]
-    pub fn is_enabled(&self) -> bool {
+    pub const fn is_enabled(&self) -> bool {
         self.enabled
     }
 
@@ -91,7 +91,7 @@ impl IpfsClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "unknown".to_string());
-            anyhow::bail!("IPFS add failed: {} - {}", status, body);
+            anyhow::bail!("IPFS add failed: {status} - {body}");
         }
 
         let add_response: AddResponse = response
@@ -134,7 +134,7 @@ impl IpfsClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "unknown".to_string());
-            anyhow::bail!("IPFS add failed: {} - {}", status, body);
+            anyhow::bail!("IPFS add failed: {status} - {body}");
         }
 
         let add_response: AddResponse = response
@@ -191,7 +191,7 @@ impl IpfsClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "unknown".to_string());
-            anyhow::bail!("IPFS add failed: {} - {}", status, body);
+            anyhow::bail!("IPFS add failed: {status} - {body}");
         }
 
         // The response contains multiple JSON objects, one per file plus the directory

@@ -2,13 +2,12 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use once_cell::sync::Lazy;
 use regex::Regex;
 use scraper::{Html, Selector};
 
 use super::traits::{ArchiveResult, SiteHandler};
 
-static PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
     vec![
         // Match any HTTP(S) URL as fallback
         Regex::new(r"^https?://").unwrap(),
@@ -19,7 +18,7 @@ pub struct GenericHandler;
 
 impl GenericHandler {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 }

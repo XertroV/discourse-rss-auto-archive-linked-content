@@ -103,7 +103,7 @@ impl S3Client {
                 // Check if it was a 404
                 Ok(false)
             }
-            Err(e) => Err(anyhow::anyhow!("S3 head object failed: {}", e)),
+            Err(e) => Err(anyhow::anyhow!("S3 head object failed: {e}")),
         }
     }
 

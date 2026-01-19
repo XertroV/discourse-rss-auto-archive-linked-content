@@ -2,20 +2,20 @@ use std::path::Path;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use once_cell::sync::Lazy;
 use regex::Regex;
 
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::ytdlp;
 
-static PATTERNS: Lazy<Vec<Regex>> =
-    Lazy::new(|| vec![Regex::new(r"^https?://(www\.)?streamable\.com/[a-zA-Z0-9]+").unwrap()]);
+static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
+    vec![Regex::new(r"^https?://(www\.)?streamable\.com/[a-zA-Z0-9]+").unwrap()]
+});
 
 pub struct StreamableHandler;
 
 impl StreamableHandler {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 }

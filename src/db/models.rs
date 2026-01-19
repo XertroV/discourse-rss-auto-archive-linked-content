@@ -51,7 +51,7 @@ pub enum ArchiveStatus {
 
 impl ArchiveStatus {
     #[must_use]
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Pending => "pending",
             Self::Processing => "processing",
@@ -87,7 +87,7 @@ pub enum ContentType {
 
 impl ContentType {
     #[must_use]
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Video => "video",
             Self::Image => "image",
@@ -143,7 +143,7 @@ pub enum ArtifactKind {
 
 impl ArtifactKind {
     #[must_use]
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::RawHtml => "raw_html",
             Self::Screenshot => "screenshot",
@@ -220,7 +220,7 @@ pub enum SubmissionStatus {
 
 impl SubmissionStatus {
     #[must_use]
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Pending => "pending",
             Self::Processing => "processing",

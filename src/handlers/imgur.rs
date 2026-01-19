@@ -2,13 +2,12 @@ use std::path::Path;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use once_cell::sync::Lazy;
 use regex::Regex;
 
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::gallerydl;
 
-static PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
     vec![
         // Direct image links
         Regex::new(r"^https?://i\.imgur\.com/[A-Za-z0-9]+\.[a-z]+").unwrap(),
@@ -28,7 +27,7 @@ pub struct ImgurHandler;
 
 impl ImgurHandler {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 }

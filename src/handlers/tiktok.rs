@@ -2,13 +2,12 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use once_cell::sync::Lazy;
 use regex::Regex;
 
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::ytdlp;
 
-static PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
     vec![
         Regex::new(r"^https?://(www\.)?tiktok\.com/").unwrap(),
         Regex::new(r"^https?://vm\.tiktok\.com/").unwrap(),
@@ -20,7 +19,7 @@ pub struct TikTokHandler;
 
 impl TikTokHandler {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 }
