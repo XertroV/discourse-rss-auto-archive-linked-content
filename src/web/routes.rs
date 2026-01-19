@@ -37,6 +37,7 @@ pub fn router() -> Router<AppState> {
         .route("/feed.atom", get(feed_atom))
         .route("/api/archives", get(api_archives))
         .route("/api/search", get(api_search))
+        .route("/s3/*path", get(serve_s3_file))
 }
 
 // ========== HTML Routes ==========
@@ -563,4 +564,71 @@ async fn api_search(
         per_page,
     })
     .into_response()
+}
+
+// ========== S3 File Serving ==========
+
+async fn serve_s3_file(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+) -> Response {
+    // Path already contains the full path after /s3/, use it directly as S3 key
+    let s3_key = &path;
+    
+    // Check if S3 is public (AWS S3) - if so, redirect to public URL
+    if state.s3.is_public() {
+        let public_url = state.s3.get_public_url(s3_key);
+        return axum::response::Redirect::permanent(&public_url).into_response();
+    }
+
+    // For HTML files, prefer view.html over raw.html
+    let mut final_key = s3_key.to_string();
+    if s3_key.ends_with("/raw.html") {
+        let view_key = s3_key.replace("/raw.html", "/view.html");
+        // Check if view.html exists
+        match state.s3.object_exists(&view_key).await {
+            Ok(true) => {
+                final_key = view_key;
+            }
+            Ok(false) => {
+                // Fallback to raw.html
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to check if view.html exists, using raw.html");
+            }
+        }
+    }
+
+    // Download file from S3
+    let (content, content_type) = match state.s3.download_file(&final_key).await {
+        Ok((bytes, ct)) => (bytes, ct),
+        Err(e) => {
+            tracing::error!(key = %final_key, error = %e, "Failed to download file from S3");
+            return (StatusCode::NOT_FOUND, "File not found").into_response();
+        }
+    };
+
+    // Determine proper content type
+    let mime_type = if content_type == "application/octet-stream" || content_type.is_empty() {
+        // Try to guess from file extension
+        mime_guess::from_path(&final_key)
+            .first_or_octet_stream()
+            .to_string()
+    } else {
+        content_type
+    };
+
+    // For HTML files, ensure charset is set
+    let final_content_type = if mime_type.starts_with("text/html") {
+        "text/html; charset=utf-8"
+    } else {
+        &mime_type
+    };
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, final_content_type)],
+        content,
+    )
+        .into_response()
 }

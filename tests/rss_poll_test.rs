@@ -201,9 +201,9 @@ async fn test_poll_once_extracts_links() {
             .expect("Database error");
     assert!(youtube_link.is_some(), "YouTube link should be extracted");
 
-    // Check that Reddit link was extracted (generic normalization preserves www.reddit.com)
+    // Check that Reddit link was extracted (generic normalization converts www.reddit.com to old.reddit.com)
     let reddit_link =
-        get_link_by_normalized_url(db.pool(), "https://www.reddit.com/r/test/comments/abc123")
+        get_link_by_normalized_url(db.pool(), "https://old.reddit.com/r/test/comments/abc123")
             .await
             .expect("Database error");
     assert!(reddit_link.is_some(), "Reddit link should be extracted");

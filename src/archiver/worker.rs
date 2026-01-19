@@ -10,10 +10,10 @@ use super::rate_limiter::DomainRateLimiter;
 use super::screenshot::ScreenshotService;
 use crate::config::Config;
 use crate::db::{
-    get_failed_archives_for_retry, get_link, get_pending_archives, reset_archive_for_retry,
-    reset_stuck_processing_archives, reset_todays_failed_archives, set_archive_complete,
-    set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw, set_archive_processing,
-    set_archive_skipped, update_link_last_archived, Database,
+    get_archive, get_failed_archives_for_retry, get_link, get_pending_archives,
+    reset_archive_for_retry, reset_stuck_processing_archives, reset_todays_failed_archives,
+    set_archive_complete, set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw,
+    set_archive_processing, set_archive_skipped, update_link_last_archived, Database,
 };
 use crate::handlers::HANDLERS;
 use crate::ipfs::IpfsClient;
@@ -217,6 +217,81 @@ async fn process_archive(
     }
 }
 
+/// Create view.html with archive banner injected.
+async fn create_view_html(
+    db: &Database,
+    archive_id: i64,
+    link_id: i64,
+    raw_html_path: &Path,
+    work_dir: &Path,
+    s3: &S3Client,
+    s3_prefix: &str,
+) -> Result<()> {
+    // Get archive and link info
+    let archive = get_archive(db.pool(), archive_id)
+        .await?
+        .context("Archive not found")?;
+    let link = get_link(db.pool(), link_id)
+        .await?
+        .context("Link not found")?;
+
+    // Read raw HTML
+    let raw_html = tokio::fs::read_to_string(raw_html_path)
+        .await
+        .context("Failed to read raw.html")?;
+
+    // Inject archive banner
+    let banner_html = crate::web::templates::render_archive_banner(&archive, &link);
+    let view_html = inject_archive_banner(&raw_html, &banner_html);
+
+    // Save view.html locally
+    let view_html_path = work_dir.join("view.html");
+    tokio::fs::write(&view_html_path, view_html)
+        .await
+        .context("Failed to write view.html")?;
+
+    // Upload view.html to S3
+    let view_key = format!("{s3_prefix}media/view.html");
+    s3.upload_file(&view_html_path, &view_key)
+        .await
+        .context("Failed to upload view.html")?;
+
+    Ok(())
+}
+
+/// Inject archive banner into HTML content.
+fn inject_archive_banner(html: &str, banner: &str) -> String {
+    // Try to find <body> tag
+    if let Some(body_pos) = html.find("<body") {
+        // Find the end of the opening body tag
+        let body_end = if let Some(close_pos) = html[body_pos..].find('>') {
+            body_pos + close_pos + 1
+        } else {
+            body_pos
+        };
+        
+        // Insert banner after opening body tag
+        format!("{}{}{}", &html[..body_end], banner, &html[body_end..])
+    } else {
+        // No body tag, inject at start of document
+        // Try to find </head> or <html> to inject after
+        if let Some(head_end_pos) = html.find("</head>") {
+            format!("{}{}{}", &html[..head_end_pos + 7], banner, &html[head_end_pos + 7..])
+        } else if let Some(html_pos) = html.find("<html") {
+            // Find end of opening html tag
+            let html_end = if let Some(close_pos) = html[html_pos..].find('>') {
+                html_pos + close_pos + 1
+            } else {
+                html_pos
+            };
+            format!("{}{}{}", &html[..html_end], banner, &html[html_end..])
+        } else {
+            // Just prepend to the whole document
+            format!("{}{}", banner, html)
+        }
+    }
+}
+
 async fn process_archive_inner(
     db: &Database,
     s3: &S3Client,
@@ -265,8 +340,20 @@ async fn process_archive_inner(
         if local_path.exists() {
             let key = format!("{s3_prefix}media/{primary}");
             s3.upload_file(&local_path, &key).await?;
-            primary_key = Some(key);
-            primary_local_path = Some(local_path);
+            primary_key = Some(key.clone());
+            primary_local_path = Some(local_path.clone());
+
+            // If this is an HTML file (raw.html), create view.html with archive banner
+            if primary == "raw.html" {
+                match create_view_html(db, archive_id, link_id, &local_path, &work_dir, s3, &s3_prefix).await {
+                    Ok(_) => {
+                        debug!(archive_id, "Created view.html with archive banner");
+                    }
+                    Err(e) => {
+                        warn!(archive_id, error = %e, "Failed to create view.html, continuing without banner");
+                    }
+                }
+            }
         }
     }
 

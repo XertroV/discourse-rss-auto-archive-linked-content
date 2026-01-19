@@ -1,7 +1,7 @@
 mod diff;
 mod feeds;
 mod routes;
-mod templates;
+pub mod templates;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -22,6 +22,7 @@ use tracing::{error, info};
 
 use crate::config::Config;
 use crate::db::Database;
+use crate::s3::S3Client;
 use crate::tls;
 
 /// Shared application state.
@@ -29,6 +30,7 @@ use crate::tls;
 pub struct AppState {
     pub db: Database,
     pub config: Arc<Config>,
+    pub s3: S3Client,
 }
 
 /// Start the web server.
@@ -53,9 +55,14 @@ async fn serve_http_only(config: Config, db: Database) -> Result<()> {
         .parse()
         .context("Invalid web server address")?;
 
+    let s3_client = S3Client::new(&config)
+        .await
+        .context("Failed to initialize S3 client")?;
+
     let state = AppState {
         db,
         config: Arc::new(config),
+        s3: s3_client,
     };
 
     let app = create_app(state);
@@ -93,9 +100,14 @@ async fn serve_with_tls(config: Config, db: Database) -> Result<()> {
     let mut acme_state = acme_config.state();
     let acceptor = acme_state.axum_acceptor(acme_state.default_rustls_config());
 
+    let s3_client = S3Client::new(&config)
+        .await
+        .context("Failed to initialize S3 client")?;
+
     let state = AppState {
         db,
         config: Arc::new(config),
+        s3: s3_client,
     };
 
     let app = create_app(state);

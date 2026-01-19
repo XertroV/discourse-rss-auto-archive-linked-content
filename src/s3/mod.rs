@@ -12,6 +12,7 @@ use crate::config::Config;
 #[derive(Clone)]
 pub struct S3Client {
     bucket: Box<Bucket>,
+    endpoint: Option<String>,
 }
 
 impl S3Client {
@@ -47,7 +48,10 @@ impl S3Client {
             bucket
         };
 
-        Ok(Self { bucket })
+        Ok(Self {
+            bucket,
+            endpoint: config.s3_endpoint.clone(),
+        })
     }
 
     /// Upload a file to S3.
@@ -149,6 +153,48 @@ impl S3Client {
             .context("Failed to delete S3 object")?;
 
         Ok(())
+    }
+
+    /// Download a file from S3.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the download fails.
+    pub async fn download_file(&self, s3_key: &str) -> Result<(Vec<u8>, String)> {
+        debug!(key = %s3_key, "Downloading file from S3");
+
+        let response = self
+            .bucket
+            .get_object(s3_key)
+            .await
+            .context("Failed to download file from S3")?;
+
+        // Extract content type from response headers
+        let content_type = response
+            .headers()
+            .iter()
+            .find(|(k, _)| k.as_str().eq_ignore_ascii_case("content-type"))
+            .and_then(|(_, v)| std::str::from_utf8(v.as_ref()).ok())
+            .unwrap_or("application/octet-stream")
+            .to_string();
+
+        Ok((response.bytes().to_vec(), content_type))
+    }
+
+    /// Check if the S3 bucket is public (AWS S3, R2) or private (MinIO).
+    ///
+    /// Returns `true` if using AWS S3 (no custom endpoint) or R2 (Cloudflare),
+    /// `false` if using MinIO or other private endpoints.
+    #[must_use]
+    pub fn is_public(&self) -> bool {
+        match &self.endpoint {
+            None => true, // public (S3, R2, etc)
+            Some(endpoint) => {
+                // R2 endpoints typically contain "r2" or "cloudflare"
+                let endpoint_lower = endpoint.to_lowercase();
+                !endpoint_lower.contains("minio")
+            }
+        }
     }
 }
 

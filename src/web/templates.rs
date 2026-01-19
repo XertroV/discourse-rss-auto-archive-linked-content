@@ -867,6 +867,87 @@ fn html_escape(s: &str) -> String {
         .replace('\'', "&#x27;")
 }
 
+/// Render archive banner for HTML files (archive.today style).
+pub fn render_archive_banner(archive: &Archive, link: &Link) -> String {
+    let mut banner = String::from(
+        r#"<div id="archive-banner" class="archive-banner">
+            <details>
+                <summary>
+                    <span class="banner-icon">📦</span>
+                    <span class="banner-text">This is an archived page</span>
+                    <span class="banner-toggle">▼</span>
+                </summary>
+                <div class="banner-content">"#,
+    );
+
+    banner.push_str(&format!(
+        r#"<div class="banner-row">
+                <strong>Archived:</strong> {}
+            </div>"#,
+        html_escape(archive.archived_at.as_deref().unwrap_or("pending"))
+    ));
+
+    banner.push_str(&format!(
+        r#"<div class="banner-row">
+                <strong>Original URL:</strong> <a href="{}" target="_blank" rel="noopener">{}</a>
+            </div>"#,
+        html_escape(&link.normalized_url),
+        html_escape(&link.normalized_url)
+    ));
+
+    banner.push_str(&format!(
+        r#"<div class="banner-row">
+                <strong>Domain:</strong> {}
+            </div>"#,
+        html_escape(&link.domain)
+    ));
+
+    banner.push_str(&format!(
+        r#"<div class="banner-row">
+                <strong>Archive ID:</strong> <a href="/archive/{}">#{}</a>
+            </div>"#,
+        archive.id, archive.id
+    ));
+
+    if let Some(ref title) = archive.content_title {
+        banner.push_str(&format!(
+            r#"<div class="banner-row">
+                    <strong>Title:</strong> {}
+                </div>"#,
+            html_escape(title)
+        ));
+    }
+
+    if let Some(ref author) = archive.content_author {
+        banner.push_str(&format!(
+            r#"<div class="banner-row">
+                    <strong>Author:</strong> {}
+                </div>"#,
+            html_escape(author)
+        ));
+    }
+
+    banner.push_str(r#"<div class="banner-links">"#);
+
+    if let Some(ref wayback) = archive.wayback_url {
+        banner.push_str(&format!(
+            r#"<a href="{}" target="_blank" rel="noopener" class="banner-link">Wayback Machine</a>"#,
+            html_escape(wayback)
+        ));
+    }
+
+    if let Some(ref archive_today) = archive.archive_today_url {
+        banner.push_str(&format!(
+            r#"<a href="{}" target="_blank" rel="noopener" class="banner-link">Archive.today</a>"#,
+            html_escape(archive_today)
+        ));
+    }
+
+    banner.push_str("</div></div></details></div>");
+
+    banner
+}
+
 /// Render archive comparison page with diff view.
 pub fn render_comparison(
     archive1: &Archive,
