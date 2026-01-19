@@ -14,8 +14,8 @@ use crate::db::{
     count_archives_by_status, count_links, count_posts, count_submissions_from_ip_last_hour,
     create_pending_archive, get_archive, get_archive_by_link_id, get_archives_by_domain,
     get_archives_for_post, get_link, get_link_by_normalized_url, get_post_by_guid,
-    get_recent_archives, insert_link, insert_submission, search_archives, submission_exists_for_url,
-    NewLink, NewSubmission,
+    get_recent_archives, insert_link, insert_submission, search_archives,
+    submission_exists_for_url, NewLink, NewSubmission,
 };
 use crate::handlers::normalize_url;
 

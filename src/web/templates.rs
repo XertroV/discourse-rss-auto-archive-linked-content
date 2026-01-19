@@ -147,7 +147,10 @@ pub fn render_archive_detail(archive: &Archive, link: &Link) -> String {
 
     if let Some(ref ipfs_cid) = archive.ipfs_cid {
         content.push_str("<section><h2>IPFS</h2>");
-        content.push_str(&format!("<p><strong>CID:</strong> <code>{}</code></p>", html_escape(ipfs_cid)));
+        content.push_str(&format!(
+            "<p><strong>CID:</strong> <code>{}</code></p>",
+            html_escape(ipfs_cid)
+        ));
         content.push_str("<p><strong>Public Gateways:</strong></p><ul>");
         content.push_str(&format!(
             "<li><a href=\"https://ipfs.io/ipfs/{cid}\" target=\"_blank\" rel=\"noopener\">ipfs.io</a></li>",
@@ -291,12 +294,12 @@ fn render_archive_card(archive: &Archive) -> String {
 pub fn render_submit_form(error: Option<&str>, success: Option<&str>) -> String {
     let mut content = String::from("<h1>Submit URL for Archiving</h1>");
 
-    content.push_str(r#"
+    content.push_str(r"
         <article>
             <p>Submit a URL to be archived. Supported sites include Reddit, Twitter/X, TikTok, YouTube, Instagram, Imgur, and more.</p>
-            <p><strong>Rate limit:</strong> 10 submissions per hour per IP address.</p>
+            <p><strong>Rate limit:</strong> 60 submissions per hour per IP address.</p>
         </article>
-    "#);
+    ");
 
     if let Some(err) = error {
         content.push_str(&format!(
@@ -312,7 +315,8 @@ pub fn render_submit_form(error: Option<&str>, success: Option<&str>) -> String 
         ));
     }
 
-    content.push_str(r#"
+    content.push_str(
+        r#"
         <form method="post" action="/submit">
             <label for="url">URL to Archive</label>
             <input type="url" id="url" name="url" required
@@ -321,7 +325,8 @@ pub fn render_submit_form(error: Option<&str>, success: Option<&str>) -> String 
             <small>Enter the full URL including https://</small>
             <button type="submit">Submit for Archiving</button>
         </form>
-    "#);
+    "#,
+    );
 
     base_layout("Submit URL", &content)
 }

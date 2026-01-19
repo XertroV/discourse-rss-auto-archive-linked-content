@@ -65,10 +65,7 @@ impl IpfsClient {
             anyhow::bail!("IPFS is not enabled");
         }
 
-        let filename = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("file");
+        let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
 
         let file_bytes = tokio::fs::read(path)
             .await
