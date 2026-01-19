@@ -53,7 +53,9 @@ impl SiteHandler for TikTokHandler {
     ) -> Result<ArchiveResult> {
         // Resolve short URLs first
         let resolved_url = if url.contains("vm.tiktok.com") {
-            resolve_short_url(url).await.unwrap_or_else(|_| url.to_string())
+            resolve_short_url(url)
+                .await
+                .unwrap_or_else(|_| url.to_string())
         } else {
             url.to_string()
         };

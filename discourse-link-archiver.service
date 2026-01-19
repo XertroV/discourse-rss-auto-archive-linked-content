@@ -1,0 +1,57 @@
+[Unit]
+Description=Discourse Link Archiver
+Documentation=https://github.com/XertroV/discourse-rss-auto-archive-linked-content
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=archiver
+Group=archiver
+
+# Working directory and binary
+WorkingDirectory=/opt/discourse-link-archiver
+ExecStart=/opt/discourse-link-archiver/bin/discourse-link-archiver
+
+# Environment file (contains secrets like AWS keys)
+EnvironmentFile=/opt/discourse-link-archiver/config.env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=discourse-link-archiver
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# Resource limits
+MemoryMax=2G
+TasksMax=64
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# Allow read-write access to data directory
+ReadWritePaths=/opt/discourse-link-archiver/data
+
+# Allow network access
+PrivateNetwork=false
+
+# Allow executing yt-dlp and gallery-dl
+ExecSearchPath=/opt/discourse-link-archiver/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=multi-user.target

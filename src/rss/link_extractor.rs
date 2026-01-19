@@ -196,10 +196,16 @@ mod tests {
         let links = extract_links(html);
         assert_eq!(links.len(), 2);
 
-        let quoted = links.iter().find(|l| l.url == "https://quoted.com").unwrap();
+        let quoted = links
+            .iter()
+            .find(|l| l.url == "https://quoted.com")
+            .unwrap();
         assert!(quoted.in_quote);
 
-        let normal = links.iter().find(|l| l.url == "https://normal.com").unwrap();
+        let normal = links
+            .iter()
+            .find(|l| l.url == "https://normal.com")
+            .unwrap();
         assert!(!normal.in_quote);
     }
 

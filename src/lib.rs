@@ -4,6 +4,7 @@
 //! to S3, and serves a public web UI for browsing archives.
 
 pub mod archiver;
+pub mod backup;
 pub mod config;
 pub mod db;
 pub mod handlers;

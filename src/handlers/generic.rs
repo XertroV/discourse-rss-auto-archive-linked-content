@@ -57,7 +57,10 @@ impl SiteHandler for GenericHandler {
 
         let response = client
             .get(url)
-            .header("User-Agent", "Mozilla/5.0 (compatible; discourse-link-archiver/0.1)")
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (compatible; discourse-link-archiver/0.1)",
+            )
             .send()
             .await
             .context("Failed to fetch URL")?;
@@ -80,7 +83,10 @@ impl SiteHandler for GenericHandler {
             });
         }
 
-        let body = response.text().await.context("Failed to read response body")?;
+        let body = response
+            .text()
+            .await
+            .context("Failed to read response body")?;
 
         // Save raw HTML
         let html_path = work_dir.join("raw.html");

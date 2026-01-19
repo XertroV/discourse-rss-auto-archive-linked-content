@@ -198,14 +198,13 @@ async fn api_archives(
     let per_page = params.per_page.unwrap_or(20).min(100);
     let offset = i64::from(page.saturating_sub(1)) * i64::from(per_page);
 
-    let archives =
-        match get_recent_archives(state.db.pool(), i64::from(per_page) + offset).await {
-            Ok(a) => a.into_iter().skip(offset as usize).collect::<Vec<_>>(),
-            Err(e) => {
-                tracing::error!("Failed to fetch archives: {e}");
-                return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
-            }
-        };
+    let archives = match get_recent_archives(state.db.pool(), i64::from(per_page) + offset).await {
+        Ok(a) => a.into_iter().skip(offset as usize).collect::<Vec<_>>(),
+        Err(e) => {
+            tracing::error!("Failed to fetch archives: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
 
     Json(ApiResponse {
         data: archives,

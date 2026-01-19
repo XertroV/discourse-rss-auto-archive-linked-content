@@ -1,9 +1,13 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+use discourse_link_archiver::backup::BackupManager;
 use discourse_link_archiver::config::Config;
 use discourse_link_archiver::db::Database;
+use discourse_link_archiver::s3::S3Client;
 use discourse_link_archiver::{rss, web};
 
 #[tokio::main]
@@ -47,6 +51,28 @@ async fn run() -> Result<()> {
 
     info!("Database initialized");
 
+    // Initialize S3 client
+    let s3_client = S3Client::new(&config)
+        .await
+        .context("Failed to initialize S3 client")?;
+
+    // Start backup scheduler if enabled
+    let backup_handle = if config.backup_enabled {
+        let backup_manager = BackupManager::new(&config, s3_client);
+        let interval = Duration::from_secs(config.backup_interval_hours * 3600);
+        info!(
+            interval_hours = config.backup_interval_hours,
+            retention = config.backup_retention_count,
+            "Backup scheduler enabled"
+        );
+        Some(tokio::spawn(async move {
+            backup_manager.run_loop(interval).await;
+        }))
+    } else {
+        info!("Backup scheduler disabled");
+        None
+    };
+
     // Start web server in background
     let web_config = config.clone();
     let web_db = db.clone();
@@ -69,6 +95,9 @@ async fn run() -> Result<()> {
     // Cancel tasks
     web_handle.abort();
     poll_handle.abort();
+    if let Some(handle) = backup_handle {
+        handle.abort();
+    }
 
     info!("Shutdown complete");
 

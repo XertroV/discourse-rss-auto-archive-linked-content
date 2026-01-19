@@ -13,7 +13,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Set up basic project structure (src/, tests/, templates/)
 - [x] Add rustfmt.toml and clippy configuration
 - [x] Create .env.example with all environment variables
-- [ ] Set up GitHub Actions for CI (build, test, clippy, fmt)
+- [x] Set up GitHub Actions for CI (build, test, clippy, fmt)
 
 ## Phase 2: Core Infrastructure
 
@@ -154,11 +154,11 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [ ] Write integration tests (with localstack or minio)
 
 ### Database Backup
-- [ ] Implement SQLite backup with VACUUM INTO
-- [ ] Compress backup with zstd
-- [ ] Upload backup to S3
-- [ ] Schedule daily backups
-- [ ] Implement backup retention (keep last 30)
+- [x] Implement SQLite backup with VACUUM INTO
+- [x] Compress backup with zstd
+- [x] Upload backup to S3
+- [x] Schedule daily backups
+- [x] Implement backup retention (keep last 30)
 
 ## Phase 7: Web UI
 
@@ -203,15 +203,15 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 ## Phase 8: Deployment
 
 ### Docker
-- [ ] Create Dockerfile with multi-stage build
-- [ ] Install yt-dlp, gallery-dl, ffmpeg in image
-- [ ] Create docker-compose.yml
-- [ ] Add MinIO service for local testing
+- [x] Create Dockerfile with multi-stage build
+- [x] Install yt-dlp, gallery-dl, ffmpeg in image
+- [x] Create docker-compose.yml
+- [x] Add MinIO service for local testing
 - [ ] Document Docker deployment
 
 ### Native Linux
-- [ ] Create install_dependencies.sh script
-- [ ] Create systemd service file
+- [x] Create install_dependencies.sh script
+- [x] Create systemd service file
 - [ ] Document manual installation steps
 
 ### Configuration

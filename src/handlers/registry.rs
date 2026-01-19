@@ -18,7 +18,8 @@ impl HandlerRegistry {
     pub fn register(&mut self, handler: Box<dyn SiteHandler>) {
         self.handlers.push(handler);
         // Sort by priority (highest first)
-        self.handlers.sort_by(|a, b| b.priority().cmp(&a.priority()));
+        self.handlers
+            .sort_by(|a, b| b.priority().cmp(&a.priority()));
     }
 
     /// Find the best handler for a URL.

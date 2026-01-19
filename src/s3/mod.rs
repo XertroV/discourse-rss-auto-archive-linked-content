@@ -23,8 +23,7 @@ impl S3Client {
     ///
     /// Returns an error if client initialization fails.
     pub async fn new(config: &Config) -> Result<Self> {
-        let access_key =
-            std::env::var("AWS_ACCESS_KEY_ID").context("AWS_ACCESS_KEY_ID not set")?;
+        let access_key = std::env::var("AWS_ACCESS_KEY_ID").context("AWS_ACCESS_KEY_ID not set")?;
         let secret_key =
             std::env::var("AWS_SECRET_ACCESS_KEY").context("AWS_SECRET_ACCESS_KEY not set")?;
 
@@ -85,12 +84,7 @@ impl S3Client {
     /// # Errors
     ///
     /// Returns an error if the upload fails.
-    pub async fn upload_bytes(
-        &self,
-        data: &[u8],
-        s3_key: &str,
-        content_type: &str,
-    ) -> Result<()> {
+    pub async fn upload_bytes(&self, data: &[u8], s3_key: &str, content_type: &str) -> Result<()> {
         let body = ByteStream::from(data.to_vec());
 
         debug!(key = %s3_key, content_type = %content_type, "Uploading bytes to S3");
@@ -128,7 +122,10 @@ impl S3Client {
                 if service_error.is_not_found() {
                     Ok(false)
                 } else {
-                    Err(anyhow::anyhow!("S3 head object failed: {:?}", service_error))
+                    Err(anyhow::anyhow!(
+                        "S3 head object failed: {:?}",
+                        service_error
+                    ))
                 }
             }
         }
@@ -138,6 +135,66 @@ impl S3Client {
     #[must_use]
     pub fn get_public_url(&self, s3_key: &str) -> String {
         format!("https://{}.s3.amazonaws.com/{}", self.bucket, s3_key)
+    }
+
+    /// List objects with a given prefix.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the list request fails.
+    pub async fn list_objects(&self, prefix: &str) -> Result<Vec<String>> {
+        let mut keys = Vec::new();
+        let mut continuation_token: Option<String> = None;
+
+        loop {
+            let mut request = self
+                .client
+                .list_objects_v2()
+                .bucket(&self.bucket)
+                .prefix(prefix);
+
+            if let Some(token) = continuation_token.take() {
+                request = request.continuation_token(token);
+            }
+
+            let response = request.send().await.context("Failed to list S3 objects")?;
+
+            if let Some(contents) = response.contents {
+                for object in contents {
+                    if let Some(key) = object.key {
+                        keys.push(key);
+                    }
+                }
+            }
+
+            if response.is_truncated == Some(true) {
+                continuation_token = response.next_continuation_token;
+            } else {
+                break;
+            }
+        }
+
+        debug!(count = keys.len(), prefix = %prefix, "Listed S3 objects");
+        Ok(keys)
+    }
+
+    /// Delete an object from S3.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the delete request fails.
+    pub async fn delete_object(&self, s3_key: &str) -> Result<()> {
+        debug!(key = %s3_key, "Deleting S3 object");
+
+        self.client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(s3_key)
+            .send()
+            .await
+            .context("Failed to delete S3 object")?;
+
+        Ok(())
     }
 }
 

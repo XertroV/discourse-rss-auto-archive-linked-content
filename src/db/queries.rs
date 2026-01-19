@@ -116,11 +116,7 @@ pub async fn update_link_last_archived(pool: &SqlitePool, id: i64) -> Result<()>
 // ========== Link Occurrences ==========
 
 /// Check if a link occurrence exists for a post.
-pub async fn link_occurrence_exists(
-    pool: &SqlitePool,
-    link_id: i64,
-    post_id: i64,
-) -> Result<bool> {
+pub async fn link_occurrence_exists(pool: &SqlitePool, link_id: i64, post_id: i64) -> Result<bool> {
     let row: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM link_occurrences WHERE link_id = ? AND post_id = ?")
             .bind(link_id)
@@ -492,7 +488,10 @@ pub async fn get_archives_for_post(pool: &SqlitePool, post_id: i64) -> Result<Ve
 }
 
 /// Get link occurrences for a post.
-pub async fn get_occurrences_for_post(pool: &SqlitePool, post_id: i64) -> Result<Vec<LinkOccurrence>> {
+pub async fn get_occurrences_for_post(
+    pool: &SqlitePool,
+    post_id: i64,
+) -> Result<Vec<LinkOccurrence>> {
     sqlx::query_as(
         r"
         SELECT * FROM link_occurrences
