@@ -60,6 +60,18 @@ RUN pip install --no-cache-dir yt-dlp gallery-dl
 # Create non-root user
 RUN useradd -r -s /bin/false -m -d /app archiver
 
+# Set up yt-dlp cache directory for remote components
+# yt-dlp stores downloaded challenge solvers in XDG_CACHE_HOME or ~/.cache
+RUN mkdir -p /app/.cache/yt-dlp && chown -R archiver:archiver /app/.cache
+
+# Pre-download yt-dlp remote components as the archiver user
+# This downloads the JavaScript challenge solver script for YouTube bot detection
+USER archiver
+RUN echo "Installing yt-dlp remote components..." && \
+    yt-dlp --version && \
+    yt-dlp --remote-components ejs:github --simulate --verbose --print "%(title)s" https://www.youtube.com/watch?v=dQw4w9WgXcQ 2>&1 | head -50 || true
+USER root
+
 WORKDIR /app
 
 # Copy binary from builder stage
@@ -84,6 +96,10 @@ ENV WEB_HOST=0.0.0.0
 ENV WEB_PORT=8080
 ENV YT_DLP_PATH=yt-dlp
 ENV GALLERY_DL_PATH=gallery-dl
+
+# Ensure yt-dlp can find its cache and deno can execute
+ENV HOME=/app
+ENV XDG_CACHE_HOME=/app/.cache
 
 # TLS settings (disabled by default; set TLS_ENABLED=true and TLS_DOMAINS to enable)
 ENV TLS_ENABLED=false
