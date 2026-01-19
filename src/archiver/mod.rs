@@ -1,3 +1,4 @@
+pub mod gallerydl;
 pub mod worker;
 pub mod ytdlp;
 

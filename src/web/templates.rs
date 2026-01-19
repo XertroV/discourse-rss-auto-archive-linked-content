@@ -1,4 +1,4 @@
-use crate::db::{Archive, Link};
+use crate::db::{Archive, Link, Post};
 
 /// Base HTML layout.
 fn base_layout(title: &str, content: &str) -> String {
@@ -216,6 +216,43 @@ pub fn render_stats(status_counts: &[(String, i64)], link_count: i64, post_count
     content.push_str("</tbody></table></section>");
 
     base_layout("Statistics", &content)
+}
+
+/// Render post detail page showing all archives from a post.
+pub fn render_post_detail(post: &Post, archives: &[Archive]) -> String {
+    let title = post.title.as_deref().unwrap_or("Untitled Post");
+
+    let mut content = format!(
+        r#"<h1>{}</h1>
+        <article>
+            <header>
+                <p class="meta">
+                    <strong>Author:</strong> {}<br>
+                    <strong>Published:</strong> {}<br>
+                    <strong>Source:</strong> <a href="{}">{}</a>
+                </p>
+            </header>"#,
+        html_escape(title),
+        html_escape(post.author.as_deref().unwrap_or("Unknown")),
+        post.published_at.as_deref().unwrap_or("Unknown"),
+        html_escape(&post.discourse_url),
+        html_escape(&post.discourse_url)
+    );
+
+    content.push_str("<section><h2>Archived Links</h2>");
+
+    if archives.is_empty() {
+        content.push_str("<p>No archives from this post.</p>");
+    } else {
+        content.push_str(&format!("<p>Found {} archived link(s) from this post.</p>", archives.len()));
+        for archive in archives {
+            content.push_str(&render_archive_card(archive));
+        }
+    }
+
+    content.push_str("</section></article>");
+
+    base_layout(&format!("Post: {title}"), &content)
 }
 
 /// Render an archive card.

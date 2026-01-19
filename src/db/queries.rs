@@ -464,3 +464,44 @@ pub async fn count_posts(pool: &SqlitePool) -> Result<i64> {
         .await?;
     Ok(row.0)
 }
+
+/// Get a post by ID.
+pub async fn get_post(pool: &SqlitePool, id: i64) -> Result<Option<Post>> {
+    sqlx::query_as("SELECT * FROM posts WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to fetch post")
+}
+
+/// Get archives for a specific post by joining through link_occurrences.
+pub async fn get_archives_for_post(pool: &SqlitePool, post_id: i64) -> Result<Vec<Archive>> {
+    sqlx::query_as(
+        r"
+        SELECT DISTINCT archives.* FROM archives
+        JOIN links ON archives.link_id = links.id
+        JOIN link_occurrences ON links.id = link_occurrences.link_id
+        WHERE link_occurrences.post_id = ?
+        ORDER BY archives.created_at DESC
+        ",
+    )
+    .bind(post_id)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch archives for post")
+}
+
+/// Get link occurrences for a post.
+pub async fn get_occurrences_for_post(pool: &SqlitePool, post_id: i64) -> Result<Vec<LinkOccurrence>> {
+    sqlx::query_as(
+        r"
+        SELECT * FROM link_occurrences
+        WHERE post_id = ?
+        ORDER BY seen_at ASC
+        ",
+    )
+    .bind(post_id)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch occurrences for post")
+}
