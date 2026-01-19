@@ -1331,19 +1331,42 @@ pub async fn toggle_archive_nsfw(pool: &SqlitePool, id: i64) -> Result<bool> {
 
 /// Delete an archive and all its artifacts.
 pub async fn delete_archive(pool: &SqlitePool, id: i64) -> Result<()> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("Failed to begin delete transaction")?;
+
+    // If other artifacts point at this archive's artifacts as duplicates,
+    // SQLite will block deletion due to the self-referential FK.
+    sqlx::query(
+        r"
+        UPDATE archive_artifacts
+        SET duplicate_of_artifact_id = NULL
+        WHERE duplicate_of_artifact_id IN (
+            SELECT id FROM archive_artifacts WHERE archive_id = ?
+        )
+        ",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    .context("Failed to clear duplicate references")?;
+
     // Delete artifacts first (foreign key constraint)
     sqlx::query("DELETE FROM archive_artifacts WHERE archive_id = ?")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .context("Failed to delete artifacts")?;
 
     // Delete the archive
     sqlx::query("DELETE FROM archives WHERE id = ?")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .context("Failed to delete archive")?;
+
+    tx.commit().await.context("Failed to commit delete")?;
 
     Ok(())
 }
@@ -1360,6 +1383,22 @@ pub async fn reset_archive_for_rearchive(pool: &SqlitePool, id: i64) -> Result<(
         .begin()
         .await
         .context("Failed to begin reset transaction")?;
+
+    // If other artifacts point at this archive's artifacts as duplicates,
+    // SQLite will block deletion due to the self-referential FK.
+    sqlx::query(
+        r"
+        UPDATE archive_artifacts
+        SET duplicate_of_artifact_id = NULL
+        WHERE duplicate_of_artifact_id IN (
+            SELECT id FROM archive_artifacts WHERE archive_id = ?
+        )
+        ",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    .context("Failed to clear duplicate references")?;
 
     // Delete existing artifacts for this archive
     sqlx::query("DELETE FROM archive_artifacts WHERE archive_id = ?")

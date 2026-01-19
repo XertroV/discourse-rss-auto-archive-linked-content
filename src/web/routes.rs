@@ -175,7 +175,7 @@ async fn rearchive(State(state): State<AppState>, Path(id): Path<i64>) -> Respon
 
     // Reset the archive for re-processing
     if let Err(e) = reset_archive_for_rearchive(state.db.pool(), id).await {
-        tracing::error!("Failed to reset archive for rearchive: {e}");
+        tracing::error!(error = ?e, "Failed to reset archive for rearchive");
         return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to reset archive").into_response();
     }
 

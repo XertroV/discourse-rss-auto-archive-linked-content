@@ -265,6 +265,77 @@ async fn test_rearchive_failed_archive_with_no_artifacts() {
 }
 
 #[tokio::test]
+async fn test_rearchive_clears_duplicate_references_before_deleting_artifacts() {
+    use discourse_link_archiver::db::{
+        get_artifacts_for_archive, insert_artifact_with_hash, reset_archive_for_rearchive,
+    };
+
+    let (db, _temp_dir) = setup_db().await;
+
+    // Two archives: B has an artifact that points at A's artifact as a duplicate.
+    let link_a = NewLink {
+        original_url: "https://example.com/a".to_string(),
+        normalized_url: "https://example.com/a".to_string(),
+        canonical_url: None,
+        domain: "example.com".to_string(),
+    };
+    let link_b = NewLink {
+        original_url: "https://example.com/b".to_string(),
+        normalized_url: "https://example.com/b".to_string(),
+        canonical_url: None,
+        domain: "example.com".to_string(),
+    };
+    let link_a_id = insert_link(db.pool(), &link_a).await.unwrap();
+    let link_b_id = insert_link(db.pool(), &link_b).await.unwrap();
+    let archive_a_id = create_pending_archive(db.pool(), link_a_id).await.unwrap();
+    let archive_b_id = create_pending_archive(db.pool(), link_b_id).await.unwrap();
+
+    // Create artifact for A
+    let a_artifact_id = insert_artifact_with_hash(
+        db.pool(),
+        archive_a_id,
+        "html",
+        "s3/a.html",
+        Some("text/html"),
+        Some(1),
+        None,
+        Some("phash-a"),
+        None,
+    )
+    .await
+    .unwrap();
+
+    // Create artifact for B that references A's artifact
+    insert_artifact_with_hash(
+        db.pool(),
+        archive_b_id,
+        "html",
+        "s3/b.html",
+        Some("text/html"),
+        Some(1),
+        None,
+        Some("phash-b"),
+        Some(a_artifact_id),
+    )
+    .await
+    .unwrap();
+
+    // Resetting A should succeed and must not fail FK deletion.
+    reset_archive_for_rearchive(db.pool(), archive_a_id)
+        .await
+        .unwrap();
+
+    // A artifacts are gone.
+    let a_artifacts = get_artifacts_for_archive(db.pool(), archive_a_id).await.unwrap();
+    assert!(a_artifacts.is_empty());
+
+    // B artifact remains but no longer points at A.
+    let b_artifacts = get_artifacts_for_archive(db.pool(), archive_b_id).await.unwrap();
+    assert_eq!(b_artifacts.len(), 1);
+    assert!(b_artifacts[0].duplicate_of_artifact_id.is_none());
+}
+
+#[tokio::test]
 async fn test_health_endpoint() {
     let (db, _temp_dir) = setup_db().await;
     let app = create_test_app(db);
