@@ -64,7 +64,11 @@ impl WaybackClient {
     /// Returns an error if the submission fails or times out.
     pub async fn submit(&self, url: &str) -> Result<Option<String>> {
         // Acquire rate limit permit
-        let _permit = self.rate_limiter.acquire().await.context("Rate limiter closed")?;
+        let _permit = self
+            .rate_limiter
+            .acquire()
+            .await
+            .context("Rate limiter closed")?;
 
         // Brief pause to respect rate limiting
         sleep(Duration::from_millis(100)).await;

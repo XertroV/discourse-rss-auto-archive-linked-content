@@ -141,7 +141,10 @@ pub fn render_archive_detail(archive: &Archive, link: &Link) -> String {
     );
 
     if let Some(ref author) = archive.content_author {
-        content.push_str(&format!("<p><strong>Author:</strong> {}</p>", html_escape(author)));
+        content.push_str(&format!(
+            "<p><strong>Author:</strong> {}</p>",
+            html_escape(author)
+        ));
     }
 
     if let Some(ref text) = archive.content_text {
@@ -200,8 +203,12 @@ pub fn render_stats(status_counts: &[(String, i64)], link_count: i64, post_count
     let mut content = String::from("<h1>Statistics</h1>");
 
     content.push_str("<section><h2>Overview</h2>");
-    content.push_str(&format!("<p><strong>Total Posts:</strong> {post_count}</p>"));
-    content.push_str(&format!("<p><strong>Total Links:</strong> {link_count}</p>"));
+    content.push_str(&format!(
+        "<p><strong>Total Posts:</strong> {post_count}</p>"
+    ));
+    content.push_str(&format!(
+        "<p><strong>Total Links:</strong> {link_count}</p>"
+    ));
     content.push_str("</section>");
 
     content.push_str("<section><h2>Archives by Status</h2><table><thead><tr><th>Status</th><th>Count</th></tr></thead><tbody>");
@@ -244,7 +251,10 @@ pub fn render_post_detail(post: &Post, archives: &[Archive]) -> String {
     if archives.is_empty() {
         content.push_str("<p>No archives from this post.</p>");
     } else {
-        content.push_str(&format!("<p>Found {} archived link(s) from this post.</p>", archives.len()));
+        content.push_str(&format!(
+            "<p>Found {} archived link(s) from this post.</p>",
+            archives.len()
+        ));
         for archive in archives {
             content.push_str(&render_archive_card(archive));
         }
@@ -257,10 +267,7 @@ pub fn render_post_detail(post: &Post, archives: &[Archive]) -> String {
 
 /// Render an archive card.
 fn render_archive_card(archive: &Archive) -> String {
-    let title = archive
-        .content_title
-        .as_deref()
-        .unwrap_or("Untitled");
+    let title = archive.content_title.as_deref().unwrap_or("Untitled");
 
     format!(
         r#"<article class="archive-card">

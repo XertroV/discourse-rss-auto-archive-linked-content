@@ -10,7 +10,9 @@ use tempfile::TempDir;
 async fn setup_db() -> (Database, TempDir) {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let db_path = temp_dir.path().join("test.sqlite");
-    let db = Database::new(&db_path).await.expect("Failed to create database");
+    let db = Database::new(&db_path)
+        .await
+        .expect("Failed to create database");
     (db, temp_dir)
 }
 
@@ -59,13 +61,11 @@ async fn test_insert_and_get_link() {
         .expect("Failed to insert link");
     assert!(link_id > 0);
 
-    let retrieved = get_link_by_normalized_url(
-        db.pool(),
-        "https://old.reddit.com/r/test/comments/abc",
-    )
-    .await
-    .expect("Failed to get link")
-    .expect("Link not found");
+    let retrieved =
+        get_link_by_normalized_url(db.pool(), "https://old.reddit.com/r/test/comments/abc")
+            .await
+            .expect("Failed to get link")
+            .expect("Link not found");
 
     assert_eq!(retrieved.domain, "old.reddit.com");
 }
@@ -133,9 +133,7 @@ async fn test_archive_workflow() {
     let link_id = insert_link(db.pool(), &new_link).await.unwrap();
 
     // Create pending archive
-    let archive_id = create_pending_archive(db.pool(), link_id)
-        .await
-        .unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id).await.unwrap();
 
     // Get archive by ID
     let archive = get_archive(db.pool(), archive_id)

@@ -1,0 +1,96 @@
+services:
+  archiver:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      # RSS Feed Configuration
+      RSS_URL: ${RSS_URL:-https://discuss.criticalfallibilism.com/posts.rss}
+      POLL_INTERVAL_SECS: ${POLL_INTERVAL_SECS:-60}
+      CACHE_WINDOW_SECS: ${CACHE_WINDOW_SECS:-3600}
+
+      # Database
+      DATABASE_PATH: /app/data/archive.sqlite
+
+      # S3 Storage (MinIO)
+      S3_BUCKET: discourse-archives
+      S3_REGION: us-east-1
+      S3_ENDPOINT: http://minio:9000
+      S3_PREFIX: archives/
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+
+      # Archive Workers
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+      PER_DOMAIN_CONCURRENCY: ${PER_DOMAIN_CONCURRENCY:-1}
+      WORK_DIR: /app/data/tmp
+
+      # Archive Policy
+      ARCHIVE_MODE: ${ARCHIVE_MODE:-deletable}
+      ARCHIVE_QUOTE_ONLY_LINKS: ${ARCHIVE_QUOTE_ONLY_LINKS:-false}
+
+      # Web Server
+      WEB_HOST: 0.0.0.0
+      WEB_PORT: 8080
+
+      # Wayback Machine
+      WAYBACK_ENABLED: ${WAYBACK_ENABLED:-true}
+      WAYBACK_RATE_LIMIT_PER_MIN: ${WAYBACK_RATE_LIMIT_PER_MIN:-5}
+
+      # Database Backup
+      BACKUP_ENABLED: ${BACKUP_ENABLED:-true}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-30}
+
+      # Logging
+      RUST_LOG: ${RUST_LOG:-info,discourse_link_archiver=debug}
+    volumes:
+      - archiver-data:/app/data
+      # Optional: mount cookies file for authenticated downloads
+      # - ./cookies.txt:/app/cookies.txt:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # Console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+
+  # Automatic bucket creation
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb --ignore-existing myminio/discourse-archives;
+      mc anonymous set public myminio/discourse-archives;
+      exit 0;
+      "
+
+volumes:
+  archiver-data:
+  minio-data:

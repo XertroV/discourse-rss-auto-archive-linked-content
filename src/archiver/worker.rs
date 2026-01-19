@@ -104,7 +104,10 @@ impl ArchiveWorker {
             if archive.retry_count >= MAX_RETRIES {
                 // Mark as permanently skipped
                 set_archive_skipped(self.db.pool(), archive.id).await?;
-                warn!(archive_id = archive.id, "Archive marked as skipped after max retries");
+                warn!(
+                    archive_id = archive.id,
+                    "Archive marked as skipped after max retries"
+                );
             } else {
                 // Reset to pending for retry
                 reset_archive_for_retry(self.db.pool(), archive.id).await?;

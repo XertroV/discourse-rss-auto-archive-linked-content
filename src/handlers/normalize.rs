@@ -158,7 +158,10 @@ mod tests {
 
     #[test]
     fn test_keep_root_slash() {
-        assert_eq!(normalize_url("https://example.com/"), "https://example.com/");
+        assert_eq!(
+            normalize_url("https://example.com/"),
+            "https://example.com/"
+        );
     }
 
     #[test]
@@ -184,6 +187,9 @@ mod tests {
 
     #[test]
     fn test_non_http_passthrough() {
-        assert_eq!(normalize_url("mailto:test@example.com"), "mailto:test@example.com");
+        assert_eq!(
+            normalize_url("mailto:test@example.com"),
+            "mailto:test@example.com"
+        );
     }
 }

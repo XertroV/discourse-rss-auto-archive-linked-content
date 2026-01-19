@@ -136,12 +136,7 @@ async fn poll_once(client: &reqwest::Client, config: &Config, db: &Database) -> 
 }
 
 /// Process links extracted from a post.
-async fn process_links(
-    db: &Database,
-    post_id: i64,
-    html: &str,
-    config: &Config,
-) -> Result<()> {
+async fn process_links(db: &Database, post_id: i64, html: &str, config: &Config) -> Result<()> {
     let extracted = extract_links(html);
 
     for link in extracted {

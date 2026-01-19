@@ -55,6 +55,11 @@ pub struct Config {
     // Wayback Machine
     pub wayback_enabled: bool,
     pub wayback_rate_limit_per_min: u32,
+
+    // Backup
+    pub backup_enabled: bool,
+    pub backup_interval_hours: u64,
+    pub backup_retention_count: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,6 +111,11 @@ impl Config {
             // Wayback Machine
             wayback_enabled: parse_env_bool("WAYBACK_ENABLED", true)?,
             wayback_rate_limit_per_min: parse_env_u32("WAYBACK_RATE_LIMIT_PER_MIN", 5)?,
+
+            // Backup
+            backup_enabled: parse_env_bool("BACKUP_ENABLED", true)?,
+            backup_interval_hours: parse_env_u64("BACKUP_INTERVAL_HOURS", 24)?,
+            backup_retention_count: parse_env_usize("BACKUP_RETENTION_COUNT", 30)?,
         })
     }
 
@@ -229,8 +239,14 @@ mod tests {
 
     #[test]
     fn test_parse_archive_mode() {
-        assert_eq!(parse_archive_mode("deletable").unwrap(), ArchiveMode::Deletable);
-        assert_eq!(parse_archive_mode("DELETABLE").unwrap(), ArchiveMode::Deletable);
+        assert_eq!(
+            parse_archive_mode("deletable").unwrap(),
+            ArchiveMode::Deletable
+        );
+        assert_eq!(
+            parse_archive_mode("DELETABLE").unwrap(),
+            ArchiveMode::Deletable
+        );
         assert_eq!(parse_archive_mode("all").unwrap(), ArchiveMode::All);
         assert_eq!(parse_archive_mode("ALL").unwrap(), ArchiveMode::All);
         assert!(parse_archive_mode("invalid").is_err());
