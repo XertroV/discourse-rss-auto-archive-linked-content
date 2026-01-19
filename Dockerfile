@@ -64,6 +64,10 @@ RUN useradd -r -s /bin/false -m -d /app archiver
 # yt-dlp stores downloaded challenge solvers in XDG_CACHE_HOME or ~/.cache
 RUN mkdir -p /app/.cache/yt-dlp && chown -R archiver:archiver /app/.cache
 
+# Set environment for yt-dlp cache before switching users
+ENV HOME=/app
+ENV XDG_CACHE_HOME=/app/.cache
+
 # Pre-download yt-dlp remote components as the archiver user
 # This downloads the JavaScript challenge solver script for YouTube bot detection
 USER archiver
@@ -96,10 +100,6 @@ ENV WEB_HOST=0.0.0.0
 ENV WEB_PORT=8080
 ENV YT_DLP_PATH=yt-dlp
 ENV GALLERY_DL_PATH=gallery-dl
-
-# Ensure yt-dlp can find its cache and deno can execute
-ENV HOME=/app
-ENV XDG_CACHE_HOME=/app/.cache
 
 # TLS settings (disabled by default; set TLS_ENABLED=true and TLS_DOMAINS to enable)
 ENV TLS_ENABLED=false
