@@ -42,6 +42,23 @@ static SUBREDDIT_PATTERN: std::sync::LazyLock<Regex> =
 static POST_ID_PATTERN: std::sync::LazyLock<Regex> =
     std::sync::LazyLock::new(|| Regex::new(r"/comments/([a-zA-Z0-9]+)").unwrap());
 
+/// Pattern to extract comment ID from Reddit comment permalink URLs.
+/// Matches URLs like /comments/POST_ID/title/COMMENT_ID or /r/sub/comments/POST_ID/title/COMMENT_ID
+static COMMENT_ID_PATTERN: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+    Regex::new(r"/comments/[a-zA-Z0-9]+/[^/]+/([a-zA-Z0-9]+)").unwrap()
+});
+
+/// Extract comment ID from Reddit URL if it's a comment permalink.
+///
+/// Returns `Some(comment_id)` if the URL points to a specific comment, `None` otherwise.
+#[allow(dead_code)]
+fn extract_comment_id(url: &str) -> Option<String> {
+    COMMENT_ID_PATTERN
+        .captures(url)
+        .and_then(|cap| cap.get(1))
+        .map(|m| m.as_str().to_string())
+}
+
 /// Known NSFW subreddit name patterns (case-insensitive prefixes/patterns).
 const NSFW_SUBREDDIT_PATTERNS: &[&str] = &[
     "nsfw",
@@ -1257,5 +1274,35 @@ mod tests {
         let result = strip_user_info_from_html(html_in_text);
         assert!(!result.contains("alice"));
         assert!(result.contains("[redacted] posted this comment"));
+    }
+
+    #[test]
+    fn test_extract_comment_id() {
+        // Comment permalink with subreddit
+        assert_eq!(
+            extract_comment_id("https://old.reddit.com/r/rust/comments/abc123/title/def456/"),
+            Some("def456".to_string())
+        );
+
+        // Comment permalink without subreddit
+        assert_eq!(
+            extract_comment_id("https://old.reddit.com/comments/abc123/title/xyz789/"),
+            Some("xyz789".to_string())
+        );
+
+        // Post URL without comment (should return None)
+        assert_eq!(
+            extract_comment_id("https://old.reddit.com/r/rust/comments/abc123/title/"),
+            None
+        );
+
+        // Post URL with trailing slash
+        assert_eq!(
+            extract_comment_id("https://old.reddit.com/r/rust/comments/abc123/"),
+            None
+        );
+
+        // Completely different URL
+        assert_eq!(extract_comment_id("https://example.com/"), None);
     }
 }

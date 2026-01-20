@@ -534,3 +534,35 @@ Database-backed video deduplication system to store each video once and referenc
 - [x] Handle direct Reddit media URLs (i.redd.it images, v.redd.it videos)
 - [x] More specific NSFW HTML detection (avoid false positives from user comments)
 - [x] Add 18+ toggle tooltip with live NSFW count (updates via mutation observer)
+
+---
+
+## Phase 15: Platform Comment Archival
+
+### Core Implementation (Complete)
+- [x] Add comment extraction configuration (COMMENTS_ENABLED, COMMENTS_MAX_COUNT, etc.)
+- [x] Modify yt-dlp to extract comments via `--write-comments` flag
+- [x] Create comment JSON transformation function (yt-dlp format → standardized schema)
+- [x] Integrate comment extraction into ytdlp.rs metadata processing
+- [x] Add Reddit comment permalink detection helper function
+- [x] Add comment artifact upload logic to worker with metadata tracking
+- [x] Store comments as S3 JSON files tracked via archive_artifacts table
+- [x] Add unit tests for Reddit comment permalink extraction
+
+### Web UI Display
+- [ ] Add comment download link to archive detail page
+- [ ] Show comment count badge/stats on archive cards
+- [ ] Optional: Inline preview of top comments (fetch from S3, render first 10)
+
+### Twitter Reply Thread Extraction
+- [ ] Investigate if gallery-dl metadata includes reply chains
+- [ ] Implement rate-limited reply thread extraction if available
+- [ ] Apply COMMENTS_MAX_DEPTH limit (default: 3 levels)
+- [ ] Add COMMENTS_REQUEST_DELAY_MS throttling (default: 1000ms)
+
+### Future Enhancements (Not in Current Scope)
+- [ ] Comment full-text search (FTS5 index on comment text)
+- [ ] Comment threading UI visualization (nested reply display)
+- [ ] Comment analytics (top commenters, sentiment analysis, reaction stats)
+- [ ] Periodic comment refresh for active threads (re-fetch updated comment counts)
+- [ ] Comment deduplication across archives (hash-based duplicate detection)

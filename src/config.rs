@@ -134,6 +134,14 @@ pub struct Config {
     pub twitter_archive_quoted: bool,
     pub twitter_html_snapshot: bool,
     pub twitter_max_quote_depth: u32,
+
+    // Comment extraction settings
+    pub comments_enabled: bool,
+    pub comments_max_count: usize,
+    pub comments_include_replies: bool,
+    pub comments_platforms: Vec<String>,
+    pub comments_max_depth: usize,
+    pub comments_request_delay_ms: u64,
 }
 
 /// Configuration file structure (all fields optional, loaded from TOML).
@@ -178,6 +186,8 @@ pub struct FileConfig {
     pub dedup: DedupConfig,
     #[serde(default)]
     pub twitter: TwitterConfig,
+    #[serde(default)]
+    pub comments: CommentsConfig,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -334,6 +344,17 @@ pub struct TwitterConfig {
     pub archive_quoted: Option<bool>,
     pub html_snapshot: Option<bool>,
     pub max_quote_depth: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct CommentsConfig {
+    pub enabled: Option<bool>,
+    pub max_count: Option<usize>,
+    pub include_replies: Option<bool>,
+    pub platforms: Option<Vec<String>>,
+    pub max_depth: Option<usize>,
+    pub request_delay_ms: Option<u64>,
 }
 
 /// Log output format.
@@ -659,6 +680,39 @@ impl Config {
                 "TWITTER_MAX_QUOTE_DEPTH",
                 fc.twitter.max_quote_depth.unwrap_or(10),
             )?,
+
+            // Comment extraction settings
+            comments_enabled: parse_env_bool(
+                "COMMENTS_ENABLED",
+                fc.comments.enabled.unwrap_or(true),
+            )?,
+            comments_max_count: parse_env_usize(
+                "COMMENTS_MAX_COUNT",
+                fc.comments.max_count.unwrap_or(1000),
+            )?,
+            comments_include_replies: parse_env_bool(
+                "COMMENTS_INCLUDE_REPLIES",
+                fc.comments.include_replies.unwrap_or(true),
+            )?,
+            comments_platforms: optional_env("COMMENTS_PLATFORMS")
+                .map(|s| parse_comma_separated_list(&s))
+                .or(fc.comments.platforms)
+                .unwrap_or_else(|| {
+                    vec![
+                        "youtube".to_string(),
+                        "reddit".to_string(),
+                        "tiktok".to_string(),
+                        "twitter".to_string(),
+                    ]
+                }),
+            comments_max_depth: parse_env_usize(
+                "COMMENTS_MAX_DEPTH",
+                fc.comments.max_depth.unwrap_or(3),
+            )?,
+            comments_request_delay_ms: parse_env_u64(
+                "COMMENTS_REQUEST_DELAY_MS",
+                fc.comments.request_delay_ms.unwrap_or(1000),
+            )?,
         })
     }
 
@@ -960,6 +1014,17 @@ impl Config {
             twitter_archive_quoted: true,
             twitter_html_snapshot: true,
             twitter_max_quote_depth: 10,
+            comments_enabled: false,
+            comments_max_count: 1000,
+            comments_include_replies: true,
+            comments_platforms: vec![
+                "youtube".to_string(),
+                "reddit".to_string(),
+                "tiktok".to_string(),
+                "twitter".to_string(),
+            ],
+            comments_max_depth: 3,
+            comments_request_delay_ms: 1000,
         }
     }
 }

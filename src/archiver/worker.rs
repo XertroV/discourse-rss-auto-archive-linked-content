@@ -15,13 +15,13 @@ use crate::config::Config;
 use crate::db::{
     create_archive_job, find_artifact_by_perceptual_hash, find_video_file, get_archive,
     get_failed_archives_for_retry, get_link, get_or_create_video_file, get_pending_archives,
-    insert_artifact, insert_artifact_with_hash, insert_artifact_with_video_file,
-    is_domain_excluded, reset_archive_for_retry, reset_stuck_processing_archives,
-    reset_todays_failed_archives, set_archive_complete, set_archive_failed, set_archive_ipfs_cid,
-    set_archive_nsfw, set_archive_processing, set_archive_skipped, set_job_completed,
-    set_job_failed, set_job_running, set_job_skipped, update_link_final_url,
-    update_link_last_archived, update_video_file_metadata_key, ArchiveJobType, ArtifactKind,
-    Database, VideoFile,
+    insert_artifact, insert_artifact_with_hash, insert_artifact_with_metadata,
+    insert_artifact_with_video_file, is_domain_excluded, reset_archive_for_retry,
+    reset_stuck_processing_archives, reset_todays_failed_archives, set_archive_complete,
+    set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw, set_archive_processing,
+    set_archive_skipped, set_job_completed, set_job_failed, set_job_running, set_job_skipped,
+    update_link_final_url, update_link_last_archived, update_video_file_metadata_key,
+    ArchiveJobType, ArtifactKind, Database, VideoFile,
 };
 use crate::dedup;
 use crate::handlers::youtube::extract_video_id;
@@ -1189,15 +1189,94 @@ async fn process_archive_inner(
         }
     }
 
-    // Separate subtitle files from other extra files for special processing
+    // Separate subtitle files and comments from other extra files for special processing
     let mut subtitle_files = Vec::new();
+    let mut comments_file = None;
     let mut other_extra_files = Vec::new();
 
     for extra_file in &result.extra_files {
         if extra_file.ends_with(".vtt") || extra_file.ends_with(".srt") {
             subtitle_files.push(extra_file.clone());
+        } else if extra_file == "comments.json" {
+            comments_file = Some(extra_file.clone());
         } else {
             other_extra_files.push(extra_file.clone());
+        }
+    }
+
+    // Upload comments.json if present
+    if let Some(comments_filename) = comments_file {
+        let local_path = work_dir.join(&comments_filename);
+        if local_path.exists() {
+            let key = format!("{s3_prefix}comments.json");
+
+            // Read comment stats from JSON for metadata
+            match tokio::fs::read_to_string(&local_path).await {
+                Ok(json_str) => {
+                    if let Ok(comments_json) = serde_json::from_str::<serde_json::Value>(&json_str)
+                    {
+                        // Extract comment statistics
+                        let comment_count = comments_json
+                            .get("stats")
+                            .and_then(|s| s.get("extracted_comments"))
+                            .and_then(|c| c.as_i64())
+                            .unwrap_or(0);
+
+                        let extraction_method = comments_json
+                            .get("extraction_method")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("unknown");
+
+                        let limited = comments_json
+                            .get("limited")
+                            .and_then(|l| l.as_bool())
+                            .unwrap_or(false);
+
+                        // Upload to S3
+                        if let Err(e) = s3.upload_file(&local_path, &key, Some(archive_id)).await {
+                            warn!(archive_id, error = %e, "Failed to upload comments.json");
+                        } else {
+                            let size_bytes = tokio::fs::metadata(&local_path)
+                                .await
+                                .ok()
+                                .map(|m| m.len() as i64);
+
+                            info!(
+                                archive_id,
+                                key = %key,
+                                comment_count,
+                                limited,
+                                "Uploaded comments artifact"
+                            );
+
+                            // Insert artifact record with metadata
+                            let artifact_metadata = serde_json::json!({
+                                "comment_count": comment_count,
+                                "extraction_method": extraction_method,
+                                "limited": limited,
+                            });
+
+                            if let Err(e) = insert_artifact_with_metadata(
+                                db.pool(),
+                                archive_id,
+                                "comments",
+                                &key,
+                                Some("application/json"),
+                                size_bytes,
+                                None,
+                                Some(&artifact_metadata.to_string()),
+                            )
+                            .await
+                            {
+                                warn!(archive_id, error = %e, "Failed to insert comments artifact record");
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(archive_id, error = %e, "Failed to read comments.json");
+                }
+            }
         }
     }
 

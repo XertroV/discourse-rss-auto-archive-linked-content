@@ -3,6 +3,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use chrono;
 use serde::Deserialize;
 use tokio::process::Command;
 use tracing::{debug, info, warn};
@@ -221,6 +222,12 @@ pub async fn download(
         "ejs:github".to_string(),
     ];
 
+    // Add comment extraction if enabled
+    if config.comments_enabled {
+        args.push("--write-comments".to_string());
+        debug!("Comment extraction enabled");
+    }
+
     // Prefer browser profile over cookies file (fresher cookies)
     // Only use one method to avoid potential conflicts
     let mut cookie_method_used = false;
@@ -286,7 +293,7 @@ pub async fn download(
     }
 
     // Find the info.json file to get metadata
-    let metadata = find_and_parse_metadata(work_dir).await?;
+    let metadata = find_and_parse_metadata(work_dir, config).await?;
 
     Ok(metadata)
 }
@@ -351,8 +358,115 @@ fn maybe_adjust_chromium_user_data_dir_spec(spec: &str) -> String {
     spec.to_string()
 }
 
+/// Extract and process comments from yt-dlp info.json.
+///
+/// Transforms yt-dlp comment format into our standardized JSON schema.
+/// Applies comment count limits from config.
+///
+/// # Errors
+///
+/// Returns an error if file I/O fails or JSON is malformed.
+async fn extract_comments_from_info_json(
+    info_json_path: &Path,
+    platform: &str,
+    config: &Config,
+) -> Result<Option<std::path::PathBuf>> {
+    // Read and parse info.json
+    let json_content = tokio::fs::read_to_string(info_json_path)
+        .await
+        .context("Failed to read info.json for comment extraction")?;
+
+    let metadata: serde_json::Value =
+        serde_json::from_str(&json_content).context("Failed to parse info.json for comments")?;
+
+    // Check if comments are present
+    let comments_array = match metadata.get("comments") {
+        Some(serde_json::Value::Array(arr)) if !arr.is_empty() => arr,
+        _ => {
+            debug!("No comments found in metadata");
+            return Ok(None);
+        }
+    };
+
+    let total_comments = comments_array.len();
+    info!("Found {} comments in yt-dlp metadata", total_comments);
+
+    // Transform comments to our schema, applying limit
+    let mut processed_comments = Vec::new();
+    for (idx, comment) in comments_array.iter().enumerate() {
+        if idx >= config.comments_max_count {
+            debug!(
+                "Reached comment limit ({}/{}), truncating",
+                config.comments_max_count, total_comments
+            );
+            break;
+        }
+
+        // Extract comment fields with fallbacks
+        let comment_obj = serde_json::json!({
+            "id": comment.get("id").and_then(|v| v.as_str()).unwrap_or(""),
+            "author": comment.get("author").and_then(|v| v.as_str()).unwrap_or("unknown"),
+            "author_id": comment.get("author_id").and_then(|v| v.as_str()),
+            "text": comment.get("text").and_then(|v| v.as_str()).unwrap_or(""),
+            "timestamp": comment.get("timestamp").and_then(|v| v.as_i64()),
+            "likes": comment.get("like_count").and_then(|v| v.as_i64()).unwrap_or(0),
+            "is_pinned": comment.get("is_pinned").and_then(|v| v.as_bool()).unwrap_or(false),
+            "is_creator": comment.get("author_is_uploader").and_then(|v| v.as_bool()).unwrap_or(false),
+            "parent_id": comment.get("parent").and_then(|v| v.as_str()).unwrap_or("root"),
+            "replies": [],  // yt-dlp typically doesn't nest replies in the JSON
+        });
+
+        processed_comments.push(comment_obj);
+    }
+
+    let extracted_count = processed_comments.len();
+    let limited = total_comments > config.comments_max_count;
+
+    // Calculate basic stats
+    let top_level_count = processed_comments
+        .iter()
+        .filter(|c| c.get("parent_id").and_then(|v| v.as_str()) == Some("root"))
+        .count();
+
+    // Build output JSON in our standard schema
+    let output = serde_json::json!({
+        "platform": platform,
+        "extraction_method": "ytdlp",
+        "extracted_at": chrono::Utc::now().to_rfc3339(),
+        "content_url": metadata.get("webpage_url").and_then(|v| v.as_str()).unwrap_or(""),
+        "content_id": metadata.get("id").and_then(|v| v.as_str()).unwrap_or(""),
+        "limited": limited,
+        "limit_applied": config.comments_max_count,
+        "stats": {
+            "total_comments": total_comments,
+            "extracted_comments": extracted_count,
+            "top_level_comments": top_level_count,
+            "max_depth": 1,  // yt-dlp doesn't provide nesting depth info
+        },
+        "comments": processed_comments,
+    });
+
+    // Write comments.json to work directory
+    let comments_path = info_json_path.with_file_name("comments.json");
+    let json_str =
+        serde_json::to_string_pretty(&output).context("Failed to serialize comments JSON")?;
+
+    tokio::fs::write(&comments_path, json_str)
+        .await
+        .context("Failed to write comments.json")?;
+
+    info!(
+        path = %comments_path.display(),
+        count = extracted_count,
+        limited = limited,
+        "Extracted comments to JSON file"
+    );
+
+    Ok(Some(comments_path))
+}
+
 /// Find and parse the info.json metadata file.
-async fn find_and_parse_metadata(work_dir: &Path) -> Result<ArchiveResult> {
+async fn find_and_parse_metadata(work_dir: &Path, config: &Config) -> Result<ArchiveResult> {
     let mut entries = tokio::fs::read_dir(work_dir)
         .await
         .context("Failed to read work directory")?;
@@ -503,6 +617,28 @@ async fn find_and_parse_metadata(work_dir: &Path) -> Result<ArchiveResult> {
             }
 
             result.metadata_json = Some(content);
+
+            // Extract comments if enabled
+            if config.comments_enabled {
+                match extract_comments_from_info_json(&info_path, "youtube", config).await {
+                    Ok(Some(comments_path)) => {
+                        let filename = comments_path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        result.extra_files.push(filename);
+                        debug!("Added comments.json to extra_files");
+                    }
+                    Ok(None) => {
+                        debug!("No comments available for extraction");
+                    }
+                    Err(e) => {
+                        warn!("Failed to extract comments: {}", e);
+                        // Continue with rest of archive - comments are optional
+                    }
+                }
+            }
         }
     }
 
