@@ -423,6 +423,7 @@ impl Render for ProgressBar {
 #[derive(Debug, Clone)]
 pub struct ThreadJobStatusParams<'a> {
     pub job: &'a ThreadArchiveJob,
+    pub archives: &'a [ArchiveDisplay],
     pub user: Option<&'a User>,
 }
 
@@ -432,10 +433,16 @@ pub fn render_thread_job_status_page(params: &ThreadJobStatusParams<'_>) -> Mark
     let job = params.job;
     let status_variant = JobStatusVariant::from_str(&job.status);
 
-    // Auto-refresh meta tag for pending/processing jobs
-    let auto_refresh = if status_variant.should_auto_refresh() {
+    // Auto-refresh if job is pending/processing OR archives are still processing
+    let should_refresh = status_variant.should_auto_refresh()
+        || params
+            .archives
+            .iter()
+            .any(|a| matches!(a.status.as_str(), "pending" | "processing"));
+
+    let auto_refresh = if should_refresh {
         Some(html! {
-            meta http-equiv="refresh" content="5";
+            meta http-equiv="refresh" content="1";
         })
     } else {
         None
@@ -501,6 +508,34 @@ pub fn render_thread_job_status_page(params: &ThreadJobStatusParams<'_>) -> Mark
             }
         }
 
+        // Archives section - reuses same pattern as thread detail page
+        @if !params.archives.is_empty() {
+            section {
+                h2 { "Archived Links" }
+
+                @let pending_count = params.archives.iter()
+                    .filter(|a| a.status == "pending").count();
+                @let processing_count = params.archives.iter()
+                    .filter(|a| a.status == "processing").count();
+
+                @if pending_count + processing_count > 0 {
+                    p style="color: var(--foreground-muted, #71717a);" {
+                        "Found " (params.archives.len()) " archived link(s). "
+                        "Still processing: " (processing_count + pending_count)
+                    }
+                } @else {
+                    p { "Found " (params.archives.len()) " archived link(s)." }
+                }
+
+                (ArchiveGrid::new(params.archives))
+            }
+        } @else if status_variant == JobStatusVariant::Complete {
+            section {
+                h2 { "Archived Links" }
+                p { "No archives were created. The thread may not contain any archivable links." }
+            }
+        }
+
         // Error section (for failed jobs)
         @if let Some(error) = &job.error_message {
             section {
@@ -510,9 +545,13 @@ pub fn render_thread_job_status_page(params: &ThreadJobStatusParams<'_>) -> Mark
         }
 
         // Auto-refresh notice
-        @if status_variant.should_auto_refresh() {
+        @if should_refresh {
             p style="color: var(--foreground-muted, #71717a); font-size: 0.875rem;" {
-                "This page will automatically refresh every 5 seconds."
+                @if status_variant.should_auto_refresh() {
+                    "This page will automatically refresh every second while processing."
+                } @else {
+                    "This page will automatically refresh while archives are being created."
+                }
             }
         }
 
@@ -739,6 +778,7 @@ mod tests {
         let job = sample_job();
         let params = ThreadJobStatusParams {
             job: &job,
+            archives: &[],
             user: None,
         };
         let html = render_thread_job_status_page(&params).into_string();
@@ -757,6 +797,7 @@ mod tests {
         job.completed_at = Some("2024-01-15 12:10:00".to_string());
         let params = ThreadJobStatusParams {
             job: &job,
+            archives: &[],
             user: None,
         };
         let html = render_thread_job_status_page(&params).into_string();
@@ -772,6 +813,7 @@ mod tests {
         job.error_message = Some("Connection timeout".to_string());
         let params = ThreadJobStatusParams {
             job: &job,
+            archives: &[],
             user: None,
         };
         let html = render_thread_job_status_page(&params).into_string();

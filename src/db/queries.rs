@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use super::models::{
     Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, ArchiveJobType, AuditEvent, Link,
     LinkOccurrence, NewLink, NewLinkOccurrence, NewPost, NewSubmission, Post, Session, Submission,
-    ThreadDisplay, User, VideoFile,
+    ThreadArchiveJob, ThreadDisplay, User, VideoFile,
 };
 
 // ========== Posts ==========
@@ -1026,6 +1026,31 @@ pub async fn get_archives_for_posts_display(
         .fetch_all(pool)
         .await
         .context("Failed to fetch archives for posts with links")
+}
+
+/// Get all archives created for a thread archive job.
+///
+/// This queries archives through the relationship:
+/// ThreadArchiveJob.thread_url → Posts → LinkOccurrences → Links → Archives
+pub async fn get_archives_for_thread_job(
+    pool: &SqlitePool,
+    job: &ThreadArchiveJob,
+) -> Result<Vec<ArchiveDisplay>> {
+    // Extract thread key from job.thread_url
+    let thread_key = thread_key_from_url(&job.thread_url);
+
+    // Get all posts for this thread
+    let posts = get_posts_by_thread_key(pool, &thread_key).await?;
+
+    if posts.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Get post IDs
+    let post_ids: Vec<i64> = posts.iter().map(|p| p.id).collect();
+
+    // Reuse existing helper to get archives
+    get_archives_for_posts_display(pool, &post_ids).await
 }
 
 /// Search archives using FTS.
@@ -3542,7 +3567,7 @@ pub async fn delete_excluded_domain(pool: &SqlitePool, domain: &str) -> Result<(
 // Thread Archive Jobs queries
 // ============================================================================
 
-use super::models::{NewThreadArchiveJob, ThreadArchiveJob};
+use super::models::NewThreadArchiveJob;
 
 /// Insert a new thread archive job.
 pub async fn insert_thread_archive_job(

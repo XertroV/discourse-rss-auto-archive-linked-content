@@ -21,10 +21,11 @@ use crate::db::{
     count_user_thread_archive_jobs_last_hour, create_comment, create_comment_reply,
     create_pending_archive, delete_archive, find_artifact_by_s3_key, get_all_threads, get_archive,
     get_archive_by_link_id, get_archives_by_domain_display, get_archives_for_post_display,
-    get_archives_for_posts_display, get_artifacts_for_archive, get_comment_edit_history,
-    get_comment_with_author, get_jobs_for_archive, get_link, get_link_by_normalized_url,
-    get_link_occurrences_with_posts, get_post_by_guid, get_posts_by_thread_key, get_queue_stats,
-    get_quote_reply_chain, get_recent_archives_display_filtered, get_recent_archives_filtered_full,
+    get_archives_for_posts_display, get_archives_for_thread_job, get_artifacts_for_archive,
+    get_comment_edit_history, get_comment_with_author, get_jobs_for_archive, get_link,
+    get_link_by_normalized_url, get_link_occurrences_with_posts, get_post_by_guid,
+    get_posts_by_thread_key, get_queue_stats, get_quote_reply_chain,
+    get_recent_archives_display_filtered, get_recent_archives_filtered_full,
     get_recent_archives_with_filters, get_recent_failed_archives, get_thread_archive_job,
     get_video_file, has_missing_artifacts, insert_link, insert_submission,
     insert_thread_archive_job, pin_comment, remove_comment_reaction, reset_archive_for_rearchive,
@@ -1577,8 +1578,22 @@ async fn thread_job_status(
         }
     };
 
+    // Fetch archives for processing/completed jobs
+    let archives = if matches!(job.status.as_str(), "processing" | "complete") {
+        match get_archives_for_thread_job(state.db.pool(), &job).await {
+            Ok(archives) => archives,
+            Err(e) => {
+                tracing::error!("Failed to fetch archives for thread job {}: {e}", job.id);
+                Vec::new() // Degrade gracefully
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
     let params = pages::ThreadJobStatusParams {
         job: &job,
+        archives: &archives,
         user: user.as_ref(),
     };
     let markup = pages::render_thread_job_status_page(&params);
