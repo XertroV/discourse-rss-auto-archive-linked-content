@@ -548,6 +548,8 @@ Database-backed video deduplication system to store each video once and referenc
 - [x] Add comment artifact upload logic to worker with metadata tracking
 - [x] Store comments as S3 JSON files tracked via archive_artifacts table
 - [x] Add unit tests for Reddit comment permalink extraction
+- [x] Add integration tests (YouTube, Reddit, config validation)
+- [x] Temporarily disable --remote-components flag (compatibility issue)
 
 ### Web UI Display
 - [ ] Add comment download link to archive detail page
@@ -559,6 +561,13 @@ Database-backed video deduplication system to store each video once and referenc
 - [ ] Implement rate-limited reply thread extraction if available
 - [ ] Apply COMMENTS_MAX_DEPTH limit (default: 3 levels)
 - [ ] Add COMMENTS_REQUEST_DELAY_MS throttling (default: 1000ms)
+
+### Testing & Known Issues
+- [x] Local configuration tests (5/5 passing)
+- [x] Network-dependent tests created (4 tests, marked #[ignore])
+- [ ] Investigate --remote-components flag compatibility issue (works manually, fails in tests)
+- [ ] Run full integration test suite on production-like environment
+- [ ] Test with various video lengths and comment counts
 
 ### Future Enhancements (Not in Current Scope)
 - [ ] Comment full-text search (FTS5 index on comment text)
