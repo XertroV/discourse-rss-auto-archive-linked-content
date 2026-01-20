@@ -338,12 +338,8 @@ fn render_pagination(current_page: usize, total_pages: usize, base_url: &str) ->
     let end = (current_page + 3).min(total_pages);
 
     if start > 0 {
-        let url = if 0 == 0 {
-            base_url
-        } else {
-            &format!("{base_url}?page=0")
-        };
-        html.push_str(&format!(r#"<a href="{url}">1</a>"#));
+        // Page 0 uses base_url without query param
+        html.push_str(&format!(r#"<a href="{base_url}">1</a>"#));
         if start > 1 {
             html.push_str("<span>...</span>");
         }
@@ -619,10 +615,9 @@ pub fn render_archive_detail(
     });
 
     let primary_key_opt = archive.s3_key_primary.as_deref();
-    let is_html_archive = primary_key_opt
-        .is_some_and(|primary_key| {
-            primary_key.ends_with(".html") || archive.content_type.as_deref() == Some("thread")
-        });
+    let is_html_archive = primary_key_opt.is_some_and(|primary_key| {
+        primary_key.ends_with(".html") || archive.content_type.as_deref() == Some("thread")
+    });
 
     // Show Media section for non-HTML archives (videos, images, etc.)
     // For HTML archives, we show the embedded preview instead
@@ -1337,9 +1332,7 @@ pub fn render_thread_detail(
         .min()
         .unwrap_or_else(|| "Unknown".to_string());
 
-    let discourse_url = posts
-        .first()
-        .map_or("", |p| p.discourse_url.as_str());
+    let discourse_url = posts.first().map_or("", |p| p.discourse_url.as_str());
 
     let last_activity = archives
         .iter()

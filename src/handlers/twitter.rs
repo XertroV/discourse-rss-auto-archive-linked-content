@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use async_trait::async_trait;
 use regex::Regex;
+use tracing::debug;
 
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::{ytdlp, CookieOptions};
@@ -64,8 +65,34 @@ impl SiteHandler for TwitterHandler {
         cookies: &CookieOptions<'_>,
         config: &crate::config::Config,
     ) -> Result<ArchiveResult> {
-        ytdlp::download(url, work_dir, cookies, config).await
+        let mut result = ytdlp::download(url, work_dir, cookies, config).await?;
+
+        // Extract video_id (tweet ID) for deduplication
+        if result.content_type == "video" {
+            if let Some(tweet_id) = extract_tweet_id(url) {
+                debug!(tweet_id = %tweet_id, "Extracted Twitter tweet ID for video");
+                result.video_id = Some(tweet_id);
+            }
+        }
+
+        Ok(result)
     }
+}
+
+/// Extract tweet ID from Twitter/X URL.
+///
+/// Twitter URLs have format: `https://twitter.com/{user}/status/{tweet_id}`
+pub fn extract_tweet_id(url: &str) -> Option<String> {
+    // Look for /status/{id} pattern
+    if let Some(idx) = url.find("/status/") {
+        let rest = &url[idx + 8..]; // Skip "/status/"
+                                    // Take digits until non-digit or end
+        let tweet_id: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        if !tweet_id.is_empty() {
+            return Some(tweet_id);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -96,5 +123,24 @@ mod tests {
         assert!(handler
             .normalize_url("https://www.x.com/user/status/123")
             .contains("twitter.com"));
+    }
+
+    #[test]
+    fn test_extract_tweet_id() {
+        assert_eq!(
+            extract_tweet_id("https://twitter.com/user/status/1234567890"),
+            Some("1234567890".to_string())
+        );
+        assert_eq!(
+            extract_tweet_id("https://x.com/user/status/9876543210"),
+            Some("9876543210".to_string())
+        );
+        assert_eq!(
+            extract_tweet_id("https://twitter.com/user/status/123?s=20"),
+            Some("123".to_string())
+        );
+        // No tweet ID
+        assert_eq!(extract_tweet_id("https://twitter.com/user"), None);
+        assert_eq!(extract_tweet_id("https://twitter.com/"), None);
     }
 }

@@ -99,13 +99,11 @@ impl Default for PdfConfig {
 }
 
 /// MHTML archive configuration.
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct MhtmlConfig {
     /// Whether MHTML generation is enabled.
     pub enabled: bool,
 }
-
 
 /// Screenshot, PDF, and MHTML capture service.
 ///

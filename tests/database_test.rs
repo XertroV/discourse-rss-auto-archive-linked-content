@@ -1,9 +1,12 @@
 //! Integration tests for database operations.
 
 use discourse_link_archiver::db::{
-    create_pending_archive, get_archive, get_archive_by_link_id, get_link_by_normalized_url,
-    get_post_by_guid, get_recent_archives, insert_link, insert_link_occurrence, insert_post,
-    link_occurrence_exists, search_archives, Database, NewLink, NewLinkOccurrence, NewPost,
+    count_archives_for_video_file, create_pending_archive, find_video_file, get_archive,
+    get_archive_by_link_id, get_link_by_normalized_url, get_or_create_video_file, get_post_by_guid,
+    get_recent_archives, get_video_file, insert_artifact_with_video_file, insert_link,
+    insert_link_occurrence, insert_post, insert_video_file, link_occurrence_exists,
+    search_archives, set_archive_complete, update_video_file_metadata,
+    update_video_file_metadata_key, Database, NewLink, NewLinkOccurrence, NewPost,
 };
 use tempfile::TempDir;
 
@@ -168,4 +171,348 @@ async fn test_search_archives() {
     // Search with no archives should return empty
     let results = search_archives(db.pool(), "test", 10).await.unwrap();
     assert!(results.is_empty());
+}
+
+// ========== Video File Tests ==========
+
+#[tokio::test]
+async fn test_insert_and_get_video_file() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Insert a video file
+    let video_file_id = insert_video_file(
+        db.pool(),
+        "dQw4w9WgXcQ",
+        "youtube",
+        "videos/dQw4w9WgXcQ.mp4",
+        Some("videos/dQw4w9WgXcQ.json"),
+        Some(12345678),
+        Some("video/mp4"),
+        Some(212), // 3:32 in seconds
+    )
+    .await
+    .expect("Failed to insert video file");
+
+    assert!(video_file_id > 0);
+
+    // Get by ID
+    let vf = get_video_file(db.pool(), video_file_id)
+        .await
+        .expect("Failed to get video file")
+        .expect("Video file not found");
+
+    assert_eq!(vf.video_id, "dQw4w9WgXcQ");
+    assert_eq!(vf.platform, "youtube");
+    assert_eq!(vf.s3_key, "videos/dQw4w9WgXcQ.mp4");
+    assert_eq!(
+        vf.metadata_s3_key.as_deref(),
+        Some("videos/dQw4w9WgXcQ.json")
+    );
+    assert_eq!(vf.size_bytes, Some(12345678));
+    assert_eq!(vf.content_type.as_deref(), Some("video/mp4"));
+    assert_eq!(vf.duration_seconds, Some(212));
+}
+
+#[tokio::test]
+async fn test_find_video_file_by_platform_and_id() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Insert video file
+    insert_video_file(
+        db.pool(),
+        "abc123xyz",
+        "tiktok",
+        "videos/abc123xyz.mp4",
+        None,
+        Some(5000000),
+        Some("video/mp4"),
+        Some(60),
+    )
+    .await
+    .unwrap();
+
+    // Find by platform and video_id
+    let vf = find_video_file(db.pool(), "tiktok", "abc123xyz")
+        .await
+        .expect("Query failed")
+        .expect("Video file not found");
+
+    assert_eq!(vf.video_id, "abc123xyz");
+    assert_eq!(vf.platform, "tiktok");
+
+    // Should not find with wrong platform
+    let not_found = find_video_file(db.pool(), "youtube", "abc123xyz")
+        .await
+        .expect("Query failed");
+    assert!(not_found.is_none());
+
+    // Should not find with wrong video_id
+    let not_found = find_video_file(db.pool(), "tiktok", "wrong_id")
+        .await
+        .expect("Query failed");
+    assert!(not_found.is_none());
+}
+
+#[tokio::test]
+async fn test_get_or_create_video_file() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // First call should create
+    let vf1 = get_or_create_video_file(
+        db.pool(),
+        "test_video_123",
+        "streamable",
+        "videos/test_video_123.mp4",
+        None,
+        Some(1000000),
+        Some("video/mp4"),
+        None,
+    )
+    .await
+    .expect("Failed to create video file");
+
+    // Second call with same platform+video_id should return existing
+    let vf2 = get_or_create_video_file(
+        db.pool(),
+        "test_video_123",
+        "streamable",
+        "videos/different_path.mp4", // Different path - should be ignored
+        Some("videos/test_video_123.json"),
+        Some(2000000), // Different size - should be ignored
+        Some("video/webm"),
+        Some(120),
+    )
+    .await
+    .expect("Failed to get/create video file");
+
+    // Should be the same record
+    assert_eq!(vf1.id, vf2.id);
+    // Original values should be preserved
+    assert_eq!(vf2.s3_key, "videos/test_video_123.mp4");
+    assert_eq!(vf2.size_bytes, Some(1000000));
+}
+
+#[tokio::test]
+async fn test_insert_video_file_handles_duplicates() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Insert first video
+    let id1 = insert_video_file(
+        db.pool(),
+        "duplicate_test",
+        "youtube",
+        "videos/duplicate_test.mp4",
+        None,
+        Some(1000),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    // Insert same video_id + platform again (should return existing ID)
+    let id2 = insert_video_file(
+        db.pool(),
+        "duplicate_test",
+        "youtube",
+        "videos/different_path.mp4",
+        None,
+        Some(2000),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    // Should return the same ID
+    assert_eq!(id1, id2);
+}
+
+#[tokio::test]
+async fn test_update_video_file_metadata() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Insert video without all metadata
+    let video_id = insert_video_file(
+        db.pool(),
+        "update_test",
+        "youtube",
+        "videos/update_test.mp4",
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    // Update metadata
+    update_video_file_metadata(
+        db.pool(),
+        video_id,
+        Some(9999999),
+        Some("video/webm"),
+        Some(300),
+    )
+    .await
+    .unwrap();
+
+    // Verify update
+    let vf = get_video_file(db.pool(), video_id).await.unwrap().unwrap();
+
+    assert_eq!(vf.size_bytes, Some(9999999));
+    assert_eq!(vf.content_type.as_deref(), Some("video/webm"));
+    assert_eq!(vf.duration_seconds, Some(300));
+}
+
+#[tokio::test]
+async fn test_update_video_file_metadata_key() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Insert video without metadata key
+    let video_id = insert_video_file(
+        db.pool(),
+        "meta_key_test",
+        "youtube",
+        "videos/meta_key_test.mp4",
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    // Update metadata key
+    update_video_file_metadata_key(db.pool(), video_id, "videos/meta_key_test.json")
+        .await
+        .unwrap();
+
+    // Verify update
+    let vf = get_video_file(db.pool(), video_id).await.unwrap().unwrap();
+
+    assert_eq!(
+        vf.metadata_s3_key.as_deref(),
+        Some("videos/meta_key_test.json")
+    );
+}
+
+#[tokio::test]
+async fn test_artifact_with_video_file_reference() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Create a link and archive
+    let new_link = NewLink {
+        original_url: "https://youtube.com/watch?v=test123".to_string(),
+        normalized_url: "https://www.youtube.com/watch?v=test123".to_string(),
+        canonical_url: None,
+        domain: "www.youtube.com".to_string(),
+    };
+    let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
+        .await
+        .unwrap();
+
+    // Create a video file
+    let video_file_id = insert_video_file(
+        db.pool(),
+        "test123",
+        "youtube",
+        "videos/test123.mp4",
+        None,
+        Some(5000000),
+        Some("video/mp4"),
+        None,
+    )
+    .await
+    .unwrap();
+
+    // Insert artifact with video_file reference
+    let artifact_id = insert_artifact_with_video_file(
+        db.pool(),
+        archive_id,
+        "video",
+        "videos/test123.mp4",
+        Some("video/mp4"),
+        Some(5000000),
+        None,
+        video_file_id,
+    )
+    .await
+    .expect("Failed to insert artifact with video file");
+
+    assert!(artifact_id > 0);
+}
+
+#[tokio::test]
+async fn test_count_archives_for_video_file() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Create a video file
+    let video_file_id = insert_video_file(
+        db.pool(),
+        "count_test",
+        "youtube",
+        "videos/count_test.mp4",
+        None,
+        Some(1000000),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    // Initially no archives reference this video
+    let count = count_archives_for_video_file(db.pool(), video_file_id)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+
+    // Create two links and archives that use this video
+    for i in 0..2 {
+        let new_link = NewLink {
+            original_url: format!("https://youtube.com/watch?v=count_test&post={}", i),
+            normalized_url: format!("https://www.youtube.com/watch?v=count_test&post={}", i),
+            canonical_url: None,
+            domain: "www.youtube.com".to_string(),
+        };
+        let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+        let archive_id = create_pending_archive(db.pool(), link_id, None)
+            .await
+            .unwrap();
+
+        // Mark archive complete so it shows up
+        set_archive_complete(
+            db.pool(),
+            archive_id,
+            Some("Test Video"),
+            Some("Author"),
+            Some("text"),
+            Some("video"),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        // Add artifact referencing the video file
+        insert_artifact_with_video_file(
+            db.pool(),
+            archive_id,
+            "video",
+            "videos/count_test.mp4",
+            Some("video/mp4"),
+            Some(1000000),
+            None,
+            video_file_id,
+        )
+        .await
+        .unwrap();
+    }
+
+    // Now should have 2 archives
+    let count = count_archives_for_video_file(db.pool(), video_file_id)
+        .await
+        .unwrap();
+    assert_eq!(count, 2);
 }

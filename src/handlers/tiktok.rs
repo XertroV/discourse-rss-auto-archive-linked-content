@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use regex::Regex;
+use tracing::debug;
 
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::{ytdlp, CookieOptions};
@@ -61,8 +62,34 @@ impl SiteHandler for TikTokHandler {
             url.to_string()
         };
 
-        ytdlp::download(&resolved_url, work_dir, cookies, config).await
+        let mut result = ytdlp::download(&resolved_url, work_dir, cookies, config).await?;
+
+        // Extract video_id for deduplication
+        if let Some(video_id) = extract_video_id(&resolved_url) {
+            debug!(video_id = %video_id, "Extracted TikTok video ID");
+            result.video_id = Some(video_id);
+        }
+
+        Ok(result)
     }
+}
+
+/// Extract video ID from TikTok URL.
+///
+/// TikTok video URLs have formats like:
+/// - `https://www.tiktok.com/@user/video/1234567890123456789`
+/// - `https://tiktok.com/@user/video/1234567890123456789`
+pub fn extract_video_id(url: &str) -> Option<String> {
+    // Look for /video/{id} pattern
+    if let Some(idx) = url.find("/video/") {
+        let rest = &url[idx + 7..]; // Skip "/video/"
+                                    // Take digits until non-digit or end
+        let video_id: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        if !video_id.is_empty() {
+            return Some(video_id);
+        }
+    }
+    None
 }
 
 /// Resolve a vm.tiktok.com short URL to full URL.
@@ -97,5 +124,24 @@ mod tests {
 
         assert!(!handler.can_handle("https://example.com/"));
         assert!(!handler.can_handle("https://youtube.com/"));
+    }
+
+    #[test]
+    fn test_extract_video_id() {
+        assert_eq!(
+            extract_video_id("https://www.tiktok.com/@user/video/1234567890123456789"),
+            Some("1234567890123456789".to_string())
+        );
+        assert_eq!(
+            extract_video_id("https://tiktok.com/@someuser/video/9876543210"),
+            Some("9876543210".to_string())
+        );
+        assert_eq!(
+            extract_video_id("https://www.tiktok.com/@user/video/123?is_copy_url=1"),
+            Some("123".to_string())
+        );
+        // No video ID
+        assert_eq!(extract_video_id("https://vm.tiktok.com/abc123"), None);
+        assert_eq!(extract_video_id("https://tiktok.com/@user"), None);
     }
 }

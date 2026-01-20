@@ -11,9 +11,7 @@ use std::path::{Path, PathBuf};
 pub fn chromium_user_data_and_profile_from_spec(spec: &str) -> (PathBuf, Option<String>) {
     let path_part = spec.split_once(':').map_or(spec, |(_, rest)| rest);
 
-    let profile_raw = path_part
-        .split_once("::")
-        .map_or(path_part, |(p, _)| p);
+    let profile_raw = path_part.split_once("::").map_or(path_part, |(p, _)| p);
 
     let p = PathBuf::from(profile_raw);
 

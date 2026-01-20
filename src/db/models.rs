@@ -192,6 +192,34 @@ pub struct ArchiveArtifact {
     pub perceptual_hash: Option<String>,
     /// If this artifact is a duplicate, points to the original artifact
     pub duplicate_of_artifact_id: Option<i64>,
+    /// Reference to the canonical video file (for video aliasing)
+    pub video_file_id: Option<i64>,
+}
+
+/// A canonical video file stored on S3.
+///
+/// Videos are stored once at a predictable path (videos/{video_id}.{ext})
+/// and referenced by multiple archives. This enables deduplication where
+/// the same video referenced from different posts only stores one copy.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct VideoFile {
+    pub id: i64,
+    /// Platform-specific video identifier (e.g., "dQw4w9WgXcQ" for YouTube)
+    pub video_id: String,
+    /// Platform name (e.g., "youtube", "tiktok", "reddit")
+    pub platform: String,
+    /// S3 key where the video is stored (e.g., "videos/dQw4w9WgXcQ.mp4")
+    pub s3_key: String,
+    /// S3 key for metadata JSON (e.g., "videos/dQw4w9WgXcQ.json")
+    pub metadata_s3_key: Option<String>,
+    /// File size in bytes
+    pub size_bytes: Option<i64>,
+    /// MIME content type (e.g., "video/mp4")
+    pub content_type: Option<String>,
+    /// Video duration in seconds (from metadata)
+    pub duration_seconds: Option<i64>,
+    /// When this video file record was created
+    pub created_at: String,
 }
 
 /// Data for inserting a new post.

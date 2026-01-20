@@ -1,6 +1,5 @@
 //! Integration tests for the archive pipeline.
 
-
 use discourse_link_archiver::archiver::CookieOptions;
 use discourse_link_archiver::config::Config;
 use discourse_link_archiver::db::{

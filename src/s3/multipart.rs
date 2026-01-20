@@ -81,7 +81,7 @@ impl StreamingUploader {
             archive_id,
             key = %key,
             content_type = %content_type,
-            size_mb = file_size / 1_024_/ 1_024,
+            size_mb = file_size / 1_024 / 1_024,
             "Uploading file to S3"
         );
 

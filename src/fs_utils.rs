@@ -62,6 +62,6 @@ pub async fn copy_dir_best_effort(src: &Path, dst: &Path, purpose: &str) -> Resu
 
 /// A small helper to consistently join a child path.
 #[allow(dead_code)]
-fn join(dst_dir: &PathBuf, child: &std::ffi::OsStr) -> PathBuf {
+fn join(dst_dir: &Path, child: &std::ffi::OsStr) -> PathBuf {
     dst_dir.join(child)
 }

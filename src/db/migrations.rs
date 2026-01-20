@@ -61,6 +61,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 9).await?;
     }
 
+    if current_version < 10 {
+        debug!("Running migration v10");
+        run_migration_v10(pool).await?;
+        set_schema_version(pool, 10).await?;
+    }
+
     Ok(())
 }
 
@@ -542,6 +548,64 @@ async fn run_migration_v9(pool: &SqlitePool) -> Result<()> {
         .execute(pool)
         .await
         .context("Failed to create post_date index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v10(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v10: adding video_files table for video path aliasing");
+
+    // Create video_files table for canonical video storage
+    // This enables storing each unique video once and referencing it from multiple archives
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS video_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            s3_key TEXT NOT NULL,
+            metadata_s3_key TEXT,
+            size_bytes INTEGER,
+            content_type TEXT,
+            duration_seconds INTEGER,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(platform, video_id)
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create video_files table")?;
+
+    // Create indexes for efficient lookups
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_video_files_platform_video_id ON video_files(platform, video_id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create video_files platform+video_id index")?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_video_files_s3_key ON video_files(s3_key)")
+        .execute(pool)
+        .await
+        .context("Failed to create video_files s3_key index")?;
+
+    // Add video_file_id column to archive_artifacts table
+    // This links artifacts to their canonical video file
+    sqlx::query(
+        "ALTER TABLE archive_artifacts ADD COLUMN video_file_id INTEGER REFERENCES video_files(id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to add video_file_id column to archive_artifacts")?;
+
+    // Create index for efficient artifact->video_file lookups
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_archive_artifacts_video_file_id ON archive_artifacts(video_file_id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create archive_artifacts video_file_id index")?;
 
     Ok(())
 }
