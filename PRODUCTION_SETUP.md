@@ -4,9 +4,11 @@ This guide covers setting up the archiver with Cloudflare R2 (or any external S3
 
 ## Configuration Files
 
-- **docker-compose.yml** - Base configuration (includes MinIO for local dev)
-- **docker-compose.prod.yml** - Production override (disables MinIO, uses R2 from .env)
+- **docker-compose.yml** - Base configuration (MinIO dependency commented out for production)
+- **docker-compose.prod.yml** - Production override (uses R2 credentials from .env)
 - **.env** - Your production credentials (not in git)
+
+**Note:** The MinIO dependency is commented out in docker-compose.yml by default for production use. If you want to run locally with MinIO, uncomment the `depends_on` section in docker-compose.yml.
 
 ## Environment Variables
 
@@ -141,15 +143,6 @@ After starting, check that:
    ```
 
 ## Troubleshooting
-
-### MinIO still running
-If you see MinIO containers:
-```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
-```
-Should show only `archiver`, not `minio` or `minio-init`.
-
-If MinIO appears, check that `docker-compose.prod.yml` exists and scripts use both files.
 
 ### R2 connection errors
 Check logs:
