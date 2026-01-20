@@ -5,49 +5,15 @@
 
 use anyhow::{Context, Result};
 use reqwest::Client;
-use serde::Deserialize;
 use sqlx::SqlitePool;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
-/// TikTok API response for comment listing
-#[derive(Debug, Deserialize)]
-struct TikTokCommentResponse {
-    #[serde(default)]
-    comments: Vec<TikTokComment>,
-    #[serde(default)]
-    has_more: bool,
-    #[serde(default)]
-    cursor: u64,
-    #[serde(default)]
-    status_code: i32,
-    #[serde(default)]
-    status_msg: String,
-}
+use crate::constants::ARCHIVAL_USER_AGENT;
 
-/// Individual comment from TikTok API
-#[derive(Debug, Deserialize)]
-struct TikTokComment {
-    cid: String,
-    text: String,
-    #[serde(default)]
-    create_time: i64,
-    #[serde(default)]
-    digg_count: u64,
-    user: TikTokUser,
-    #[serde(default)]
-    #[allow(dead_code)]
-    reply_comment_total: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct TikTokUser {
-    #[serde(default)]
-    unique_id: String,
-    #[serde(default)]
-    uid: String,
-}
+// Note: We use serde_json::Value instead of strict structs because TikTok's API
+// response structure is complex and may change. This approach is more resilient.
 
 /// Extract video ID from TikTok URL.
 ///
@@ -95,7 +61,7 @@ async fn fetch_comments_batch(
     client: &Client,
     video_id: &str,
     cursor: u64,
-) -> Result<TikTokCommentResponse> {
+) -> Result<serde_json::Value> {
     let url = format!(
         "https://www.tiktok.com/api/comment/list/?aid=1988&aweme_id={}&count=50&cursor={}",
         video_id, cursor
@@ -103,11 +69,11 @@ async fn fetch_comments_batch(
 
     let response = client
         .get(&url)
+        .header("User-Agent", ARCHIVAL_USER_AGENT)
         .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer",
+            format!("https://www.tiktok.com/@i/video/{}", video_id),
         )
-        .header("Referer", format!("https://www.tiktok.com/@i/video/{}", video_id))
         .timeout(Duration::from_secs(30))
         .send()
         .await
@@ -117,14 +83,22 @@ async fn fetch_comments_batch(
         anyhow::bail!("TikTok API returned status {}", response.status());
     }
 
-    let data = response
-        .json::<TikTokCommentResponse>()
+    let data: serde_json::Value = response
+        .json()
         .await
-        .context("Failed to parse TikTok API response")?;
+        .context("Failed to parse TikTok API response as JSON")?;
 
     // Check for API errors
-    if data.status_code != 0 {
-        anyhow::bail!("TikTok API error: {}", data.status_msg);
+    let status_code = data
+        .get("status_code")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    if status_code != 0 {
+        let status_msg = data
+            .get("status_msg")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown error");
+        anyhow::bail!("TikTok API error (status {}): {}", status_code, status_msg);
     }
 
     Ok(data)
@@ -204,37 +178,87 @@ pub async fn fetch_tiktok_comments(
             }
         };
 
-        // Process comments from this batch
-        let batch_size = response.comments.len();
+        // Extract fields from response
+        let comments_array = response
+            .get("comments")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let has_more = response
+            .get("has_more")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let next_cursor = response.get("cursor").and_then(|v| v.as_u64()).unwrap_or(0);
+
+        let batch_size = comments_array.len();
+        debug!(
+            "API response: has_more={}, cursor={}, comments={}",
+            has_more, next_cursor, batch_size
+        );
+
         if batch_size == 0 {
             debug!("No comments in batch, reached end");
             break;
         }
 
-        for comment in response.comments {
+        for comment in comments_array {
             if all_comments.len() >= limit {
                 break;
             }
 
+            // Extract comment fields
+            let cid = comment
+                .get("cid")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let text = comment
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let create_time = comment
+                .get("create_time")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            let digg_count = comment
+                .get("digg_count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+
+            let user = comment.get("user");
+            let unique_id = user
+                .and_then(|u| u.get("unique_id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let uid = user
+                .and_then(|u| u.get("uid"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
             // Transform to standard schema
-            let author_id = if comment.user.uid.is_empty() {
+            let author = if unique_id.is_empty() {
+                uid.clone()
+            } else {
+                unique_id
+            };
+
+            let author_id = if uid.is_empty() {
                 serde_json::Value::Null
             } else {
-                serde_json::Value::String(comment.user.uid.clone())
+                serde_json::Value::String(uid)
             };
 
             let comment_obj = serde_json::json!({
-                "id": comment.cid,
-                "author": if comment.user.unique_id.is_empty() {
-                    &comment.user.uid
-                } else {
-                    &comment.user.unique_id
-                },
+                "id": cid,
+                "author": author,
                 "author_id": author_id,
-                "text": comment.text,
-                "timestamp": comment.create_time,
-                "likes": comment.digg_count,
-                "is_pinned": false,  // TikTok API doesn't provide this
+                "text": text,
+                "timestamp": create_time,
+                "likes": digg_count,
+                "is_pinned": false,  // TikTok API doesn't provide this easily
                 "is_creator": false, // TikTok API doesn't provide this easily
                 "parent_id": "root", // TikTok comments are flat in this API
                 "replies": [],       // Not fetching nested replies
@@ -279,13 +303,13 @@ pub async fn fetch_tiktok_comments(
         }
 
         // Check if there are more comments
-        if !response.has_more {
+        if !has_more {
             debug!("API reports no more comments available");
             break;
         }
 
         // Update cursor for next batch
-        cursor = response.cursor;
+        cursor = next_cursor;
 
         // Rate limiting: wait 500ms between requests
         tokio::time::sleep(Duration::from_millis(500)).await;
