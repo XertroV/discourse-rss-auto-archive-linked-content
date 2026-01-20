@@ -134,6 +134,10 @@ pub struct Archive {
     /// Publication date of the Discourse post containing this link.
     /// Used for sorting archives by when the post was made, not when archived.
     pub post_date: Option<String>,
+    /// Reference to the archive of a quoted tweet (Twitter/X only).
+    pub quoted_archive_id: Option<i64>,
+    /// Reference to the archive of the tweet this replies to (Twitter/X only).
+    pub reply_to_archive_id: Option<i64>,
 }
 
 impl Archive {

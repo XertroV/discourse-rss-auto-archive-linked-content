@@ -1884,6 +1884,83 @@ pub async fn set_archive_http_status_code(
     Ok(())
 }
 
+/// Set the quoted tweet archive link for a Twitter/X archive.
+pub async fn set_archive_quoted_link(
+    pool: &SqlitePool,
+    archive_id: i64,
+    quoted_archive_id: i64,
+) -> Result<()> {
+    sqlx::query("UPDATE archives SET quoted_archive_id = ? WHERE id = ?")
+        .bind(quoted_archive_id)
+        .bind(archive_id)
+        .execute(pool)
+        .await
+        .context("Failed to set quoted archive link")?;
+
+    Ok(())
+}
+
+/// Set the reply-to tweet archive link for a Twitter/X archive.
+pub async fn set_archive_reply_link(
+    pool: &SqlitePool,
+    archive_id: i64,
+    reply_to_archive_id: i64,
+) -> Result<()> {
+    sqlx::query("UPDATE archives SET reply_to_archive_id = ? WHERE id = ?")
+        .bind(reply_to_archive_id)
+        .bind(archive_id)
+        .execute(pool)
+        .await
+        .context("Failed to set reply-to archive link")?;
+
+    Ok(())
+}
+
+/// Get the quote/reply chain for a Twitter/X archive.
+/// Returns archives in order from the given archive up to the root.
+pub async fn get_quote_reply_chain(pool: &SqlitePool, archive_id: i64) -> Result<Vec<Archive>> {
+    // Use a recursive CTE to traverse the chain
+    let archives: Vec<Archive> = sqlx::query_as(
+        r"
+        WITH RECURSIVE chain AS (
+            SELECT * FROM archives WHERE id = ?
+            UNION ALL
+            SELECT a.* FROM archives a
+            JOIN chain c ON (a.id = c.quoted_archive_id OR a.id = c.reply_to_archive_id)
+            WHERE a.id != c.id
+        )
+        SELECT * FROM chain
+        LIMIT 10
+        ",
+    )
+    .bind(archive_id)
+    .fetch_all(pool)
+    .await
+    .context("Failed to get quote/reply chain")?;
+
+    Ok(archives)
+}
+
+/// Find an existing archive for a URL (by normalized URL).
+/// Used to link quote/reply tweets to existing archives.
+pub async fn find_archive_by_url(pool: &SqlitePool, normalized_url: &str) -> Result<Option<i64>> {
+    let result: Option<(i64,)> = sqlx::query_as(
+        r"
+        SELECT a.id FROM archives a
+        JOIN links l ON a.link_id = l.id
+        WHERE l.normalized_url = ?
+        AND a.status = 'complete'
+        LIMIT 1
+        ",
+    )
+    .bind(normalized_url)
+    .fetch_optional(pool)
+    .await
+    .context("Failed to find archive by URL")?;
+
+    Ok(result.map(|(id,)| id))
+}
+
 // ========== Archive Jobs ==========
 
 /// Create a new archive job.

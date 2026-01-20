@@ -127,6 +127,13 @@ pub struct Config {
     // Content Deduplication
     pub dedup_enabled: bool,
     pub dedup_similarity_threshold: u32,
+
+    // Twitter/X-specific configuration
+    pub twitter_nitter_instances: Vec<String>,
+    pub twitter_prefer_nitter: bool,
+    pub twitter_archive_quoted: bool,
+    pub twitter_html_snapshot: bool,
+    pub twitter_max_quote_depth: u32,
 }
 
 /// Configuration file structure (all fields optional, loaded from TOML).
@@ -169,6 +176,8 @@ pub struct FileConfig {
     pub monolith: MonolithCaptureConfig,
     #[serde(default)]
     pub dedup: DedupConfig,
+    #[serde(default)]
+    pub twitter: TwitterConfig,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -315,6 +324,16 @@ pub struct MonolithCaptureConfig {
 pub struct DedupConfig {
     pub enabled: Option<bool>,
     pub similarity_threshold: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct TwitterConfig {
+    pub nitter_instances: Option<Vec<String>>,
+    pub prefer_nitter: Option<bool>,
+    pub archive_quoted: Option<bool>,
+    pub html_snapshot: Option<bool>,
+    pub max_quote_depth: Option<u32>,
 }
 
 /// Log output format.
@@ -618,6 +637,28 @@ impl Config {
                 "DEDUP_SIMILARITY_THRESHOLD",
                 fc.dedup.similarity_threshold.unwrap_or(10),
             )?,
+
+            // Twitter/X-specific configuration
+            twitter_nitter_instances: optional_env("TWITTER_NITTER_INSTANCES")
+                .map(|s| parse_comma_separated_list(&s))
+                .or(fc.twitter.nitter_instances)
+                .unwrap_or_else(default_nitter_instances),
+            twitter_prefer_nitter: parse_env_bool(
+                "TWITTER_PREFER_NITTER",
+                fc.twitter.prefer_nitter.unwrap_or(false),
+            )?,
+            twitter_archive_quoted: parse_env_bool(
+                "TWITTER_ARCHIVE_QUOTED",
+                fc.twitter.archive_quoted.unwrap_or(true),
+            )?,
+            twitter_html_snapshot: parse_env_bool(
+                "TWITTER_HTML_SNAPSHOT",
+                fc.twitter.html_snapshot.unwrap_or(true),
+            )?,
+            twitter_max_quote_depth: parse_env_u32(
+                "TWITTER_MAX_QUOTE_DEPTH",
+                fc.twitter.max_quote_depth.unwrap_or(10),
+            )?,
         })
     }
 
@@ -824,6 +865,23 @@ fn parse_domain_list(value: &str) -> Vec<String> {
         .collect()
 }
 
+fn parse_comma_separated_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+fn default_nitter_instances() -> Vec<String> {
+    vec![
+        "nitter.net".to_string(),
+        "nitter.poast.org".to_string(),
+        "nitter.privacydev.net".to_string(),
+    ]
+}
+
 impl Config {
     /// Create a Config instance with sensible defaults for testing.
     ///
@@ -897,6 +955,11 @@ impl Config {
             monolith_include_js: false,
             dedup_enabled: false,
             dedup_similarity_threshold: 10,
+            twitter_nitter_instances: default_nitter_instances(),
+            twitter_prefer_nitter: false,
+            twitter_archive_quoted: true,
+            twitter_html_snapshot: true,
+            twitter_max_quote_depth: 10,
         }
     }
 }

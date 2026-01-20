@@ -1604,6 +1604,91 @@ pre {
     }
 }
 
+/* Quote/Reply chain section for Twitter/X archives */
+.quote-reply-chain {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-md);
+    margin: var(--spacing-md) 0;
+}
+
+.quote-reply-chain h2 {
+    margin: 0 0 var(--spacing-sm) 0;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+}
+
+.quote-reply-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    margin: var(--spacing-xs) 0;
+    background: var(--bg-primary);
+    border-radius: var(--radius-md);
+    border-left: 3px solid var(--border-color);
+}
+
+.quote-reply-item.quote-item {
+    border-left-color: var(--primary);
+}
+
+.quote-reply-item.reply-item {
+    border-left-color: var(--success);
+}
+
+.quote-reply-label {
+    font-weight: 500;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.quote-reply-item a {
+    color: var(--primary);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.quote-reply-item a:hover {
+    text-decoration: underline;
+}
+
+.thread-chain {
+    margin-top: var(--spacing-md);
+}
+
+.thread-chain summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.thread-chain summary:hover {
+    color: var(--primary);
+}
+
+.chain-list {
+    margin: var(--spacing-sm) 0 0 var(--spacing-lg);
+    padding: 0;
+}
+
+.chain-list li {
+    margin: var(--spacing-xs) 0;
+    color: var(--text-secondary);
+}
+
+.chain-list li a {
+    color: var(--primary);
+    text-decoration: none;
+}
+
+.chain-list li a:hover {
+    text-decoration: underline;
+}
+
 /* Print styles */
 @media print {
     header,
