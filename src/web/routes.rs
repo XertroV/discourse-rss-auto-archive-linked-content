@@ -26,12 +26,12 @@ use crate::db::{
     get_post_by_guid, get_posts_by_thread_key, get_queue_stats, get_quote_reply_chain,
     get_recent_archives_display_filtered, get_recent_archives_filtered_full,
     get_recent_archives_with_filters, get_recent_failed_archives, get_thread_archive_job,
-    get_video_file, insert_link, insert_submission, insert_thread_archive_job, pin_comment,
-    remove_comment_reaction, reset_archive_for_rearchive, reset_single_skipped_archive,
-    reset_skipped_archives, search_archives_display_filtered, search_archives_filtered_full,
-    soft_delete_comment, submission_exists_for_url, thread_archive_job_exists_recent,
-    toggle_archive_nsfw, unpin_comment, update_comment, NewLink, NewSubmission,
-    NewThreadArchiveJob,
+    get_video_file, has_missing_artifacts, insert_link, insert_submission,
+    insert_thread_archive_job, pin_comment, remove_comment_reaction, reset_archive_for_rearchive,
+    reset_single_skipped_archive, reset_skipped_archives, search_archives_display_filtered,
+    search_archives_filtered_full, soft_delete_comment, submission_exists_for_url,
+    thread_archive_job_exists_recent, toggle_archive_nsfw, unpin_comment, update_comment, NewLink,
+    NewSubmission, NewThreadArchiveJob,
 };
 use crate::handlers::normalize_url;
 
@@ -96,6 +96,10 @@ pub fn router() -> Router<AppState> {
         .route("/submit/thread/:id", get(thread_job_status))
         .route("/archive/:id", get(archive_detail))
         .route("/archive/:id/rearchive", post(rearchive))
+        .route(
+            "/archive/:id/get-missing-artifacts",
+            post(get_missing_artifacts),
+        )
         .route("/archive/:id/toggle-nsfw", post(toggle_nsfw))
         .route("/archive/:id/delete", post(delete_archive_handler))
         .route("/archive/:id/retry-skipped", post(retry_skipped))
@@ -423,6 +427,15 @@ async fn archive_detail(
             Vec::new()
         };
 
+    // Check if archive has missing artifacts
+    let has_missing_artifacts = match has_missing_artifacts(state.db.pool(), archive.id).await {
+        Ok(missing) => missing,
+        Err(e) => {
+            tracing::error!("Failed to check for missing artifacts: {e}");
+            false
+        }
+    };
+
     let params = pages::ArchiveDetailParams {
         archive: &archive,
         link: &link,
@@ -431,6 +444,7 @@ async fn archive_detail(
         jobs: &jobs,
         quote_reply_chain: &quote_reply_chain,
         user: user.as_ref(),
+        has_missing_artifacts,
     };
     let markup = pages::render_archive_detail_page(&params);
     Html(markup.into_string()).into_response()
@@ -474,6 +488,260 @@ async fn rearchive(
     }
 
     tracing::info!(archive_id = id, "Archive queued for re-archiving");
+
+    // Redirect back to archive detail page
+    axum::response::Redirect::to(&format!("/archive/{id}")).into_response()
+}
+
+/// Handler for fetching missing artifacts (POST /archive/:id/get-missing-artifacts).
+///
+/// This downloads only missing supplementary artifacts (e.g., subtitles, transcripts)
+/// without re-archiving the entire content.
+async fn get_missing_artifacts(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    RequireAdmin(_admin): RequireAdmin,
+) -> Response {
+    use crate::archiver::ytdlp;
+    use crate::archiver::CookieOptions;
+    use crate::db::{has_artifact_kind, ArtifactKind};
+
+    tracing::debug!(
+        archive_id = id,
+        "HTTP API: POST /archive/:id/get-missing-artifacts"
+    );
+
+    // Check that the archive exists
+    let archive = match get_archive(state.db.pool(), id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, "Archive not found").into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch archive: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    // Don't allow if currently processing
+    if archive.status == "processing" {
+        return (
+            StatusCode::CONFLICT,
+            "Archive is currently being processed. Please wait.",
+        )
+            .into_response();
+    }
+
+    // Only process complete video archives
+    if archive.status != "complete" {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("Archive is not complete (status: {})", archive.status),
+        )
+            .into_response();
+    }
+
+    if archive.content_type.as_deref() != Some("video") {
+        return (StatusCode::BAD_REQUEST, "Archive is not video content").into_response();
+    }
+
+    // Get the link
+    let link = match get_link(state.db.pool(), archive.link_id).await {
+        Ok(Some(l)) => l,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, "Link not found").into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch link: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    // Check what artifacts are missing
+    let needs_subtitles = !has_artifact_kind(state.db.pool(), id, ArtifactKind::Subtitles.as_str())
+        .await
+        .unwrap_or(true);
+    let needs_transcript =
+        !has_artifact_kind(state.db.pool(), id, ArtifactKind::Transcript.as_str())
+            .await
+            .unwrap_or(true);
+
+    if !needs_subtitles && !needs_transcript {
+        tracing::info!(archive_id = id, "No missing artifacts to fetch");
+        return axum::response::Redirect::to(&format!("/archive/{id}")).into_response();
+    }
+
+    tracing::info!(
+        archive_id = id,
+        needs_subtitles,
+        needs_transcript,
+        "Downloading missing supplementary artifacts"
+    );
+
+    // Create a temporary work directory
+    let work_dir = std::env::temp_dir().join(format!("archive-{}", id));
+    if let Err(e) = std::fs::create_dir_all(&work_dir) {
+        tracing::error!(error = %e, "Failed to create temp directory");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to create temp directory",
+        )
+            .into_response();
+    }
+
+    // Set up cookies
+    let cookies_file = match state.config.cookies_file_path.as_deref() {
+        Some(path) if path.exists() => Some(path),
+        _ => None,
+    };
+    let cookies = CookieOptions {
+        cookies_file,
+        browser_profile: state.config.yt_dlp_cookies_from_browser.as_deref(),
+    };
+
+    // Download supplementary artifacts (subtitles, transcripts)
+    let result = match ytdlp::download_supplementary_artifacts(
+        &link.normalized_url,
+        &work_dir,
+        &cookies,
+        &state.config,
+        needs_subtitles,
+        false, // don't download comments for now
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!(error = ?e, "Failed to download supplementary artifacts");
+            // Clean up temp directory
+            let _ = std::fs::remove_dir_all(&work_dir);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to download artifacts: {e}"),
+            )
+                .into_response();
+        }
+    };
+
+    // Process subtitle files if any were downloaded
+    if !result.extra_files.is_empty() {
+        let subtitle_files: Vec<String> = result
+            .extra_files
+            .iter()
+            .filter(|f| f.ends_with(".vtt") || f.ends_with(".srt"))
+            .cloned()
+            .collect();
+
+        if !subtitle_files.is_empty() {
+            // Process and upload subtitles inline (similar to worker logic)
+            use crate::archiver::transcript::build_transcript_from_file;
+            use crate::archiver::ytdlp::parse_subtitle_info;
+
+            let s3_prefix = format!("archives/{}/", id);
+
+            // Upload each subtitle file with metadata
+            for subtitle_file in &subtitle_files {
+                let local_path = work_dir.join(subtitle_file);
+                if !local_path.exists() {
+                    tracing::warn!(archive_id = id, file = %subtitle_file, "Subtitle file not found");
+                    continue;
+                }
+
+                let (language, is_auto, format) = parse_subtitle_info(subtitle_file);
+                let key = format!("{s3_prefix}subtitles/{subtitle_file}");
+                let size_bytes = tokio::fs::metadata(&local_path)
+                    .await
+                    .ok()
+                    .map(|m| m.len() as i64);
+
+                let content_type = if format == "vtt" {
+                    "text/vtt"
+                } else {
+                    "application/x-subrip"
+                };
+
+                // Upload subtitle file
+                if let Err(e) = state.s3.upload_file(&local_path, &key, Some(id)).await {
+                    tracing::warn!(archive_id = id, file = %subtitle_file, error = %e, "Failed to upload subtitle file");
+                    continue;
+                }
+
+                // Store metadata about the subtitle in JSON format
+                let subtitle_metadata = serde_json::json!({
+                    "language": language,
+                    "is_auto": is_auto,
+                    "format": format,
+                });
+
+                // Insert subtitle artifact with metadata
+                if let Err(e) = crate::db::insert_artifact_with_metadata(
+                    state.db.pool(),
+                    id,
+                    ArtifactKind::Subtitles.as_str(),
+                    &key,
+                    Some(content_type),
+                    size_bytes,
+                    None, // sha256
+                    Some(&subtitle_metadata.to_string()),
+                )
+                .await
+                {
+                    tracing::warn!(archive_id = id, file = %subtitle_file, error = %e, "Failed to insert subtitle artifact");
+                }
+            }
+
+            // Generate transcript from the first English subtitle file
+            if let Some(subtitle_file) = subtitle_files.iter().find(|f| f.contains(".en")) {
+                let local_path = work_dir.join(subtitle_file);
+                if let Ok(transcript) = build_transcript_from_file(&local_path).await {
+                    if !transcript.is_empty() {
+                        let transcript_key = format!("{s3_prefix}subtitles/transcript.txt");
+                        let size_bytes = transcript.len() as i64;
+
+                        // Upload transcript
+                        if let Err(e) = state
+                            .s3
+                            .upload_bytes(transcript.as_bytes(), &transcript_key, "text/plain")
+                            .await
+                        {
+                            tracing::warn!(archive_id = id, error = %e, "Failed to upload transcript");
+                        } else {
+                            // Insert transcript artifact
+                            if let Err(e) = crate::db::insert_artifact(
+                                state.db.pool(),
+                                id,
+                                ArtifactKind::Transcript.as_str(),
+                                &transcript_key,
+                                Some("text/plain"),
+                                Some(size_bytes),
+                                None,
+                            )
+                            .await
+                            {
+                                tracing::warn!(archive_id = id, error = %e, "Failed to insert transcript artifact");
+                            }
+                        }
+                    }
+                }
+            }
+
+            tracing::info!(
+                archive_id = id,
+                count = subtitle_files.len(),
+                "Successfully fetched missing artifacts"
+            );
+        }
+    } else {
+        tracing::warn!(
+            archive_id = id,
+            "No supplementary artifacts were downloaded (might not be available)"
+        );
+    }
+
+    // Clean up temp directory
+    if let Err(e) = std::fs::remove_dir_all(&work_dir) {
+        tracing::warn!(error = %e, "Failed to clean up temp directory");
+    }
 
     // Redirect back to archive detail page
     axum::response::Redirect::to(&format!("/archive/{id}")).into_response()
