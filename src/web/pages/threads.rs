@@ -5,11 +5,22 @@
 //! - Thread detail page
 //! - Thread archive job status page
 
+use chrono::NaiveDateTime;
 use maud::{html, Markup, Render};
 use urlencoding::encode;
 
 use crate::components::{Alert, ArchiveGrid, BaseLayout, EmptyState, KeyValueTable};
 use crate::db::{thread_key_from_url, ArchiveDisplay, Post, ThreadArchiveJob, ThreadDisplay, User};
+
+/// Format a SQLite datetime string into a more readable format.
+/// Input: "2024-01-15 12:34:56"
+/// Output: "Jan 15, 2024 12:34"
+fn format_datetime(datetime_str: &str) -> String {
+    NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S")
+        .ok()
+        .map(|dt| dt.format("%b %d, %Y %H:%M").to_string())
+        .unwrap_or_else(|| datetime_str.to_string())
+}
 
 /// Sort option for threads list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -282,17 +293,35 @@ pub fn render_thread_detail_page(params: &ThreadDetailParams<'_>) -> Markup {
         // Posts list section
         section {
             h2 { "Posts" }
-            ul {
-                @for post in params.posts {
-                    @let post_title = post.title.as_deref().unwrap_or("Untitled Post");
-                    @let post_author = post.author.as_deref().unwrap_or("Unknown");
-                    @let published_at = post.published_at.as_deref().unwrap_or("Unknown");
-                    li {
-                        a href=(format!("/post/{}", post.guid)) { (post_title) }
-                        @if post_author != "Unknown" {
-                            span class="text-muted-foreground" { " by " (post_author) }
+            table style="width: 100%; border-collapse: collapse;" {
+                thead {
+                    tr {
+                        th style="text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border, #e4e4e7);" { "Title" }
+                        th style="text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border, #e4e4e7);" { "Author" }
+                        th style="text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border, #e4e4e7); white-space: nowrap;" { "Published" }
+                    }
+                }
+                tbody {
+                    @for post in params.posts {
+                        @let post_title = post.title.as_deref().unwrap_or("Untitled Post");
+                        @let post_author = post.author.as_deref().unwrap_or("Unknown");
+                        @let published_at = post.published_at.as_deref().unwrap_or("Unknown");
+                        @let formatted_date = if published_at != "Unknown" {
+                            format_datetime(published_at)
+                        } else {
+                            published_at.to_string()
+                        };
+                        tr {
+                            td style="padding: 0.5rem; border-bottom: 1px solid var(--border, #e4e4e7);" {
+                                a href=(format!("/post/{}", post.guid)) { (post_title) }
+                            }
+                            td style="padding: 0.5rem; border-bottom: 1px solid var(--border, #e4e4e7);" {
+                                (post_author)
+                            }
+                            td style="padding: 0.5rem; border-bottom: 1px solid var(--border, #e4e4e7); white-space: nowrap;" {
+                                (formatted_date)
+                            }
                         }
-                        " \u{2014} " (published_at)
                     }
                 }
             }
@@ -681,6 +710,11 @@ mod tests {
         assert!(html.contains("Archives found:"));
         assert!(html.contains("Archived Links"));
         assert!(html.contains("Archived Content"));
+        // Check for table structure
+        assert!(html.contains("<table"));
+        assert!(html.contains("<thead>"));
+        assert!(html.contains("<tbody>"));
+        assert!(html.contains("Published")); // Column header
     }
 
     #[test]
@@ -786,5 +820,14 @@ mod tests {
         let html = bar.render().into_string();
 
         assert!(html.contains("width: 50%"));
+    }
+
+    #[test]
+    fn test_format_datetime() {
+        assert_eq!(format_datetime("2024-01-15 12:34:56"), "Jan 15, 2024 12:34");
+        assert_eq!(format_datetime("2023-12-31 23:59:59"), "Dec 31, 2023 23:59");
+        // Invalid format should return original string
+        assert_eq!(format_datetime("invalid"), "invalid");
+        assert_eq!(format_datetime("Unknown"), "Unknown");
     }
 }
