@@ -22,7 +22,7 @@ use crate::db::{
     get_archives_by_domain_display, get_archives_for_post_display, get_archives_for_posts_display,
     get_artifacts_for_archive, get_comment_edit_history, get_comment_with_author,
     get_jobs_for_archive, get_link, get_link_by_normalized_url, get_link_occurrences_with_posts,
-    get_post_by_guid, get_posts_by_thread_key, get_queue_stats,
+    get_post_by_guid, get_posts_by_thread_key, get_queue_stats, get_quote_reply_chain,
     get_recent_archives_display_filtered, get_recent_archives_filtered_full,
     get_recent_archives_with_filters, get_recent_failed_archives, insert_link, insert_submission,
     pin_comment, remove_comment_reaction, reset_archive_for_rearchive,
@@ -375,7 +375,28 @@ async fn archive_detail(State(state): State<AppState>, Path(id): Path<i64>) -> R
         }
     };
 
-    let html = templates::render_archive_detail(&archive, &link, &artifacts, &occurrences, &jobs);
+    // Fetch quote/reply chain for Twitter/X archives
+    let quote_reply_chain =
+        if archive.quoted_archive_id.is_some() || archive.reply_to_archive_id.is_some() {
+            match get_quote_reply_chain(state.db.pool(), archive.id).await {
+                Ok(chain) => chain,
+                Err(e) => {
+                    tracing::error!("Failed to fetch quote/reply chain: {e}");
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
+    let html = templates::render_archive_detail(
+        &archive,
+        &link,
+        &artifacts,
+        &occurrences,
+        &jobs,
+        &quote_reply_chain,
+    );
     Html(html).into_response()
 }
 

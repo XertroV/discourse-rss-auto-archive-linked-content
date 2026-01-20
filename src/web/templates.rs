@@ -747,6 +747,7 @@ pub fn render_archive_detail(
     artifacts: &[ArchiveArtifact],
     occurrences: &[LinkOccurrenceWithPost],
     jobs: &[ArchiveJob],
+    quote_reply_chain: &[Archive],
 ) -> String {
     let title = archive
         .content_title
@@ -910,6 +911,98 @@ pub fn render_archive_detail(
             "<p><strong>Author:</strong> {}</p>",
             html_escape(author)
         ));
+    }
+
+    // Quote/Reply chain section for Twitter/X archives
+    if archive.quoted_archive_id.is_some() || archive.reply_to_archive_id.is_some() {
+        content.push_str(r#"<section class="quote-reply-chain">"#);
+        content.push_str("<h2>Thread Context</h2>");
+
+        // Direct quoted tweet
+        if let Some(quoted_id) = archive.quoted_archive_id {
+            let quoted_archive = quote_reply_chain.iter().find(|a| a.id == quoted_id);
+            if let Some(quoted) = quoted_archive {
+                let quoted_title = quoted.content_title.as_deref().unwrap_or("Quoted Tweet");
+                let quoted_author = quoted
+                    .content_author
+                    .as_deref()
+                    .map(|a| format!(" by @{}", a))
+                    .unwrap_or_default();
+                content.push_str(&format!(
+                    r#"<div class="quote-reply-item quote-item">
+                        <span class="quote-reply-label">💬 Quotes:</span>
+                        <a href="/archive/{}">{}{}</a>
+                    </div>"#,
+                    quoted_id,
+                    html_escape(quoted_title),
+                    html_escape(&quoted_author)
+                ));
+            } else {
+                content.push_str(&format!(
+                    r#"<div class="quote-reply-item quote-item">
+                        <span class="quote-reply-label">💬 Quotes:</span>
+                        <a href="/archive/{}">Archive #{}</a>
+                    </div>"#,
+                    quoted_id, quoted_id
+                ));
+            }
+        }
+
+        // Direct reply-to tweet
+        if let Some(reply_to_id) = archive.reply_to_archive_id {
+            let reply_archive = quote_reply_chain.iter().find(|a| a.id == reply_to_id);
+            if let Some(reply_to) = reply_archive {
+                let reply_title = reply_to.content_title.as_deref().unwrap_or("Parent Tweet");
+                let reply_author = reply_to
+                    .content_author
+                    .as_deref()
+                    .map(|a| format!(" by @{}", a))
+                    .unwrap_or_default();
+                content.push_str(&format!(
+                    r#"<div class="quote-reply-item reply-item">
+                        <span class="quote-reply-label">↩️ Reply to:</span>
+                        <a href="/archive/{}">{}{}</a>
+                    </div>"#,
+                    reply_to_id,
+                    html_escape(reply_title),
+                    html_escape(&reply_author)
+                ));
+            } else {
+                content.push_str(&format!(
+                    r#"<div class="quote-reply-item reply-item">
+                        <span class="quote-reply-label">↩️ Reply to:</span>
+                        <a href="/archive/{}">Archive #{}</a>
+                    </div>"#,
+                    reply_to_id, reply_to_id
+                ));
+            }
+        }
+
+        // Show full chain if more than the direct links
+        if quote_reply_chain.len() > 2 {
+            content.push_str(
+                r#"<details class="thread-chain"><summary>View full thread chain</summary>"#,
+            );
+            content.push_str(r#"<ol class="chain-list">"#);
+            for chain_archive in quote_reply_chain.iter().skip(1) {
+                // Skip the first one (current archive)
+                let chain_title = chain_archive.content_title.as_deref().unwrap_or("Tweet");
+                let chain_author = chain_archive
+                    .content_author
+                    .as_deref()
+                    .map(|a| format!(" (@{})", a))
+                    .unwrap_or_default();
+                content.push_str(&format!(
+                    r#"<li><a href="/archive/{}">{}{}</a></li>"#,
+                    chain_archive.id,
+                    html_escape(chain_title),
+                    html_escape(&chain_author)
+                ));
+            }
+            content.push_str("</ol></details>");
+        }
+
+        content.push_str("</section>");
     }
 
     // Handle playlist content type specially

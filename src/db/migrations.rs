@@ -103,6 +103,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 16).await?;
     }
 
+    if current_version < 17 {
+        debug!("Running migration v17");
+        run_migration_v17(pool).await?;
+        set_schema_version(pool, 17).await?;
+    }
+
     Ok(())
 }
 
@@ -965,6 +971,45 @@ async fn run_migration_v16(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to create excluded_domains domain index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v17(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v17: adding Twitter quote/reply relationship tracking");
+
+    // Add quoted_archive_id column to archives table
+    // This links a tweet archive to the archive of the tweet it quotes
+    sqlx::query(
+        "ALTER TABLE archives ADD COLUMN quoted_archive_id INTEGER REFERENCES archives(id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to add quoted_archive_id column")?;
+
+    // Add reply_to_archive_id column to archives table
+    // This links a tweet archive to the archive of the tweet it replies to
+    sqlx::query(
+        "ALTER TABLE archives ADD COLUMN reply_to_archive_id INTEGER REFERENCES archives(id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to add reply_to_archive_id column")?;
+
+    // Create indexes for efficient lookup of quote/reply chains
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_archives_quoted_archive_id ON archives(quoted_archive_id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create quoted_archive_id index")?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_archives_reply_to_archive_id ON archives(reply_to_archive_id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create reply_to_archive_id index")?;
 
     Ok(())
 }
