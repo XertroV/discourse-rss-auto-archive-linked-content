@@ -95,7 +95,7 @@ pub async fn poll_once(client: &reqwest::Client, config: &Config, db: &Database)
         // No need to fetch older pages - stop immediately to save resources
         if page_new_count == 0 {
             if page_num == 0 {
-                debug!("First page has no new posts, all content is up to date");
+                trace!("First page has no new posts, all content is up to date");
             } else {
                 debug!(
                     page = page_num,

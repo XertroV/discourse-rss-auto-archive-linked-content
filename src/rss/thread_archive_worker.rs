@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use tracing::{trace, error, info};
+use tracing::{error, info, trace};
 
 use crate::config::Config;
 use crate::db::{
