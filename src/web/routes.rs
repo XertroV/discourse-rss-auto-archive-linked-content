@@ -386,11 +386,11 @@ async fn toggle_nsfw(
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
         .map(String::from);
-    
+
     match toggle_archive_nsfw(state.db.pool(), id).await {
         Ok(new_status) => {
             tracing::info!(archive_id = id, is_nsfw = new_status, "Toggled NSFW status");
-            
+
             // Audit log the NSFW toggle
             if let Err(e) = crate::db::create_audit_event(
                 state.db.pool(),
@@ -404,7 +404,7 @@ async fn toggle_nsfw(
             ).await {
                 tracing::error!("Failed to create audit event: {e}");
             }
-            
+
             axum::response::Redirect::to(&format!("/archive/{id}")).into_response()
         }
         Err(e) => {

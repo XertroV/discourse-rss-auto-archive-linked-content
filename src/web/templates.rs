@@ -7,6 +7,22 @@ use urlencoding::encode;
 
 /// Base HTML layout.
 fn base_layout(title: &str, content: &str) -> String {
+    base_layout_with_user(title, content, None)
+}
+
+/// Base HTML layout with optional user context.
+fn base_layout_with_user(title: &str, content: &str, user: Option<&User>) -> String {
+    let auth_buttons = if let Some(u) = user {
+        if u.is_admin {
+            r#"<li><a href="/profile">Profile</a></li>
+                <li><a href="/admin">Admin</a></li>"#
+        } else {
+            r#"<li><a href="/profile">Profile</a></li>"#
+        }
+    } else {
+        r#"<li><a href="/login">Login</a></li>"#
+    };
+
     format!(
         r#"<!DOCTYPE html>
 <html lang="en" data-theme="light">
@@ -165,6 +181,7 @@ fn base_layout(title: &str, content: &str) -> String {
                 <li><a href="/search">Search</a></li>
                 <li><a href="/submit">Submit</a></li>
                 <li><a href="/stats">Stats</a></li>
+                {auth_buttons}
                 <li><button id="nsfw-toggle" class="nsfw-toggle" title="Toggle NSFW content visibility" aria-label="Toggle NSFW content">18+</button></li>
                 <li><button id="theme-toggle" class="theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">🌓</button></li>
             </ul>
