@@ -139,6 +139,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 22).await?;
     }
 
+    if current_version < 23 {
+        debug!("Running migration v23");
+        run_migration_v23(pool).await?;
+        set_schema_version(pool, 23).await?;
+    }
+
     Ok(())
 }
 
@@ -1211,6 +1217,24 @@ async fn run_migration_v22(pool: &SqlitePool) -> Result<()> {
         .execute(pool)
         .await
         .context("Failed to add duration_seconds column")?;
+
+    Ok(())
+}
+
+async fn run_migration_v23(pool: &SqlitePool) -> Result<()> {
+    debug!(
+        "Running migration v23: add unique constraint on archives.link_id to prevent duplicates"
+    );
+
+    // Add UNIQUE constraint to prevent duplicate archives per link.
+    // This prevents race conditions where multiple threads try to create
+    // archives for the same link simultaneously.
+    // Using CREATE UNIQUE INDEX instead of ALTER TABLE ADD CONSTRAINT
+    // because SQLite has limited ALTER TABLE support.
+    sqlx::query("CREATE UNIQUE INDEX idx_archives_link_id_unique ON archives(link_id)")
+        .execute(pool)
+        .await
+        .context("Failed to create unique index on archives.link_id")?;
 
     Ok(())
 }

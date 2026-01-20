@@ -77,7 +77,19 @@ pub async fn archive_thread_links(
 
     let mut progress = ArchiveProgress::default();
 
-    for entry in feed.entries {
+    // Sort entries by published date (oldest first) to ensure chronological processing.
+    // This prevents race conditions in security-sensitive operations like link_archive_account.
+    let mut entries = feed.entries;
+    entries.sort_by(|a, b| {
+        match (a.published, b.published) {
+            (Some(a_pub), Some(b_pub)) => a_pub.cmp(&b_pub), // Oldest first
+            (Some(_), None) => std::cmp::Ordering::Less,     // Dated entries come first
+            (None, Some(_)) => std::cmp::Ordering::Greater,  // Undated entries go last
+            (None, None) => std::cmp::Ordering::Equal,       // Preserve original order
+        }
+    });
+
+    for entry in entries {
         let guid = entry.id.clone();
 
         // Extract post content

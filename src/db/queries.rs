@@ -374,20 +374,37 @@ pub async fn get_archive_by_link_id(pool: &SqlitePool, link_id: i64) -> Result<O
 }
 
 /// Create a pending archive for a link.
+/// Create a pending archive for a link.
+///
+/// Uses INSERT OR IGNORE to handle race conditions where multiple threads
+/// try to create archives for the same link simultaneously. Returns the ID
+/// of either the newly created or existing archive.
+///
+/// This is safe due to the UNIQUE constraint on archives(link_id) added in
+/// migration v23, following the same pattern as video_files deduplication.
 pub async fn create_pending_archive(
     pool: &SqlitePool,
     link_id: i64,
     post_date: Option<&str>,
 ) -> Result<i64> {
-    let result =
-        sqlx::query("INSERT INTO archives (link_id, status, post_date) VALUES (?, 'pending', ?)")
-            .bind(link_id)
-            .bind(post_date)
-            .execute(pool)
-            .await
-            .context("Failed to create pending archive")?;
+    // Try to insert (will be ignored if archive already exists for this link_id)
+    sqlx::query(
+        "INSERT OR IGNORE INTO archives (link_id, status, post_date) VALUES (?, 'pending', ?)",
+    )
+    .bind(link_id)
+    .bind(post_date)
+    .execute(pool)
+    .await
+    .context("Failed to insert pending archive")?;
 
-    Ok(result.last_insert_rowid())
+    // Fetch the archive (either newly created or existing)
+    // This is guaranteed to exist due to the INSERT OR IGNORE above
+    let archive = get_archive_by_link_id(pool, link_id)
+        .await
+        .context("Failed to fetch archive after insert")?
+        .expect("Archive should exist after INSERT OR IGNORE");
+
+    Ok(archive.id)
 }
 
 /// Update archive status to processing.

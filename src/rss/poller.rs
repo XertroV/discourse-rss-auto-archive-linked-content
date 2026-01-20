@@ -158,7 +158,20 @@ async fn fetch_and_process_page(
     let mut new_count = 0;
     let mut min_post_id: Option<i64> = None;
 
-    for entry in feed.entries {
+    // Sort entries by published date (oldest first) to ensure chronological processing.
+    // This is critical for security-sensitive operations like link_archive_account,
+    // where processing order determines who successfully claims an account.
+    let mut entries = feed.entries;
+    entries.sort_by(|a, b| {
+        match (a.published, b.published) {
+            (Some(a_pub), Some(b_pub)) => a_pub.cmp(&b_pub), // Oldest first
+            (Some(_), None) => std::cmp::Ordering::Less,     // Dated entries come first
+            (None, Some(_)) => std::cmp::Ordering::Greater,  // Undated entries go last
+            (None, None) => std::cmp::Ordering::Equal,       // Preserve original order
+        }
+    });
+
+    for entry in entries {
         let guid = entry.id.clone();
 
         // Extract the Discourse post ID from GUID for pagination
