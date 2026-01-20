@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use super::models::{
     Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, ArchiveJobType, AuditEvent, Link,
-    LinkOccurrence, NewLink, NewLinkOccurrence, NewPost, NewSubmission, Post, Session,
-    Submission, ThreadDisplay, User, VideoFile,
+    LinkOccurrence, NewLink, NewLinkOccurrence, NewPost, NewSubmission, Post, Session, Submission,
+    ThreadDisplay, User, VideoFile,
 };
 
 // ========== Posts ==========
@@ -2326,6 +2326,53 @@ pub async fn get_user_by_username(pool: &SqlitePool, username: &str) -> Result<O
         .context("Failed to fetch user by username")
 }
 
+/// Get a user by username or display_name.
+/// Used for login - users can sign in with either.
+pub async fn get_user_by_username_or_display_name(
+    pool: &SqlitePool,
+    identifier: &str,
+) -> Result<Option<User>> {
+    sqlx::query_as("SELECT * FROM users WHERE username = ? OR display_name = ? LIMIT 1")
+        .bind(identifier)
+        .bind(identifier)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to fetch user by username or display_name")
+}
+
+/// Check if a username already exists.
+pub async fn username_exists(pool: &SqlitePool, username: &str) -> Result<bool> {
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE username = ?")
+        .bind(username)
+        .fetch_one(pool)
+        .await
+        .context("Failed to check username existence")?;
+    Ok(row.0 > 0)
+}
+
+/// Check if a display_name already exists (excluding a specific user).
+pub async fn display_name_exists(
+    pool: &SqlitePool,
+    display_name: &str,
+    exclude_user_id: Option<i64>,
+) -> Result<bool> {
+    let row: (i64,) = if let Some(user_id) = exclude_user_id {
+        sqlx::query_as("SELECT COUNT(*) FROM users WHERE display_name = ? AND id != ?")
+            .bind(display_name)
+            .bind(user_id)
+            .fetch_one(pool)
+            .await
+            .context("Failed to check display_name existence")?
+    } else {
+        sqlx::query_as("SELECT COUNT(*) FROM users WHERE display_name = ?")
+            .bind(display_name)
+            .fetch_one(pool)
+            .await
+            .context("Failed to check display_name existence")?
+    };
+    Ok(row.0 > 0)
+}
+
 /// Create a new user.
 pub async fn create_user(
     pool: &SqlitePool,
@@ -2360,11 +2407,7 @@ pub async fn count_users(pool: &SqlitePool) -> Result<i64> {
 }
 
 /// Get all users with pagination.
-pub async fn get_all_users(
-    pool: &SqlitePool,
-    limit: i64,
-    offset: i64,
-) -> Result<Vec<User>> {
+pub async fn get_all_users(pool: &SqlitePool, limit: i64, offset: i64) -> Result<Vec<User>> {
     sqlx::query_as(
         r"
         SELECT * FROM users
@@ -2380,7 +2423,11 @@ pub async fn get_all_users(
 }
 
 /// Update user approval status.
-pub async fn update_user_approval(pool: &SqlitePool, user_id: i64, is_approved: bool) -> Result<()> {
+pub async fn update_user_approval(
+    pool: &SqlitePool,
+    user_id: i64,
+    is_approved: bool,
+) -> Result<()> {
     sqlx::query("UPDATE users SET is_approved = ?, updated_at = datetime('now') WHERE id = ?")
         .bind(is_approved)
         .bind(user_id)
@@ -2413,7 +2460,11 @@ pub async fn update_user_active(pool: &SqlitePool, user_id: i64, is_active: bool
 }
 
 /// Update user password.
-pub async fn update_user_password(pool: &SqlitePool, user_id: i64, password_hash: &str) -> Result<()> {
+pub async fn update_user_password(
+    pool: &SqlitePool,
+    user_id: i64,
+    password_hash: &str,
+) -> Result<()> {
     sqlx::query(
         "UPDATE users SET password_hash = ?, password_updated_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
     )
@@ -2433,7 +2484,7 @@ pub async fn update_user_profile(
     display_name: Option<&str>,
 ) -> Result<()> {
     sqlx::query(
-        "UPDATE users SET email = ?, display_name = ?, updated_at = datetime('now') WHERE id = ?"
+        "UPDATE users SET email = ?, display_name = ?, updated_at = datetime('now') WHERE id = ?",
     )
     .bind(email)
     .bind(display_name)
@@ -2470,14 +2521,12 @@ pub async fn reset_failed_login_attempts(pool: &SqlitePool, user_id: i64) -> Res
 
 /// Lock user account until specified time.
 pub async fn lock_user_until(pool: &SqlitePool, user_id: i64, locked_until: &str) -> Result<()> {
-    sqlx::query(
-        "UPDATE users SET locked_until = ?, updated_at = datetime('now') WHERE id = ?"
-    )
-    .bind(locked_until)
-    .bind(user_id)
-    .execute(pool)
-    .await
-    .context("Failed to lock user account")?;
+    sqlx::query("UPDATE users SET locked_until = ?, updated_at = datetime('now') WHERE id = ?")
+        .bind(locked_until)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .context("Failed to lock user account")?;
     Ok(())
 }
 
@@ -2551,6 +2600,59 @@ pub async fn delete_user_sessions(pool: &SqlitePool, user_id: i64) -> Result<()>
     Ok(())
 }
 
+/// Delete all sessions for a user except the current one.
+/// Used when changing password to invalidate other sessions.
+pub async fn delete_other_user_sessions(
+    pool: &SqlitePool,
+    user_id: i64,
+    current_token: &str,
+) -> Result<u64> {
+    let result = sqlx::query("DELETE FROM sessions WHERE user_id = ? AND token != ?")
+        .bind(user_id)
+        .bind(current_token)
+        .execute(pool)
+        .await
+        .context("Failed to delete other user sessions")?;
+    Ok(result.rows_affected())
+}
+
+/// Count active sessions for a user.
+pub async fn count_user_sessions(pool: &SqlitePool, user_id: i64) -> Result<i64> {
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sessions WHERE user_id = ?")
+        .bind(user_id)
+        .fetch_one(pool)
+        .await
+        .context("Failed to count user sessions")?;
+    Ok(row.0)
+}
+
+/// Delete oldest sessions for a user, keeping only the most recent `keep_count`.
+/// Used to enforce max session limits.
+pub async fn delete_oldest_user_sessions(
+    pool: &SqlitePool,
+    user_id: i64,
+    keep_count: i64,
+) -> Result<u64> {
+    let result = sqlx::query(
+        r"
+        DELETE FROM sessions
+        WHERE user_id = ? AND id NOT IN (
+            SELECT id FROM sessions
+            WHERE user_id = ?
+            ORDER BY COALESCE(last_used_at, created_at) DESC
+            LIMIT ?
+        )
+        ",
+    )
+    .bind(user_id)
+    .bind(user_id)
+    .bind(keep_count)
+    .execute(pool)
+    .await
+    .context("Failed to delete oldest user sessions")?;
+    Ok(result.rows_affected())
+}
+
 /// Delete expired sessions.
 pub async fn delete_expired_sessions(pool: &SqlitePool) -> Result<u64> {
     let result = sqlx::query("DELETE FROM sessions WHERE expires_at < datetime('now')")
@@ -2572,12 +2674,13 @@ pub async fn create_audit_event(
     target_id: Option<i64>,
     metadata: Option<&str>,
     ip_address: Option<&str>,
+    forwarded_for: Option<&str>,
     user_agent: Option<&str>,
 ) -> Result<i64> {
     let result = sqlx::query(
         r"
-        INSERT INTO audit_events (user_id, event_type, target_type, target_id, metadata, ip_address, user_agent)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO audit_events (user_id, event_type, target_type, target_id, metadata, ip_address, forwarded_for, user_agent)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ",
     )
     .bind(user_id)
@@ -2586,6 +2689,7 @@ pub async fn create_audit_event(
     .bind(target_id)
     .bind(metadata)
     .bind(ip_address)
+    .bind(forwarded_for)
     .bind(user_agent)
     .execute(pool)
     .await
@@ -2644,4 +2748,61 @@ pub async fn count_audit_events(pool: &SqlitePool) -> Result<i64> {
         .await
         .context("Failed to count audit events")?;
     Ok(row.0)
+}
+
+// ========== User Agents ==========
+
+/// Get or create a user agent entry (for deduplication).
+/// Returns the user_agent id.
+pub async fn get_or_create_user_agent(pool: &SqlitePool, user_agent: &str) -> Result<i64> {
+    use sha2::{Digest, Sha256};
+
+    // Compute hash of user agent
+    let mut hasher = Sha256::new();
+    hasher.update(user_agent.as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
+
+    // Try to get existing entry
+    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM user_agents WHERE hash = ?")
+        .bind(&hash)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to check user_agent existence")?;
+
+    if let Some((id,)) = existing {
+        // Update last_seen_at
+        sqlx::query("UPDATE user_agents SET last_seen_at = datetime('now') WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await
+            .context("Failed to update user_agent last_seen")?;
+        return Ok(id);
+    }
+
+    // Insert new entry
+    let result = sqlx::query(
+        r"
+        INSERT INTO user_agents (hash, user_agent)
+        VALUES (?, ?)
+        ",
+    )
+    .bind(&hash)
+    .bind(user_agent)
+    .execute(pool)
+    .await
+    .context("Failed to insert user_agent")?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Delete old audit events (for cleanup).
+pub async fn delete_old_audit_events(pool: &SqlitePool, days: i64) -> Result<u64> {
+    let result = sqlx::query(&format!(
+        "DELETE FROM audit_events WHERE created_at < datetime('now', '-{} days')",
+        days
+    ))
+    .execute(pool)
+    .await
+    .context("Failed to delete old audit events")?;
+    Ok(result.rows_affected())
 }

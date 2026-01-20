@@ -5,12 +5,14 @@ use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use discourse_link_archiver::archiver::ArchiveWorker;
+use discourse_link_archiver::auth::{run_cleanup_worker, CleanupConfig};
 use discourse_link_archiver::backup::BackupManager;
 use discourse_link_archiver::config::Config;
 use discourse_link_archiver::db::Database;
 use discourse_link_archiver::ipfs::IpfsClient;
 use discourse_link_archiver::s3::S3Client;
 use discourse_link_archiver::{rss, web};
+use tokio_util::sync::CancellationToken;
 
 #[tokio::main]
 async fn main() {
@@ -163,6 +165,20 @@ async fn run() -> Result<()> {
         }
     });
 
+    // Start cleanup worker for expired sessions and old audit events
+    let cleanup_db = db.clone();
+    let cleanup_shutdown = CancellationToken::new();
+    let cleanup_shutdown_clone = cleanup_shutdown.clone();
+    let cleanup_handle = tokio::spawn(async move {
+        run_cleanup_worker(
+            cleanup_db.pool().clone(),
+            CleanupConfig::default(),
+            cleanup_shutdown_clone,
+        )
+        .await;
+    });
+    info!("Cleanup worker started");
+
     // Start RSS polling loop
     let poll_handle = tokio::spawn(async move {
         rss::poll_loop(config, db).await;
@@ -173,10 +189,14 @@ async fn run() -> Result<()> {
 
     info!("Shutting down...");
 
-    // Cancel tasks
+    // Cancel cleanup worker gracefully first
+    cleanup_shutdown.cancel();
+
+    // Abort all other tasks
     web_handle.abort();
     poll_handle.abort();
     worker_handle.abort();
+    cleanup_handle.abort();
     if let Some(handle) = backup_handle {
         handle.abort();
     }

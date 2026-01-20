@@ -1946,7 +1946,12 @@ fn format_bytes(bytes: i64) -> String {
 }
 
 /// Render submission form page.
-pub fn render_submit_form(error: Option<&str>, success: Option<&str>) -> String {
+pub fn render_submit_form(
+    error: Option<&str>,
+    success: Option<&str>,
+    auth_warning: Option<&str>,
+    can_submit: bool,
+) -> String {
     let mut content = String::from("<h1>Submit URL for Archiving</h1>");
 
     content.push_str(r"
@@ -1955,6 +1960,15 @@ pub fn render_submit_form(error: Option<&str>, success: Option<&str>) -> String 
             <p><strong>Rate limit:</strong> 60 submissions per hour per IP address.</p>
         </article>
     ");
+
+    if let Some(warning) = auth_warning {
+        content.push_str(&format!(
+            r#"<article style="background: var(--warning-bg, #fef3c7); border: 1px solid var(--warning-border, #fcd34d); padding: var(--spacing-md, 1rem); margin-bottom: var(--spacing-md, 1rem); border-radius: var(--radius, 0.375rem);">
+                <p style="margin: 0; color: var(--warning-text, #92400e);"><strong>Note:</strong> {}</p>
+            </article>"#,
+            html_escape(warning)
+        ));
+    }
 
     if let Some(err) = error {
         content.push_str(&format!(
@@ -1970,18 +1984,25 @@ pub fn render_submit_form(error: Option<&str>, success: Option<&str>) -> String 
         ));
     }
 
-    content.push_str(
+    let disabled_attr = if can_submit { "" } else { " disabled" };
+    let button_style = if can_submit {
+        ""
+    } else {
+        r#" style="opacity: 0.5; cursor: not-allowed;""#
+    };
+
+    content.push_str(&format!(
         r#"
         <form method="post" action="/submit">
             <label for="url">URL to Archive</label>
             <input type="url" id="url" name="url" required
                    placeholder="https://reddit.com/r/..."
-                   pattern="https?://.*">
+                   pattern="https?://.*"{disabled_attr}>
             <small>Enter the full URL including https://</small>
-            <button type="submit">Submit for Archiving</button>
+            <button type="submit"{disabled_attr}{button_style}>Submit for Archiving</button>
         </form>
     "#,
-    );
+    ));
 
     base_layout("Submit URL", &content)
 }
@@ -2664,7 +2685,6 @@ fn format_duration_seconds(total_seconds: u64) -> String {
     }
 }
 
-
 /// Login page.
 pub fn login_page(error: Option<&str>, username: Option<&str>, password: Option<&str>) -> String {
     let content = if let (Some(u), Some(p)) = (username, password) {
@@ -2892,7 +2912,7 @@ pub fn admin_panel(users: &[User], audit_events: &[AuditEvent]) -> String {
                     actions_html.push_str(&format!(
                         r#"<form method="post" action="/admin/user/promote" style="display: inline; margin-right: 0.5rem;">
                             <input type="hidden" name="user_id" value="{}">
-                            <button type="submit" style="padding: 4px 12px; font-size: 0.875rem; background: var(--primary, #ec4899); color: white; border: none; border-radius: 4px; cursor: pointer;">Make Admin</button>
+                            <button type="submit" onclick="return confirm('Are you sure you want to make this user an admin?')" style="padding: 4px 12px; font-size: 0.875rem; background: var(--primary, #ec4899); color: white; border: none; border-radius: 4px; cursor: pointer;">Make Admin</button>
                         </form>"#,
                         u.id
                     ));
@@ -2900,16 +2920,24 @@ pub fn admin_panel(users: &[User], audit_events: &[AuditEvent]) -> String {
                     actions_html.push_str(&format!(
                         r#"<form method="post" action="/admin/user/demote" style="display: inline; margin-right: 0.5rem;">
                             <input type="hidden" name="user_id" value="{}">
-                            <button type="submit" style="padding: 4px 12px; font-size: 0.875rem; background: var(--bg-secondary, #fafafa); color: var(--text-primary, #18181b); border: 1px solid var(--border-color, #e4e4e7); border-radius: 4px; cursor: pointer;">Remove Admin</button>
+                            <button type="submit" onclick="return confirm('Are you sure you want to remove admin privileges from this user?')" style="padding: 4px 12px; font-size: 0.875rem; background: var(--bg-secondary, #fafafa); color: var(--text-primary, #18181b); border: 1px solid var(--border-color, #e4e4e7); border-radius: 4px; cursor: pointer;">Remove Admin</button>
                         </form>"#,
                         u.id
                     ));
                 }
 
                 actions_html.push_str(&format!(
-                    r#"<form method="post" action="/admin/user/deactivate" style="display: inline;">
+                    r#"<form method="post" action="/admin/user/deactivate" style="display: inline; margin-right: 0.5rem;">
                         <input type="hidden" name="user_id" value="{}">
-                        <button type="submit" style="padding: 4px 12px; font-size: 0.875rem; background: var(--error-bg, #fee2e2); color: var(--error-text, #991b1b); border: 1px solid var(--error-border, #fca5a5); border-radius: 4px; cursor: pointer;">Deactivate</button>
+                        <button type="submit" onclick="return confirm('Are you sure you want to deactivate this user?')" style="padding: 4px 12px; font-size: 0.875rem; background: var(--error-bg, #fee2e2); color: var(--error-text, #991b1b); border: 1px solid var(--error-border, #fca5a5); border-radius: 4px; cursor: pointer;">Deactivate</button>
+                    </form>"#,
+                    u.id
+                ));
+
+                actions_html.push_str(&format!(
+                    r#"<form method="post" action="/admin/user/reset-password" style="display: inline;">
+                        <input type="hidden" name="user_id" value="{}">
+                        <button type="submit" onclick="return confirm('Are you sure you want to reset this user\\'s password? Their current sessions will be invalidated.')" style="padding: 4px 12px; font-size: 0.875rem; background: var(--bg-secondary, #fafafa); color: var(--text-primary, #18181b); border: 1px solid var(--border-color, #e4e4e7); border-radius: 4px; cursor: pointer;">Reset PW</button>
                     </form>"#,
                     u.id
                 ));
@@ -2937,7 +2965,9 @@ pub fn admin_panel(users: &[User], audit_events: &[AuditEvent]) -> String {
     let audit_html: String = audit_events
         .iter()
         .map(|e| {
-            let user_str = e.user_id.map_or("System".to_string(), |id| format!("User #{id}"));
+            let user_str = e
+                .user_id
+                .map_or("System".to_string(), |id| format!("User #{id}"));
             let target_str = match (&e.target_type, e.target_id) {
                 (Some(t), Some(id)) => format!("{t} #{id}"),
                 _ => "—".to_string(),
@@ -3006,4 +3036,38 @@ pub fn admin_panel(users: &[User], audit_events: &[AuditEvent]) -> String {
     );
 
     base_layout("Admin Panel", &content)
+}
+
+/// Render password reset result page (shows the new password once).
+pub fn admin_password_reset_result(username: &str, new_password: &str) -> String {
+    let content = format!(
+        r#"<main class="container">
+    <div style="max-width: 500px; margin: 2rem auto;">
+        <h1>Password Reset</h1>
+
+        <div style="background: var(--success-bg, #dcfce7); border: 1px solid var(--success-border, #86efac); border-radius: var(--radius, 0.375rem); padding: 1rem; margin-bottom: 1.5rem;">
+            <p style="color: var(--success-text, #166534); margin: 0;">
+                Password for <strong>{}</strong> has been reset successfully.
+            </p>
+        </div>
+
+        <div style="background: var(--bg-secondary, #fafafa); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem); padding: 1rem; margin-bottom: 1.5rem;">
+            <p style="margin: 0 0 0.5rem 0; font-weight: 600;">New Password:</p>
+            <code style="display: block; background: white; padding: 0.75rem; border-radius: 4px; font-family: monospace; font-size: 1.1rem; word-break: break-all; border: 1px solid var(--border-color, #e4e4e7);">{}</code>
+        </div>
+
+        <div style="background: var(--warning-bg, #fef3c7); border: 1px solid var(--warning-border, #fcd34d); border-radius: var(--radius, 0.375rem); padding: 1rem; margin-bottom: 1.5rem;">
+            <p style="color: var(--warning-text, #92400e); margin: 0; font-size: 0.875rem;">
+                <strong>Important:</strong> Copy this password now. It will not be shown again. The user's existing sessions have been invalidated.
+            </p>
+        </div>
+
+        <a href="/admin" style="display: inline-block; padding: 0.5rem 1rem; background: var(--primary, #ec4899); color: white; text-decoration: none; border-radius: var(--radius, 0.375rem);">Back to Admin Panel</a>
+    </div>
+</main>"#,
+        html_escape(username),
+        html_escape(new_password)
+    );
+
+    base_layout("Password Reset", &content)
 }

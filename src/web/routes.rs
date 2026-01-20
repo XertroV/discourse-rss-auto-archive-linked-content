@@ -14,7 +14,7 @@ use super::export;
 use super::feeds;
 use super::templates;
 use super::AppState;
-use crate::auth::{RequireAdmin, RequireApproved};
+use crate::auth::{MaybeUser, RequireAdmin, RequireApproved};
 use crate::db::{
     count_archives_by_status, count_links, count_posts, count_submissions_from_ip_last_hour,
     create_pending_archive, delete_archive, get_all_threads, get_archive, get_archive_by_link_id,
@@ -57,6 +57,10 @@ pub fn router() -> Router<AppState> {
         .route("/admin/user/demote", post(auth::admin_demote_user))
         .route("/admin/user/deactivate", post(auth::admin_deactivate_user))
         .route("/admin/user/reactivate", post(auth::admin_reactivate_user))
+        .route(
+            "/admin/user/reset-password",
+            post(auth::admin_reset_password),
+        )
         .route("/archives/failed", get(recent_failed_archives))
         .route("/archives/all", get(recent_all_archives))
         .route("/search", get(search))
@@ -382,6 +386,7 @@ async fn toggle_nsfw(
     headers: HeaderMap,
 ) -> Response {
     let client_ip = addr.ip().to_string();
+    let forwarded_for = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok());
     let user_agent = headers
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
@@ -395,13 +400,20 @@ async fn toggle_nsfw(
             if let Err(e) = crate::db::create_audit_event(
                 state.db.pool(),
                 Some(user.id),
-                if new_status { "nsfw_enabled" } else { "nsfw_disabled" },
+                if new_status {
+                    "nsfw_enabled"
+                } else {
+                    "nsfw_disabled"
+                },
                 Some("archive"),
                 Some(id),
                 None,
                 Some(&client_ip),
+                forwarded_for,
                 user_agent.as_deref(),
-            ).await {
+            )
+            .await
+            {
                 tracing::error!("Failed to create audit event: {e}");
             }
 
@@ -737,14 +749,27 @@ async fn favicon() -> Response {
 
 // ========== Submission Routes ==========
 
-async fn submit_form(State(state): State<AppState>) -> Response {
+async fn submit_form(State(state): State<AppState>, MaybeUser(user): MaybeUser) -> Response {
     // Check if submissions are enabled
     if !state.config.submission_enabled {
         let html = templates::render_submit_error("URL submissions are currently disabled.");
         return Html(html).into_response();
     }
 
-    let html = templates::render_submit_form(None, None);
+    // Determine auth warning and whether user can submit
+    let (auth_warning, can_submit) = match &user {
+        None => (
+            Some("You must be logged in to submit URLs. <a href=\"/login\">Log in</a> or register first."),
+            false,
+        ),
+        Some(u) if !u.is_approved => (
+            Some("Your account is pending admin approval. You cannot submit URLs yet."),
+            false,
+        ),
+        Some(_) => (None, true),
+    };
+
+    let html = templates::render_submit_form(None, None, auth_warning, can_submit);
     Html(html).into_response()
 }
 
@@ -777,13 +802,15 @@ async fn submit_url(
                         "Rate limit exceeded. Maximum {rate_limit} submissions per hour."
                     )),
                     None,
+                    None,
+                    true,
                 );
                 return Html(html).into_response();
             }
         }
         Err(e) => {
             tracing::error!("Failed to check rate limit: {e}");
-            let html = templates::render_submit_form(Some("Internal error"), None);
+            let html = templates::render_submit_form(Some("Internal error"), None, None, true);
             return Html(html).into_response();
         }
     }
@@ -791,7 +818,7 @@ async fn submit_url(
     // Validate URL
     let url = form.url.trim();
     if url.is_empty() {
-        let html = templates::render_submit_form(Some("URL is required"), None);
+        let html = templates::render_submit_form(Some("URL is required"), None, None, true);
         return Html(html).into_response();
     }
 
@@ -799,13 +826,18 @@ async fn submit_url(
     let parsed_url = if let Ok(u) = url::Url::parse(url) {
         u
     } else {
-        let html = templates::render_submit_form(Some("Invalid URL format"), None);
+        let html = templates::render_submit_form(Some("Invalid URL format"), None, None, true);
         return Html(html).into_response();
     };
 
     // Only allow http/https
     if parsed_url.scheme() != "http" && parsed_url.scheme() != "https" {
-        let html = templates::render_submit_form(Some("Only HTTP/HTTPS URLs are allowed"), None);
+        let html = templates::render_submit_form(
+            Some("Only HTTP/HTTPS URLs are allowed"),
+            None,
+            None,
+            true,
+        );
         return Html(html).into_response();
     }
 
@@ -819,13 +851,15 @@ async fn submit_url(
             let html = templates::render_submit_form(
                 Some("This URL was already submitted recently"),
                 None,
+                None,
+                true,
             );
             return Html(html).into_response();
         }
         Ok(false) => {}
         Err(e) => {
             tracing::error!("Failed to check existing submission: {e}");
-            let html = templates::render_submit_form(Some("Internal error"), None);
+            let html = templates::render_submit_form(Some("Internal error"), None, None, true);
             return Html(html).into_response();
         }
     }
@@ -841,7 +875,8 @@ async fn submit_url(
         Ok(id) => id,
         Err(e) => {
             tracing::error!("Failed to insert submission: {e}");
-            let html = templates::render_submit_form(Some("Failed to save submission"), None);
+            let html =
+                templates::render_submit_form(Some("Failed to save submission"), None, None, true);
             return Html(html).into_response();
         }
     };
@@ -880,6 +915,8 @@ async fn submit_url(
             let html = templates::render_submit_form(
                 None,
                 Some("This URL has already been archived. Check the search for results."),
+                None,
+                true,
             );
             return Html(html).into_response();
         }

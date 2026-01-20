@@ -1,5 +1,5 @@
-use std::path::Path;
 use sha2::{Digest, Sha256};
+use std::path::Path;
 
 pub mod gallerydl;
 pub mod monolith;
@@ -40,21 +40,22 @@ pub fn sanitize_filename(filename: &str) -> String {
     };
 
     // Sanitize the name part
-    let sanitized_name: String = name
-        .chars()
-        .map(|c| match c {
-            // Replace spaces with underscores
-            ' ' => '_',
-            // Remove problematic URL characters and periods
-            '#' | '?' | '&' | '%' | '"' | '\'' | '<' | '>' | '|' | '*' | ':' | '\\' | '/' | '.' => '_',
-            // Keep parentheses, brackets, hyphens, underscores, and alphanumerics
-            '(' | ')' | '[' | ']' | '-' | '_' => c,
-            // Keep alphanumerics
-            c if c.is_alphanumeric() => c,
-            // Replace everything else with underscore
-            _ => '_',
-        })
-        .collect();
+    let sanitized_name: String =
+        name.chars()
+            .map(|c| match c {
+                // Replace spaces with underscores
+                ' ' => '_',
+                // Remove problematic URL characters and periods
+                '#' | '?' | '&' | '%' | '"' | '\'' | '<' | '>' | '|' | '*' | ':' | '\\' | '/'
+                | '.' => '_',
+                // Keep parentheses, brackets, hyphens, underscores, and alphanumerics
+                '(' | ')' | '[' | ']' | '-' | '_' => c,
+                // Keep alphanumerics
+                c if c.is_alphanumeric() => c,
+                // Replace everything else with underscore
+                _ => '_',
+            })
+            .collect();
 
     // Remove consecutive underscores and trim underscores from edges
     let sanitized_name = sanitized_name
@@ -172,7 +173,10 @@ mod tests {
     #[test]
     fn test_sanitize_filename_strips_periods() {
         // Periods in the name should be replaced with underscores
-        assert_eq!(sanitize_filename("file.name.test.mp4"), "file_name_test.mp4");
+        assert_eq!(
+            sanitize_filename("file.name.test.mp4"),
+            "file_name_test.mp4"
+        );
         assert_eq!(sanitize_filename("video.1.2.3.mp4"), "video_1_2_3.mp4");
         assert_eq!(sanitize_filename("Dr. Test.mp4"), "Dr_Test.mp4");
     }
