@@ -53,6 +53,7 @@ services:
       # Comma-separated list: youtube,tiktok,twitter,instagram,reddit
       COMMENTS_PLATFORMS: ${COMMENTS_PLATFORMS:-youtube,tiktok,twitter,instagram}
       COMMENTS_MAX_DEPTH: ${COMMENTS_MAX_DEPTH:-3}
+      COMMENTS_REQUEST_DELAY_MS: ${COMMENTS_REQUEST_DELAY_MS:-1000}
 
       # Web Server
       WEB_HOST: 0.0.0.0
