@@ -571,11 +571,9 @@ async fn get_missing_artifacts(
         !has_artifact_kind(state.db.pool(), id, ArtifactKind::Transcript.as_str())
             .await
             .unwrap_or(true);
-    let needs_comments = !has_artifact_kind(state.db.pool(), id, ArtifactKind::Comments.as_str())
-        .await
-        .unwrap_or(true);
 
-    if !needs_subtitles && !needs_transcript && !needs_comments {
+    // Note: Comments are handled by a separate CommentExtraction job
+    if !needs_subtitles && !needs_transcript {
         tracing::info!(archive_id = id, "No missing artifacts to fetch");
         return axum::response::Redirect::to(&format!("/archive/{id}")).into_response();
     }
@@ -604,7 +602,6 @@ async fn get_missing_artifacts(
         job_id,
         needs_subtitles,
         needs_transcript,
-        needs_comments,
         "Created job to fetch missing supplementary artifacts"
     );
 
@@ -682,17 +679,15 @@ async fn process_supplementary_artifacts_job(state: AppState, archive_id: i64, j
         browser_profile: state.config.yt_dlp_cookies_from_browser.as_deref(),
     };
 
-    // Download supplementary artifacts (subtitles, transcripts, comments)
-    let should_download_comments = state.config.comments_enabled
-        && crate::archiver::is_comments_supported_platform(&link.domain, &state.config);
-
+    // Download supplementary artifacts (subtitles and transcripts only)
+    // Note: Comments are handled by a separate CommentExtraction job
     let result = match ytdlp::download_supplementary_artifacts(
         &link.normalized_url,
         &work_dir,
         &cookies,
         &state.config,
-        true, // download subtitles
-        should_download_comments,
+        true,  // download_subtitles - always true for this job
+        false, // download_comments - NEVER download comments here
     )
     .await
     {
@@ -778,8 +773,45 @@ async fn process_supplementary_artifacts_job(state: AppState, archive_id: i64, j
                 }
             }
 
-            // Generate transcript from the first English subtitle file
-            if let Some(subtitle_file) = subtitle_files.iter().find(|f| f.contains(".en")) {
+            // Track best subtitle file for transcript generation
+            let mut best_subtitle_for_transcript: Option<&String> = None;
+            let mut best_is_english_manual = false;
+            let mut best_is_english = false;
+            let mut best_is_manual = false;
+
+            // Find the best subtitle file (priority: English manual > English auto > any manual > any auto)
+            for subtitle_file in &subtitle_files {
+                let (language, is_auto, _format) = parse_subtitle_info(subtitle_file);
+                let is_english = language.starts_with("en");
+                let is_manual = !is_auto;
+
+                let is_better = match (best_subtitle_for_transcript, is_english, is_manual) {
+                    (None, _, _) => true,
+                    (Some(_), true, true) if !best_is_english_manual => true,
+                    (Some(_), true, _) if !best_is_english && is_manual => true,
+                    (Some(_), true, _) if !best_is_english => true,
+                    (Some(_), _, true) if !best_is_manual && !best_is_english => true,
+                    _ => false,
+                };
+
+                if is_better {
+                    best_subtitle_for_transcript = Some(subtitle_file);
+                    best_is_english_manual = is_english && is_manual;
+                    best_is_english = is_english;
+                    best_is_manual = is_manual;
+                }
+            }
+
+            // Generate transcript from best subtitle
+            if let Some(subtitle_file) = best_subtitle_for_transcript {
+                tracing::debug!(
+                    archive_id,
+                    file = %subtitle_file,
+                    is_english = best_is_english,
+                    is_manual = best_is_manual,
+                    "Selected best subtitle for transcript"
+                );
+
                 let local_path = work_dir.join(subtitle_file);
                 if let Ok(transcript) = build_transcript_from_file(&local_path).await {
                     if !transcript.is_empty() {
@@ -794,20 +826,38 @@ async fn process_supplementary_artifacts_job(state: AppState, archive_id: i64, j
                         {
                             tracing::warn!(archive_id, error = %e, "Failed to upload transcript");
                         } else {
-                            // Insert transcript artifact
-                            if let Err(e) = crate::db::insert_artifact(
+                            // Store metadata about which subtitle was used
+                            let source = if best_is_manual {
+                                "manual_subtitles"
+                            } else {
+                                "auto_subtitles"
+                            };
+                            let transcript_metadata = serde_json::json!({
+                                "source": source,
+                                "source_file": subtitle_file,
+                            });
+
+                            // Insert transcript artifact with metadata
+                            if let Err(e) = crate::db::insert_artifact_with_metadata(
                                 state.db.pool(),
                                 archive_id,
                                 ArtifactKind::Transcript.as_str(),
                                 &transcript_key,
                                 Some("text/plain"),
                                 Some(size_bytes),
-                                None,
+                                None, // sha256
+                                Some(&transcript_metadata.to_string()),
                             )
                             .await
                             {
                                 tracing::warn!(archive_id, error = %e, "Failed to insert transcript artifact");
                             } else {
+                                tracing::info!(
+                                    archive_id,
+                                    file = %subtitle_file,
+                                    size_bytes,
+                                    "Generated transcript from subtitle file"
+                                );
                                 artifacts_count += 1;
                             }
                         }
@@ -816,75 +866,6 @@ async fn process_supplementary_artifacts_job(state: AppState, archive_id: i64, j
             }
         }
 
-        // Process comments.json if present
-        let comments_file = result
-            .extra_files
-            .iter()
-            .find(|f| f.ends_with("comments.json"));
-
-        if let Some(comments_filename) = comments_file {
-            let comments_path = work_dir.join(comments_filename);
-            if comments_path.exists() {
-                let s3_prefix = format!("archives/{}/", archive_id);
-                let s3_key = format!("{}comments.json", s3_prefix);
-
-                // Read comment stats from JSON for metadata
-                let comment_stats = tokio::fs::read_to_string(&comments_path)
-                    .await
-                    .ok()
-                    .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
-                    .and_then(|json| json.get("stats").cloned());
-
-                // Upload to S3
-                match state
-                    .s3
-                    .upload_file(&comments_path, &s3_key, Some(archive_id))
-                    .await
-                {
-                    Ok(_) => {
-                        let size = comments_path.metadata().ok().map(|m| m.len() as i64);
-
-                        // Prepare metadata JSON
-                        let metadata_json = comment_stats.map(|stats| {
-                            serde_json::json!({
-                                "stats": stats,
-                                "platform": crate::archiver::extract_platform_name(&link.domain)
-                            })
-                            .to_string()
-                        });
-
-                        // Insert artifact with Comments kind
-                        if let Err(e) = crate::db::insert_artifact_with_metadata(
-                            state.db.pool(),
-                            archive_id,
-                            ArtifactKind::Comments.as_str(),
-                            &s3_key,
-                            Some("application/json"),
-                            size,
-                            None, // sha256
-                            metadata_json.as_deref(),
-                        )
-                        .await
-                        {
-                            tracing::warn!(
-                                archive_id,
-                                error = %e,
-                                "Failed to insert comments artifact"
-                            );
-                        } else {
-                            artifacts_count += 1;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            archive_id,
-                            error = %e,
-                            "Failed to upload comments.json to S3"
-                        );
-                    }
-                }
-            }
-        }
         tracing::info!(
             archive_id,
             job_id,
@@ -2065,8 +2046,9 @@ async fn serve_s3_file(State(state): State<AppState>, Path(path): Path<String>) 
         return axum::response::Redirect::temporary(&redirect_url).into_response();
     }
 
-    // Check if S3 is public (AWS S3) - if so, redirect to public URL
-    if state.s3.is_public() {
+    // Check if S3 is public (AWS S3) - redirect to public URL for large media files
+    // but proxy subtitle/transcript files to avoid CORS issues with JavaScript fetch
+    if state.s3.is_public() && !is_cors_sensitive_file(s3_key) {
         let public_url = state.s3.get_public_url(s3_key);
         return axum::response::Redirect::temporary(&public_url).into_response();
     }
@@ -2120,15 +2102,38 @@ async fn serve_s3_file(State(state): State<AppState>, Path(path): Path<String>) 
         |name| format!("inline; filename=\"{name}\""),
     );
 
-    (
-        StatusCode::OK,
-        [
-            (header::CONTENT_TYPE, final_content_type),
-            (header::CONTENT_DISPOSITION, content_disposition.as_str()),
-        ],
-        content,
-    )
-        .into_response()
+    // Add CORS headers for files accessed via JavaScript fetch
+    if is_cors_sensitive_file(&final_key) {
+        (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, final_content_type),
+                (header::CONTENT_DISPOSITION, content_disposition.as_str()),
+                (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+            ],
+            content,
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, final_content_type),
+                (header::CONTENT_DISPOSITION, content_disposition.as_str()),
+            ],
+            content,
+        )
+            .into_response()
+    }
+}
+
+/// Check if a file should be proxied instead of redirected to avoid CORS issues.
+/// Subtitle and transcript files are fetched via JavaScript and need CORS headers.
+fn is_cors_sensitive_file(s3_key: &str) -> bool {
+    s3_key.contains("/subtitles/")
+        || s3_key.ends_with("transcript.txt")
+        || s3_key.ends_with(".vtt")
+        || s3_key.ends_with(".srt")
 }
 
 fn suggest_content_disposition_filename(s3_key: &str) -> Option<String> {

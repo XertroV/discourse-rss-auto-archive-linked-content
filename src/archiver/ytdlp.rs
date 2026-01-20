@@ -285,7 +285,9 @@ pub async fn download(
         }
     }
 
-    let output_template = work_dir.join("%(title)s.%(ext)s");
+    // Include language code in filename for subtitles (e.g., video.en.vtt)
+    // For non-subtitle files, %(lang)s may be "NA" or empty (e.g., video.NA.info.json)
+    let output_template = work_dir.join("%(title)s.%(lang)s.%(ext)s");
 
     let mut args = vec![
         "-4".to_string(),
@@ -497,7 +499,9 @@ pub async fn download_supplementary_artifacts(
         return Ok(ArchiveResult::default());
     }
 
-    let output_template = work_dir.join("%(title)s.%(ext)s");
+    // Include language code in filename for subtitles (e.g., video.en.vtt)
+    // For non-subtitle files, %(lang)s may be "NA" or empty (e.g., video.NA.info.json)
+    let output_template = work_dir.join("%(title)s.%(lang)s.%(ext)s");
 
     let mut args = vec![
         "-4".to_string(),
