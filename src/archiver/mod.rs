@@ -1,6 +1,7 @@
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
+pub mod comment_worker;
 pub mod gallerydl;
 pub mod monolith;
 pub mod playlist;

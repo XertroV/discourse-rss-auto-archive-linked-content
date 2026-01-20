@@ -315,11 +315,9 @@ pub async fn download(
         // "ejs:github".to_string(),
     ];
 
-    // Add comment extraction if enabled
-    if config.comments_enabled {
-        args.push("--write-comments".to_string());
-        debug!("Comment extraction enabled");
-    }
+    // Skip comment extraction during main download - comments will be extracted
+    // by the dedicated comment worker to avoid blocking other archives
+    // Comment extraction is now done as a separate background job
 
     // Prefer browser profile over cookies file (fresher cookies)
     // Only use one method to avoid potential conflicts
@@ -914,27 +912,8 @@ async fn find_and_parse_metadata(work_dir: &Path, config: &Config) -> Result<Arc
 
             result.metadata_json = Some(content);
 
-            // Extract comments if enabled
-            if config.comments_enabled {
-                match extract_comments_from_info_json(&info_path, "youtube", config).await {
-                    Ok(Some(comments_path)) => {
-                        let filename = comments_path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string();
-                        result.extra_files.push(filename);
-                        debug!("Added comments.json to extra_files");
-                    }
-                    Ok(None) => {
-                        debug!("No comments available for extraction");
-                    }
-                    Err(e) => {
-                        warn!("Failed to extract comments: {}", e);
-                        // Continue with rest of archive - comments are optional
-                    }
-                }
-            }
+            // Comment extraction is now handled by the dedicated comment worker
+            // after the main archive completes, to avoid blocking other archives
         }
     }
 
@@ -1123,4 +1102,189 @@ pub async fn fetch_metadata_only(url: &str, cookies: &CookieOptions<'_>) -> Resu
             ..Default::default()
         })
     }
+}
+
+/// Extract comments only without downloading video.
+///
+/// This function downloads only the comments for a video/post using yt-dlp's
+/// --skip-download flag. Useful for background comment extraction jobs.
+///
+/// Returns the number of comments extracted.
+///
+/// # Errors
+///
+/// Returns an error if yt-dlp fails or comments cannot be extracted.
+pub async fn extract_comments_only(
+    url: &str,
+    work_dir: &Path,
+    cookies: &CookieOptions<'_>,
+    config: &Config,
+    archive_id: Option<i64>,
+    pool: Option<&SqlitePool>,
+) -> Result<usize> {
+    let mut args = vec![
+        "-4".to_string(),
+        "--no-playlist".to_string(),
+        "--skip-download".to_string(), // Don't download the video
+        "--write-info-json".to_string(),
+        "--write-comments".to_string(),
+        "--output".to_string(),
+        work_dir
+            .join("%(title)s.%(ext)s")
+            .to_string_lossy()
+            .to_string(),
+        // Use --newline for parseable progress output
+        "--newline".to_string(),
+    ];
+
+    // Add extractor args for comment limits
+    args.push("--extractor-args".to_string());
+    args.push(format!(
+        "youtube:max_comments={};comment_sort=top",
+        config.comments_max_count
+    ));
+
+    // Add delay between comment API requests to avoid rate limiting
+    let delay_secs = config.comments_request_delay_ms as f64 / 1000.0;
+    args.push("--sleep-requests".to_string());
+    args.push(format!("{:.1}", delay_secs));
+
+    // Add cookie options
+    if let Some(spec) = cookies.browser_profile {
+        let spec = maybe_adjust_chromium_user_data_dir_spec(spec);
+        args.push("--cookies-from-browser".to_string());
+        args.push(spec);
+    } else if let Some(cookies_path) = cookies.cookies_file {
+        if cookies_path.exists() && !cookies_path.is_dir() {
+            args.push("--cookies".to_string());
+            args.push(cookies_path.to_string_lossy().to_string());
+        }
+    }
+
+    args.push(url.to_string());
+
+    debug!(url = %url, "Extracting comments with yt-dlp");
+
+    // Spawn yt-dlp and capture stdout/stderr for progress tracking
+    let mut child = Command::new("yt-dlp")
+        .args(&args)
+        .current_dir(work_dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("Failed to spawn yt-dlp for comment extraction")?;
+
+    let stdout = child.stdout.take().expect("Failed to open stdout");
+    let stderr = child.stderr.take().expect("Failed to open stderr");
+
+    let stderr_reader = BufReader::new(stderr);
+    let stdout_reader = BufReader::new(stdout);
+
+    // Stream stderr for log output
+    let stderr_handle = tokio::spawn(async move {
+        let mut lines = stderr_reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            debug!("yt-dlp: {line}");
+        }
+    });
+
+    // Stream stdout for progress tracking
+    let archive_id_opt = archive_id;
+    let pool_opt = pool.cloned();
+    let max_comments = config.comments_max_count;
+    let stdout_handle = tokio::spawn(async move {
+        let mut lines = stdout_reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            debug!("yt-dlp: {line}");
+
+            // Update progress if we have pool and archive_id
+            if let (Some(id), Some(p)) = (archive_id_opt, &pool_opt) {
+                // Parse yt-dlp progress output for comment downloads
+                // yt-dlp outputs: "[youtube] Downloading comment API JSON page N (X/~Y)"
+                if line.contains("Downloading comment") {
+                    if let Some(count_part) = line.split('(').nth(1) {
+                        if let Some(current_str) = count_part.split('/').next() {
+                            if let Ok(current) = current_str.parse::<u64>() {
+                                // Estimate progress based on comment count vs max
+                                let estimated_total = max_comments.max(current as usize) as u64;
+                                let progress_percent =
+                                    (current as f64 / estimated_total as f64 * 100.0).min(100.0);
+
+                                let details = serde_json::json!({
+                                    "comments_downloaded": current,
+                                    "estimated_total": estimated_total,
+                                    "stage": "downloading_comments"
+                                });
+
+                                if let Err(e) = crate::db::update_archive_progress(
+                                    &p,
+                                    id,
+                                    progress_percent,
+                                    &details.to_string(),
+                                )
+                                .await
+                                {
+                                    warn!("Failed to update comment extraction progress: {e}");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Wait for yt-dlp to finish with timeout
+    let timeout = Duration::from_secs(config.youtube_download_timeout_seconds);
+    let status = tokio::time::timeout(timeout, child.wait())
+        .await
+        .context("Comment extraction timed out")??;
+
+    // Wait for stream handlers to finish
+    let _ = tokio::join!(stderr_handle, stdout_handle);
+
+    if !status.success() {
+        anyhow::bail!("yt-dlp comment extraction failed with status: {status}");
+    }
+
+    // Find and parse the comments.json file
+    let mut comment_count = 0;
+    for entry in std::fs::read_dir(work_dir).context("Failed to read work directory")? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) == Some("json")
+            && path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.ends_with(".info.json"))
+                .unwrap_or(false)
+        {
+            // Extract comments from info.json
+            if let Ok(Some(_)) = extract_comments_from_info_json(&path, "youtube", config).await {
+                // Read the generated comments.json to get the count
+                let comments_json_path = path.with_file_name("comments.json");
+                if comments_json_path.exists() {
+                    if let Ok(content) = tokio::fs::read_to_string(&comments_json_path).await {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if let Some(count) = json
+                                .get("stats")
+                                .and_then(|s| s.get("extracted_comments"))
+                                .and_then(|c| c.as_u64())
+                            {
+                                comment_count = count as usize;
+                                info!("Extracted {comment_count} comments from {}", path.display());
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    if comment_count == 0 {
+        warn!("No comments were extracted from {url}");
+    }
+
+    Ok(comment_count)
 }

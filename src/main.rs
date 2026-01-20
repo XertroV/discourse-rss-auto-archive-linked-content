@@ -78,6 +78,19 @@ async fn run() -> Result<()> {
         }
     }
 
+    // Log comment extraction configuration
+    if config.comments_enabled {
+        info!(
+            platforms = config.comments_platforms.join(","),
+            max_count = config.comments_max_count,
+            max_depth = config.comments_max_depth,
+            request_delay_ms = config.comments_request_delay_ms,
+            "Comment extraction enabled"
+        );
+    } else {
+        info!("Comment extraction disabled");
+    }
+
     // Ensure data directories exist
     tokio::fs::create_dir_all(&config.work_dir)
         .await
@@ -164,7 +177,7 @@ async fn run() -> Result<()> {
     // Start web server in background
     let web_config = config.clone();
     let web_db = db.clone();
-    let web_s3 = s3_client;
+    let web_s3 = s3_client.clone();
     let web_handle = tokio::spawn(async move {
         if let Err(e) = web::serve(web_config, web_db, web_s3).await {
             error!("Web server error: {e:#}");
@@ -193,6 +206,20 @@ async fn run() -> Result<()> {
     });
     info!("Thread archive worker started");
 
+    // Start comment extraction worker
+    let comment_worker_config = config.clone();
+    let comment_worker_db = db.clone();
+    let comment_worker_s3 = s3_client.clone();
+    let comment_worker_handle = tokio::spawn(async move {
+        discourse_link_archiver::archiver::comment_worker::run(
+            comment_worker_config,
+            comment_worker_db,
+            comment_worker_s3,
+        )
+        .await;
+    });
+    info!("Comment extraction worker started");
+
     // Start RSS polling loop
     let poll_handle = tokio::spawn(async move {
         rss::poll_loop(config, db).await;
@@ -211,6 +238,7 @@ async fn run() -> Result<()> {
     poll_handle.abort();
     worker_handle.abort();
     thread_archive_handle.abort();
+    comment_worker_handle.abort();
     cleanup_handle.abort();
     if let Some(handle) = backup_handle {
         handle.abort();

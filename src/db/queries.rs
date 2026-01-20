@@ -2346,6 +2346,26 @@ pub async fn delete_jobs_for_archive(pool: &SqlitePool, archive_id: i64) -> Resu
     Ok(())
 }
 
+/// Get pending comment extraction jobs.
+pub async fn get_pending_comment_extraction_jobs(
+    pool: &SqlitePool,
+    limit: i64,
+) -> Result<Vec<ArchiveJob>> {
+    sqlx::query_as(
+        r"
+        SELECT * FROM archive_jobs
+        WHERE job_type = 'comment_extraction'
+          AND status = 'pending'
+        ORDER BY created_at ASC
+        LIMIT ?
+        ",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch pending comment extraction jobs")
+}
+
 // ========== Exports ==========
 
 /// Count exports from an IP in the last hour (for rate limiting).

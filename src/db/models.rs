@@ -402,6 +402,8 @@ pub enum ArchiveJobType {
     Ipfs,
     /// Fetch supplementary artifacts (subtitles, transcripts) for existing archive
     SupplementaryArtifacts,
+    /// Extract comments from video/social media platform
+    CommentExtraction,
 }
 
 impl ArchiveJobType {
@@ -420,6 +422,7 @@ impl ArchiveJobType {
             Self::ArchiveToday => "archive_today",
             Self::Ipfs => "ipfs",
             Self::SupplementaryArtifacts => "supplementary_artifacts",
+            Self::CommentExtraction => "comment_extraction",
         }
     }
 
@@ -438,6 +441,7 @@ impl ArchiveJobType {
             "archive_today" => Some(Self::ArchiveToday),
             "ipfs" => Some(Self::Ipfs),
             "supplementary_artifacts" => Some(Self::SupplementaryArtifacts),
+            "comment_extraction" => Some(Self::CommentExtraction),
             _ => None,
         }
     }
@@ -457,6 +461,7 @@ impl ArchiveJobType {
             Self::ArchiveToday => "Archive.today",
             Self::Ipfs => "IPFS",
             Self::SupplementaryArtifacts => "Supplementary Artifacts",
+            Self::CommentExtraction => "Comment Extraction",
         }
     }
 }

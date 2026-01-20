@@ -1829,6 +1829,27 @@ async fn process_archive_inner(
     )
     .await?;
 
+    // Queue comment extraction job if this is a comments-supported platform
+    if config.comments_enabled && is_comments_supported_platform(&link.domain, config) {
+        match create_archive_job(db.pool(), archive_id, ArchiveJobType::CommentExtraction).await {
+            Ok(job_id) => {
+                debug!(
+                    archive_id,
+                    job_id,
+                    platform = extract_platform_name(&link.domain),
+                    "Queued comment extraction job"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    archive_id,
+                    error = %e,
+                    "Failed to queue comment extraction job"
+                );
+            }
+        }
+    }
+
     // Store NSFW status if detected
     if let Some(is_nsfw) = result.is_nsfw {
         set_archive_nsfw(

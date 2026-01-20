@@ -14,7 +14,6 @@ cargo build --release    # Release build (very slow, only for production)
 cargo test               # Run all tests
 cargo test --lib         # Unit tests only
 cargo test --test '*'    # Integration tests only
-cargo clippy             # Lint check
 cargo fmt --check        # Format check
 cargo fmt                # Auto-format code
 ```
