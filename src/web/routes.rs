@@ -64,6 +64,22 @@ pub fn router() -> Router<AppState> {
             "/admin/user/reset-password",
             post(auth::admin_reset_password),
         )
+        .route(
+            "/admin/excluded-domains",
+            get(auth::admin_excluded_domains_page),
+        )
+        .route(
+            "/admin/excluded-domains/add",
+            post(auth::admin_add_excluded_domain),
+        )
+        .route(
+            "/admin/excluded-domains/toggle",
+            post(auth::admin_toggle_excluded_domain),
+        )
+        .route(
+            "/admin/excluded-domains/delete",
+            post(auth::admin_delete_excluded_domain),
+        )
         .route("/archives/failed", get(recent_failed_archives))
         .route("/archives/all", get(recent_all_archives))
         .route("/search", get(search))

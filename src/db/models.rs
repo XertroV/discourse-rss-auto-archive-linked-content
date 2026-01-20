@@ -616,3 +616,15 @@ pub struct CommentWithAuthor {
     pub edit_count: i64,
     pub helpful_count: i64,
 }
+
+/// An excluded domain that should not be archived.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ExcludedDomain {
+    pub id: i64,
+    pub domain: String,
+    pub reason: String,
+    pub is_active: bool,
+    pub created_at: String,
+    pub created_by_user_id: Option<i64>,
+    pub updated_at: String,
+}

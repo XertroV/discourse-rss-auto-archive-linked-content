@@ -30,6 +30,8 @@ fn base_layout_with_user(title: &str, content: &str, user: Option<&User>) -> Str
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light dark">
+    <meta name="robots" content="noarchive">
+    <meta name="x-no-archive" content="1">
     <title>{title} - Discourse Link Archiver</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>">
@@ -2837,12 +2839,12 @@ pub fn login_page(error: Option<&str>, username: Option<&str>, password: Option<
     <div style="max-width: 500px; margin: 2rem auto;">
         <div style="background: var(--success-bg, #d1fae5); border: 1px solid var(--success-border, #6ee7b7); padding: var(--spacing-md, 1rem); margin-bottom: var(--spacing-lg, 1.5rem); border-radius: var(--radius, 0.375rem);">
             <h2 style="margin-top: 0; color: var(--success-text, #065f46);">✅ Account Created!</h2>
-            <p style="margin: var(--spacing-sm, 0.5rem) 0; font-weight: 600;">Save these credentials now. They will not be shown again:</p>
-            <div style="background: white; padding: var(--spacing-md, 1rem); border-radius: var(--radius, 0.375rem); font-family: monospace; margin: var(--spacing-md, 1rem) 0;">
+            <p style="margin: var(--spacing-sm, 0.5rem) 0; font-weight: 600; color: var(--success-text, #065f46);">Save these credentials now. They will not be shown again:</p>
+            <div style="background: var(--bg-primary, #ffffff); color: var(--text-primary, #18181b); padding: var(--spacing-md, 1rem); border-radius: var(--radius, 0.375rem); font-family: monospace; margin: var(--spacing-md, 1rem) 0; border: 1px solid var(--border-color, #e4e4e7);">
                 <div style="margin-bottom: var(--spacing-sm, 0.5rem);"><strong>Username:</strong> {}</div>
                 <div><strong>Password:</strong> {}</div>
             </div>
-            <p style="margin: var(--spacing-sm, 0.5rem) 0; font-size: var(--font-size-sm, 0.875rem); color: var(--text-secondary, #52525b);">Your account is pending admin approval before you can submit links.</p>
+            <p style="margin: var(--spacing-sm, 0.5rem) 0; font-size: var(--font-size-sm, 0.875rem); color: var(--success-text, #065f46);">Your account is pending admin approval before you can submit links.</p>
         </div>
 
         <h1>Login</h1>
@@ -3156,6 +3158,11 @@ pub fn admin_panel(users: &[User], audit_events: &[AuditEvent]) -> String {
             </table>
         </div>
 
+        <h2 style="margin-top: var(--spacing-xl, 2rem);">Admin Tools</h2>
+        <div style="display: flex; gap: 1rem; margin-bottom: 2rem;">
+            <a href="/admin/excluded-domains" style="display: inline-block; padding: 0.75rem 1.5rem; background: var(--primary, #ec4899); color: white; text-decoration: none; border-radius: var(--radius, 0.375rem); font-weight: 600;">Manage Excluded Domains</a>
+        </div>
+
         <h2 style="margin-top: var(--spacing-xl, 2rem);">Recent Audit Log</h2>
         <div style="overflow-x: auto;">
             <table style="width: 100%; border-collapse: collapse; background: white; border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
@@ -3213,6 +3220,118 @@ pub fn admin_password_reset_result(username: &str, new_password: &str) -> String
     );
 
     base_layout("Password Reset", &content)
+}
+
+/// Render excluded domains management page.
+pub fn admin_excluded_domains_page(domains: &[crate::db::ExcludedDomain]) -> String {
+    let content = format!(
+        r#"<main class="container">
+    <div style="max-width: 900px; margin: 2rem auto;">
+        <h1>Excluded Domains</h1>
+
+        <p style="color: var(--text-secondary, #52525b); margin-bottom: 2rem;">
+            Manage domains that should not be archived. These domains will be automatically excluded from archiving.
+        </p>
+
+        <div style="background: var(--bg-secondary, #fafafa); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem); padding: 1.5rem; margin-bottom: 2rem;">
+            <h2 style="margin-top: 0;">Add New Excluded Domain</h2>
+            <form method="POST" action="/admin/excluded-domains/add" style="display: flex; flex-direction: column; gap: 1rem;">
+                <div>
+                    <label for="domain" style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Domain:</label>
+                    <input type="text" id="domain" name="domain" placeholder="example.com" required style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem); font-size: 1rem; font-family: inherit;">
+                </div>
+                <div>
+                    <label for="reason" style="display: block; font-weight: 600; margin-bottom: 0.5rem;">Reason (optional):</label>
+                    <input type="text" id="reason" name="reason" placeholder="Self-hosted instance" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem); font-size: 1rem; font-family: inherit;">
+                </div>
+                <button type="submit" style="align-self: flex-start; padding: 0.5rem 1rem; background: var(--primary, #ec4899); color: white; border: none; border-radius: var(--radius, 0.375rem); cursor: pointer; font-weight: 600;">Add Domain</button>
+            </form>
+        </div>
+
+        <div>
+            <h2>Current Excluded Domains</h2>
+            {domains_table}
+        </div>
+
+        <div style="margin-top: 2rem;">
+            <a href="/admin" style="display: inline-block; padding: 0.5rem 1rem; background: var(--bg-tertiary, #f4f4f5); color: var(--text-primary, #18181b); text-decoration: none; border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">Back to Admin Panel</a>
+        </div>
+    </div>
+</main>"#,
+        domains_table = render_excluded_domains_table(domains)
+    );
+
+    base_layout("Excluded Domains", &content)
+}
+
+fn render_excluded_domains_table(domains: &[crate::db::ExcludedDomain]) -> String {
+    if domains.is_empty() {
+        return "<p style=\"color: var(--text-secondary, #52525b);\">No excluded domains yet.</p>"
+            .to_string();
+    }
+
+    let mut html = String::from(
+        r#"<div style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr style="border-bottom: 2px solid var(--border-color, #e4e4e7);">
+                <th style="text-align: left; padding: 0.75rem; font-weight: 600;">Domain</th>
+                <th style="text-align: left; padding: 0.75rem; font-weight: 600;">Reason</th>
+                <th style="text-align: left; padding: 0.75rem; font-weight: 600;">Status</th>
+                <th style="text-align: left; padding: 0.75rem; font-weight: 600;">Added</th>
+                <th style="text-align: left; padding: 0.75rem; font-weight: 600;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>"#,
+    );
+
+    for domain in domains {
+        let status = if domain.is_active {
+            "<span style=\"background: #dcfce7; color: #166534; padding: 0.25rem 0.75rem; border-radius: 0.25rem; font-size: 0.875rem; font-weight: 500;\">Active</span>"
+        } else {
+            "<span style=\"background: #fee2e2; color: #991b1b; padding: 0.25rem 0.75rem; border-radius: 0.25rem; font-size: 0.875rem; font-weight: 500;\">Inactive</span>"
+        };
+
+        let toggle_action = if domain.is_active {
+            "Disable"
+        } else {
+            "Enable"
+        };
+
+        html.push_str(&format!(
+            r#"<tr style="border-bottom: 1px solid var(--border-color, #e4e4e7);">
+                <td style="padding: 0.75rem; font-family: monospace; font-size: 0.875rem;">{}</td>
+                <td style="padding: 0.75rem; font-size: 0.875rem;">{}</td>
+                <td style="padding: 0.75rem;">{}</td>
+                <td style="padding: 0.75rem; font-size: 0.875rem;">{}</td>
+                <td style="padding: 0.75rem;">
+                    <form method="POST" action="/admin/excluded-domains/toggle" style="display: inline;">
+                        <input type="hidden" name="domain" value="{}">
+                        <button type="submit" style="padding: 0.25rem 0.75rem; background: var(--bg-secondary, #fafafa); color: var(--text-primary, #18181b); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem); cursor: pointer; font-size: 0.875rem; margin-right: 0.5rem;">{}</button>
+                    </form>
+                    <form method="POST" action="/admin/excluded-domains/delete" style="display: inline;">
+                        <input type="hidden" name="domain" value="{}">
+                        <button type="submit" style="padding: 0.25rem 0.75rem; background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; border-radius: var(--radius, 0.375rem); cursor: pointer; font-size: 0.875rem;" onclick="return confirm('Are you sure you want to delete this domain?');">Delete</button>
+                    </form>
+                </td>
+            </tr>"#,
+            html_escape(&domain.domain),
+            html_escape(&domain.reason),
+            status,
+            domain.created_at,
+            html_escape(&domain.domain),
+            toggle_action,
+            html_escape(&domain.domain)
+        ));
+    }
+
+    html.push_str(
+        r#"        </tbody>
+    </table>
+</div>"#,
+    );
+
+    html
 }
 
 /// Render comment edit history modal (called via AJAX).

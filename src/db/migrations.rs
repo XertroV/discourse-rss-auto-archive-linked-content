@@ -97,6 +97,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 15).await?;
     }
 
+    if current_version < 16 {
+        debug!("Running migration v16");
+        run_migration_v16(pool).await?;
+        set_schema_version(pool, 16).await?;
+    }
+
     Ok(())
 }
 
@@ -931,6 +937,34 @@ async fn run_migration_v15(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to create comment_reactions index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v16(pool: &SqlitePool) -> Result<()> {
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS excluded_domains (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            domain TEXT NOT NULL UNIQUE,
+            reason TEXT NOT NULL DEFAULT 'Self-archive exclusion',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by_user_id INTEGER,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create excluded_domains table")?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_excluded_domains_domain ON excluded_domains(domain, is_active)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create excluded_domains domain index")?;
 
     Ok(())
 }

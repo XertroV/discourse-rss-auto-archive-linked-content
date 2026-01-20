@@ -16,10 +16,19 @@
     --highlight: #fef3c7;
     --danger: #ef4444;
     --danger-fg: #dc2626;
+    --error-bg: #fee2e2;
+    --error-border: #fca5a5;
+    --error-text: #991b1b;
     --success: #22c55e;
     --success-fg: #16a34a;
+    --success-bg: #d1fae5;
+    --success-border: #6ee7b7;
+    --success-text: #065f46;
     --warning: #f59e0b;
     --warning-fg: #d97706;
+    --warning-bg: #fef3c7;
+    --warning-border: #fcd34d;
+    --warning-text: #92400e;
     --love: #ec4899;
 
     /* Zinc palette - Text colors */
@@ -89,10 +98,19 @@
 
     --danger: #f87171;
     --danger-fg: #ef4444;
+    --error-bg: #7f1d1d;
+    --error-border: #991b1b;
+    --error-text: #fecaca;
     --success: #4ade80;
     --success-fg: #22c55e;
+    --success-bg: #064e3b;
+    --success-border: #047857;
+    --success-text: #86efac;
     --warning: #fbbf24;
     --warning-fg: #f59e0b;
+    --warning-bg: #78350f;
+    --warning-border: #b45309;
+    --warning-text: #fcd34d;
 }
 
 /* Base styles */

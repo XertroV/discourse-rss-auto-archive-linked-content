@@ -15,11 +15,12 @@ use crate::db::{
     create_archive_job, find_artifact_by_perceptual_hash, find_video_file, get_archive,
     get_failed_archives_for_retry, get_link, get_or_create_video_file, get_pending_archives,
     insert_artifact, insert_artifact_with_hash, insert_artifact_with_video_file,
-    reset_archive_for_retry, reset_stuck_processing_archives, reset_todays_failed_archives,
-    set_archive_complete, set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw,
-    set_archive_processing, set_archive_skipped, set_job_completed, set_job_failed,
-    set_job_running, set_job_skipped, update_link_final_url, update_link_last_archived,
-    update_video_file_metadata_key, ArchiveJobType, ArtifactKind, Database, VideoFile,
+    is_domain_excluded, reset_archive_for_retry, reset_stuck_processing_archives,
+    reset_todays_failed_archives, set_archive_complete, set_archive_failed, set_archive_ipfs_cid,
+    set_archive_nsfw, set_archive_processing, set_archive_skipped, set_job_completed,
+    set_job_failed, set_job_running, set_job_skipped, update_link_final_url,
+    update_link_last_archived, update_video_file_metadata_key, ArchiveJobType, ArtifactKind,
+    Database, VideoFile,
 };
 use crate::dedup;
 use crate::handlers::youtube::extract_video_id;
@@ -277,6 +278,113 @@ fn is_permanent_failure(error_msg: &str) -> bool {
         || error_lower.contains("removed")
 }
 
+/// Check if a URL should be skipped from archiving due to archive prevention signals.
+///
+/// Checks:
+/// 1. If domain is in excluded_domains list
+/// 2. If the URL has X-No-Archive HTTP header or x-no-archive meta tag
+/// 3. If allowArchive=1 query parameter is present (bypass signal)
+///
+/// Returns true if the URL should be skipped (i.e., it has archive prevention signals).
+async fn should_skip_due_to_archive_prevention(db: &Database, url: &str) -> Result<bool> {
+    // Parse URL to extract domain and query params
+    let parsed = Url::parse(url).context("Failed to parse URL")?;
+    let domain = parsed
+        .domain()
+        .map(|d| d.to_lowercase())
+        .unwrap_or_default();
+
+    // Check if allowArchive=1 is present (bypass signal)
+    let has_allow_archive = parsed
+        .query_pairs()
+        .any(|(k, v)| k == "allowArchive" && v == "1");
+
+    if has_allow_archive {
+        debug!(url = %url, "URL has allowArchive=1, will archive despite any signals");
+        return Ok(false);
+    }
+
+    // Check if domain is in excluded list
+    if is_domain_excluded(db.pool(), &domain).await? {
+        warn!(url = %url, domain = %domain, "Domain is in excluded list, skipping archive");
+        return Ok(true);
+    }
+
+    // Fetch the URL and check for archive prevention headers/meta tags
+    // Use a short timeout for this check to avoid blocking the worker
+    match fetch_url_for_signals(url).await {
+        Ok(signals) => {
+            if signals.has_no_archive_header || signals.has_no_archive_meta {
+                warn!(
+                    url = %url,
+                    has_header = signals.has_no_archive_header,
+                    has_meta = signals.has_no_archive_meta,
+                    "URL has archive prevention signals, skipping archive"
+                );
+                return Ok(true);
+            }
+        }
+        Err(e) => {
+            // Log but don't fail - if we can't fetch to check signals, proceed with archiving
+            // (it might be a timeout or network issue, not necessarily a signal)
+            debug!(url = %url, error = %e, "Could not fetch URL to check archive prevention signals, proceeding anyway");
+        }
+    }
+
+    Ok(false)
+}
+
+/// Archive prevention signals found on a page.
+#[derive(Debug, Default)]
+struct ArchivePreventionSignals {
+    has_no_archive_header: bool,
+    has_no_archive_meta: bool,
+}
+
+/// Fetch a URL and check for archive prevention signals.
+///
+/// Looks for:
+/// - X-No-Archive HTTP header
+/// - x-no-archive or robots: noarchive meta tags
+async fn fetch_url_for_signals(url: &str) -> Result<ArchivePreventionSignals> {
+    let client = reqwest::Client::new();
+
+    // Use a short timeout for this probe
+    let response = client
+        .head(url)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .context("Failed to fetch URL for signals check")?;
+
+    let mut signals = ArchivePreventionSignals::default();
+
+    // Check for X-No-Archive header
+    if response.headers().get("X-No-Archive").is_some() {
+        signals.has_no_archive_header = true;
+    }
+
+    // For meta tag check, we need to GET the page (HEAD won't include body)
+    // Only do this if we didn't find a header
+    if !signals.has_no_archive_header {
+        if let Ok(full_response) = client
+            .get(url)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+        {
+            if let Ok(html) = full_response.text().await {
+                let html_lower = html.to_lowercase();
+                if html_lower.contains("x-no-archive") || html_lower.contains("noarchive") {
+                    signals.has_no_archive_meta = true;
+                }
+            }
+        }
+    }
+
+    Ok(signals)
+}
+
 /// Create view.html with archive banner injected.
 /// Returns the file size of the created view.html.
 async fn create_view_html(
@@ -379,6 +487,13 @@ async fn process_archive_inner(
         .context("Link not found")?;
 
     debug!(archive_id, url = %link.normalized_url, "Processing archive");
+
+    // Check for archive prevention signals (excluded domains, X-No-Archive header, meta tags)
+    if should_skip_due_to_archive_prevention(db, &link.normalized_url).await? {
+        info!(archive_id, url = %link.normalized_url, "Skipping archive due to prevention signals");
+        set_archive_skipped(db.pool(), archive_id).await?;
+        return Ok(());
+    }
 
     // Find handler
     let handler = HANDLERS
