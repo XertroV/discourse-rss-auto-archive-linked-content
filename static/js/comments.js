@@ -249,3 +249,173 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+/**
+ * Virtual scroll manager for large comment lists
+ */
+class VirtualCommentScroll {
+    constructor(container, comments, platform, renderHeight = 150) {
+        this.container = container;
+        this.comments = comments;
+        this.platform = platform;
+        this.renderHeight = renderHeight;  // Estimated comment height
+        this.visibleCount = 50;  // Render 50 at a time
+        this.bufferCount = 10;   // Pre-render buffer
+        this.scrollTop = 0;
+        this.renderedComments = new Map();  // Cache rendered HTML
+
+        this.init();
+    }
+
+    init() {
+        // Create virtual scroll wrapper
+        const totalHeight = this.comments.length * this.renderHeight;
+        this.container.style.height = `${totalHeight}px`;
+        this.container.style.position = 'relative';
+
+        // Create viewport
+        this.viewport = document.createElement('div');
+        this.viewport.className = 'virtual-scroll-viewport';
+        this.viewport.style.position = 'absolute';
+        this.viewport.style.top = '0';
+        this.viewport.style.left = '0';
+        this.viewport.style.right = '0';
+
+        this.container.appendChild(this.viewport);
+
+        // Initial render
+        this.render();
+
+        // Scroll listener with throttle
+        let scrollTimeout;
+        this.container.addEventListener('scroll', () => {
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(() => this.render(), 100);
+        });
+    }
+
+    render() {
+        const scrollTop = this.container.scrollTop || 0;
+        const startIndex = Math.max(0, Math.floor(scrollTop / this.renderHeight) - this.bufferCount);
+        const endIndex = Math.min(
+            this.comments.length,
+            startIndex + this.visibleCount + (this.bufferCount * 2)
+        );
+
+        // Build HTML for visible range
+        let html = '';
+        for (let i = startIndex; i < endIndex; i++) {
+            const comment = this.comments[i];
+
+            // Use cached HTML if available
+            if (!this.renderedComments.has(i)) {
+                this.renderedComments.set(i, renderComment(comment, 0, this.platform));
+            }
+
+            html += this.renderedComments.get(i);
+        }
+
+        // Update viewport position and content
+        this.viewport.style.transform = `translateY(${startIndex * this.renderHeight}px)`;
+        this.viewport.innerHTML = html;
+    }
+}
+
+/**
+ * Apply search, filter, and sort to comments
+ */
+function applyFilters(container) {
+    const originalComments = JSON.parse(container.dataset.originalComments);
+    const platform = container.dataset.platform;
+
+    const searchQuery = document.getElementById('comment-search-input').value.toLowerCase();
+    const sortBy = document.getElementById('comment-sort').value;
+    const filterBy = document.getElementById('comment-filter').value;
+
+    let filtered = [...originalComments];
+
+    // Apply search
+    if (searchQuery) {
+        filtered = filtered.filter(comment =>
+            comment.text.toLowerCase().includes(searchQuery) ||
+            comment.author.toLowerCase().includes(searchQuery)
+        );
+    }
+
+    // Apply filter
+    switch (filterBy) {
+        case 'pinned':
+            filtered = filtered.filter(c => c.is_pinned);
+            break;
+        case 'creator':
+            filtered = filtered.filter(c => c.is_creator);
+            break;
+        case 'popular':
+            filtered = filtered.filter(c => c.likes >= 10);
+            break;
+    }
+
+    // Apply sort
+    switch (sortBy) {
+        case 'likes-desc':
+            filtered.sort((a, b) => b.likes - a.likes);
+            break;
+        case 'likes-asc':
+            filtered.sort((a, b) => a.likes - b.likes);
+            break;
+        case 'newest':
+            filtered.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+            break;
+        case 'oldest':
+            filtered.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+            break;
+    }
+
+    // Re-render with filtered results
+    const headerHtml = container.querySelector('.comments-stats').outerHTML +
+                       container.querySelector('.comments-controls').outerHTML;
+    const tempContainer = container.cloneNode(false);
+    renderCommentList(tempContainer, filtered, platform, headerHtml);
+
+    // Replace only the comments list
+    const oldList = container.querySelector('.comments-list, .virtual-scroll');
+    const newList = tempContainer.querySelector('.comments-list, .virtual-scroll');
+    if (oldList && newList) {
+        oldList.replaceWith(newList);
+    }
+
+    // Update count
+    const summary = container.querySelector('.comments-summary');
+    if (summary) {
+        summary.innerHTML = `Showing <strong>${filtered.length}</strong> of <strong>${originalComments.length}</strong> comments`;
+    }
+}
+
+/**
+ * Attach event handlers for controls
+ */
+function attachControlHandlers(container) {
+    const searchInput = document.getElementById('comment-search-input');
+    const searchClear = document.getElementById('comment-search-clear');
+    const sortSelect = document.getElementById('comment-sort');
+    const filterSelect = document.getElementById('comment-filter');
+
+    // Debounced search
+    let searchTimeout;
+    searchInput.addEventListener('input', (e) => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            applyFilters(container);
+            searchClear.style.display = e.target.value ? 'inline-block' : 'none';
+        }, 300);
+    });
+
+    searchClear.addEventListener('click', () => {
+        searchInput.value = '';
+        searchClear.style.display = 'none';
+        applyFilters(container);
+    });
+
+    sortSelect.addEventListener('change', () => applyFilters(container));
+    filterSelect.addEventListener('change', () => applyFilters(container));
+}
