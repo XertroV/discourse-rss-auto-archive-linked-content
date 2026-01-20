@@ -985,16 +985,13 @@ pub fn render_archive_detail(
             subtitle_links.push_str("</p>");
         }
 
-        content.push_str(&format!(
-            r#"<section class="content-text-section"><details>
-            <summary><h2 style="display: inline;">Video Transcript</h2> <span class="text-size">({transcript_size})</span></summary>
-            {subtitle_links}
-            <p><a href="/s3/{transcript_key}" target="_blank">View transcript</a> • <a href="/s3/{transcript_key}" download="{download_name}">Download transcript</a></p>
-            <p><em>Note: The transcript is generated from subtitles and can be viewed or downloaded above. Full transcript preview will be available in a future update.</em></p>
-            </details></section>"#,
-            transcript_key = html_escape(&transcript_artifact.s3_key),
-            download_name = html_escape(&suggested_download_filename(&link.domain, archive.id, &transcript_artifact.s3_key)),
-            subtitle_links = subtitle_links
+        // Render interactive transcript section
+        content.push_str(&render_interactive_transcript(
+            &transcript_artifact.s3_key,
+            &transcript_size,
+            &subtitle_links,
+            &link.domain,
+            archive.id,
         ));
     }
 
@@ -1608,6 +1605,81 @@ fn sanitize_filename_component(s: &str) -> String {
             }
         })
         .collect::<String>()
+}
+
+/// Render an interactive transcript section with search and clickable timestamps.
+fn render_interactive_transcript(
+    transcript_key: &str,
+    size_display: &str,
+    subtitle_links: &str,
+    domain: &str,
+    archive_id: i64,
+) -> String {
+    let download_name = suggested_download_filename(domain, archive_id, transcript_key);
+
+    format!(
+        r#"<section class="transcript-section">
+            <h2>Video Transcript</h2>
+            <div style="margin-bottom: 1rem;">
+                <input type="text"
+                       id="transcript-search"
+                       placeholder="Search transcript..."
+                       style="width: 100%; max-width: 400px; padding: 0.5rem; border: 1px solid #e5e7eb; border-radius: 0.375rem;">
+                <span id="match-counter" style="margin-left: 0.5rem; font-size: 0.875rem; color: #6b7280;"></span>
+            </div>
+            <details open>
+                <summary style="cursor: pointer; font-weight: 500; margin-bottom: 0.5rem;">
+                    Transcript ({})
+                </summary>
+                <div id="transcript-content"
+                     data-transcript-url="/s3/{}"
+                     style="max-height: 400px; overflow-y: auto; padding: 1rem; background: #f9fafb; border-radius: 0.375rem; font-family: monospace; white-space: pre-wrap; line-height: 1.6;">
+                    Loading transcript...
+                </div>
+                <p style="margin-top: 0.5rem;">
+                    <a href="/s3/{}" download="{}" class="btn-secondary">Download Transcript</a>
+                </p>
+                {}
+            </details>
+            <script src="/static/js/transcript.js"></script>
+            <script>
+                // Load transcript content when page loads
+                fetch('/s3/{}')
+                    .then(response => response.text())
+                    .then(text => {{
+                        const container = document.getElementById('transcript-content');
+                        container.textContent = text;
+                        container.setAttribute('data-original-text', text);
+                        makeTimestampsClickable(container);
+                    }})
+                    .catch(err => {{
+                        document.getElementById('transcript-content').textContent = 'Failed to load transcript: ' + err.message;
+                    }});
+            </script>
+            <style>
+                .timestamp-link {{
+                    color: #3b82f6;
+                    text-decoration: none;
+                    font-weight: 500;
+                    cursor: pointer;
+                }}
+                .timestamp-link:hover {{
+                    text-decoration: underline;
+                }}
+                .highlight {{
+                    background-color: #fef08a;
+                    padding: 0.125rem 0.25rem;
+                    border-radius: 0.25rem;
+                }}
+            </style>
+        </section>"#,
+        html_escape(size_display),
+        html_escape(transcript_key),
+        html_escape(transcript_key),
+        html_escape(&download_name),
+        subtitle_links,
+        html_escape(transcript_key)
+    )
 }
 
 /// Render site list page.
