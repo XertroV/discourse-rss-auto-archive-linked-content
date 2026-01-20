@@ -79,6 +79,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 12).await?;
     }
 
+    if current_version < 13 {
+        debug!("Running migration v13");
+        run_migration_v13(pool).await?;
+        set_schema_version(pool, 13).await?;
+    }
+
     Ok(())
 }
 
@@ -732,12 +738,10 @@ async fn run_migration_v12(pool: &SqlitePool) -> Result<()> {
         .await
         .context("Failed to create sessions expires_at index")?;
 
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_audit_events_user_id ON audit_events(user_id)",
-    )
-    .execute(pool)
-    .await
-    .context("Failed to create audit_events user_id index")?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_events_user_id ON audit_events(user_id)")
+        .execute(pool)
+        .await
+        .context("Failed to create audit_events user_id index")?;
 
     sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_audit_events_event_type ON audit_events(event_type)",
@@ -752,6 +756,55 @@ async fn run_migration_v12(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to create audit_events created_at index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v13(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v13: adding forwarded_for to audit_events, user_agents table, and display_name uniqueness");
+
+    // Add forwarded_for column to audit_events for X-Forwarded-For header storage
+    sqlx::query("ALTER TABLE audit_events ADD COLUMN forwarded_for TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add forwarded_for column to audit_events")?;
+
+    // Create user_agents table to deduplicate user agent strings
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS user_agents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hash TEXT NOT NULL UNIQUE,
+            user_agent TEXT NOT NULL,
+            first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create user_agents table")?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_user_agents_hash ON user_agents(hash)")
+        .execute(pool)
+        .await
+        .context("Failed to create user_agents hash index")?;
+
+    // Add user_agent_id column to audit_events (nullable, for new entries)
+    sqlx::query(
+        "ALTER TABLE audit_events ADD COLUMN user_agent_id INTEGER REFERENCES user_agents(id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to add user_agent_id column to audit_events")?;
+
+    // Add unique index on display_name (partial index, only for non-null values)
+    sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_display_name ON users(display_name) WHERE display_name IS NOT NULL",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create users display_name unique index")?;
 
     Ok(())
 }

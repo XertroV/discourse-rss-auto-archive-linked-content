@@ -21,8 +21,8 @@ impl SessionDuration {
     #[must_use]
     pub const fn as_seconds(&self) -> i64 {
         match self {
-            Self::Short => 3600,       // 1 hour
-            Self::Long => 2_592_000,   // 30 days
+            Self::Short => 3600,     // 1 hour
+            Self::Long => 2_592_000, // 30 days
         }
     }
 }

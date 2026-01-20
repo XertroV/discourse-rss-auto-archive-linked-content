@@ -1,13 +1,15 @@
+use anyhow::Result;
 use rand::{thread_rng, Rng};
+use sqlx::SqlitePool;
 
 const ADJECTIVES: &[&str] = &[
-    "Swift", "Silent", "Bold", "Bright", "Clever", "Wise", "Quick", "Calm",
-    "Noble", "Brave", "Keen", "Sharp", "Steady", "Nimble", "Fierce", "Gentle",
+    "Swift", "Silent", "Bold", "Bright", "Clever", "Wise", "Quick", "Calm", "Noble", "Brave",
+    "Keen", "Sharp", "Steady", "Nimble", "Fierce", "Gentle",
 ];
 
 const NOUNS: &[&str] = &[
-    "Tiger", "Eagle", "Wolf", "Bear", "Fox", "Hawk", "Lion", "Falcon",
-    "Panther", "Raven", "Dragon", "Phoenix", "Griffin", "Sphinx", "Hydra", "Kraken",
+    "Tiger", "Eagle", "Wolf", "Bear", "Fox", "Hawk", "Lion", "Falcon", "Panther", "Raven",
+    "Dragon", "Phoenix", "Griffin", "Sphinx", "Hydra", "Kraken",
 ];
 
 /// Generate a random username in the format "AdjectiveNoun1234".
@@ -19,6 +21,42 @@ pub fn generate_username() -> String {
     let number = rng.gen_range(1000..10000);
 
     format!("{adjective}{noun}{number}")
+}
+
+/// Generate a unique username by checking against the database.
+/// Retries up to 10 times, then falls back to appending more random digits.
+pub async fn generate_unique_username(pool: &SqlitePool) -> Result<String> {
+    for _ in 0..10 {
+        let username = generate_username();
+        if !crate::db::username_exists(pool, &username).await? {
+            return Ok(username);
+        }
+    }
+
+    // Fallback: append more random digits to make it unique
+    let mut rng = thread_rng();
+    let base = generate_username();
+    let extra = rng.gen_range(10000..100000);
+    Ok(format!("{base}{extra}"))
+}
+
+/// Validate a display name.
+/// Rules: 1-20 characters, no spaces.
+/// Returns Ok(()) if valid, Err with message if invalid.
+pub fn validate_display_name(display_name: &str) -> Result<()> {
+    if display_name.is_empty() {
+        anyhow::bail!("Display name cannot be empty");
+    }
+
+    if display_name.len() > 20 {
+        anyhow::bail!("Display name must be at most 20 characters");
+    }
+
+    if display_name.contains(' ') {
+        anyhow::bail!("Display name cannot contain spaces");
+    }
+
+    Ok(())
 }
 
 /// Generate a random password of specified length.
@@ -86,12 +124,25 @@ mod tests {
 
     #[test]
     fn test_username_uniqueness() {
-        let username1 = generate_username();
-        let username2 = generate_username();
+        use std::collections::HashSet;
 
-        // Very unlikely to generate same username
-        // (but not impossible with our small lists)
-        // This tests that randomization is working
-        assert!(username1 != username2 || username1 == username2);
+        // Generate many usernames and check for collisions
+        let mut seen = HashSet::new();
+        let iterations = 1000;
+
+        for _ in 0..iterations {
+            let username = generate_username();
+            seen.insert(username);
+        }
+
+        // With 16*16*9000 = 2,304,000 possibilities,
+        // 1000 generations should have near-zero collision probability.
+        // Allow at most 1 collision (birthday paradox threshold is ~1500 for 50% chance).
+        assert!(
+            seen.len() >= iterations - 1,
+            "Too many collisions: generated {} unique usernames out of {}",
+            seen.len(),
+            iterations
+        );
     }
 }

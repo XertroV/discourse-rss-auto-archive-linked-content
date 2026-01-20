@@ -35,19 +35,16 @@ async fn test_password_hashing() {
 
 #[tokio::test]
 async fn test_password_strength_validation() {
-    // Valid passwords
+    // Valid passwords (10+ characters)
+    assert!(validate_password_strength("abcdefghij").is_ok());
+    assert!(validate_password_strength("1234567890").is_ok());
     assert!(validate_password_strength("MyP@ssw0rd123").is_ok());
-    assert!(validate_password_strength("Secure!Pass123").is_ok());
-    assert!(validate_password_strength("aB3!xxxxxxxxxx").is_ok());
+    assert!(validate_password_strength("alllowercase").is_ok());
+    assert!(validate_password_strength("ALLUPPERCASE").is_ok());
 
-    // Too short
+    // Too short (< 10 characters)
     assert!(validate_password_strength("Short1!").is_err());
-
-    // Not enough diversity
-    assert!(validate_password_strength("alllowercase").is_err());
-    assert!(validate_password_strength("ALLUPPERCASE").is_err());
-    assert!(validate_password_strength("12345678901234567890").is_err());
-    assert!(validate_password_strength("lowercase123").is_err()); // Missing special char
+    assert!(validate_password_strength("123456789").is_err());
 }
 
 #[tokio::test]
@@ -156,9 +153,7 @@ async fn test_get_user_by_username() {
 async fn test_count_users() {
     let (db, _temp_dir) = setup_test_db().await;
 
-    let count = count_users(db.pool())
-        .await
-        .expect("Failed to count users");
+    let count = count_users(db.pool()).await.expect("Failed to count users");
     assert_eq!(count, 0);
 
     // Create users
@@ -170,9 +165,7 @@ async fn test_count_users() {
         .await
         .expect("Failed to create user");
 
-    let count = count_users(db.pool())
-        .await
-        .expect("Failed to count users");
+    let count = count_users(db.pool()).await.expect("Failed to count users");
     assert_eq!(count, 2);
 }
 

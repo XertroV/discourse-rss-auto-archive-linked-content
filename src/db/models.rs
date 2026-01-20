@@ -539,6 +539,18 @@ pub struct AuditEvent {
     pub target_id: Option<i64>,
     pub metadata: Option<String>,
     pub ip_address: Option<String>,
+    pub forwarded_for: Option<String>,
     pub user_agent: Option<String>,
+    pub user_agent_id: Option<i64>,
     pub created_at: String,
+}
+
+/// User agent for deduplication.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct UserAgent {
+    pub id: i64,
+    pub hash: String,
+    pub user_agent: String,
+    pub first_seen_at: String,
+    pub last_seen_at: String,
 }

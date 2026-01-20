@@ -19,8 +19,7 @@ pub fn hash_password(password: &str) -> Result<String> {
 
 /// Verify a password against its hash.
 pub fn verify_password(password: &str, password_hash: &str) -> Result<bool> {
-    let parsed_hash = PasswordHash::new(password_hash)
-        .context("Failed to parse password hash")?;
+    let parsed_hash = PasswordHash::new(password_hash).context("Failed to parse password hash")?;
 
     let argon2 = Argon2::default();
 
@@ -29,30 +28,13 @@ pub fn verify_password(password: &str, password_hash: &str) -> Result<bool> {
         .is_ok())
 }
 
-/// Validate password meets minimum strength requirements.
+/// Validate password meets minimum length requirement.
 /// Returns Ok(()) if valid, Err with message if invalid.
 pub fn validate_password_strength(password: &str) -> Result<()> {
-    const MIN_LENGTH: usize = 12;
+    const MIN_LENGTH: usize = 10;
 
     if password.len() < MIN_LENGTH {
         anyhow::bail!("Password must be at least {MIN_LENGTH} characters long");
-    }
-
-    // Check for character diversity (at least 3 of: lowercase, uppercase, digits, special)
-    let has_lowercase = password.chars().any(|c| c.is_ascii_lowercase());
-    let has_uppercase = password.chars().any(|c| c.is_ascii_uppercase());
-    let has_digit = password.chars().any(|c| c.is_ascii_digit());
-    let has_special = password.chars().any(|c| !c.is_alphanumeric());
-
-    let diversity_count = [has_lowercase, has_uppercase, has_digit, has_special]
-        .iter()
-        .filter(|&&x| x)
-        .count();
-
-    if diversity_count < 3 {
-        anyhow::bail!(
-            "Password must contain at least 3 of: lowercase letters, uppercase letters, digits, special characters"
-        );
     }
 
     Ok(())
@@ -73,16 +55,13 @@ mod tests {
 
     #[test]
     fn test_password_strength_validation() {
-        // Valid passwords
+        // Valid passwords (10+ characters)
+        assert!(validate_password_strength("abcdefghij").is_ok());
+        assert!(validate_password_strength("1234567890").is_ok());
         assert!(validate_password_strength("MyP@ssw0rd123").is_ok());
-        assert!(validate_password_strength("Secure!Pass123").is_ok());
 
-        // Too short
+        // Too short (< 10 characters)
         assert!(validate_password_strength("Short1!").is_err());
-
-        // Not enough diversity
-        assert!(validate_password_strength("alllowercase").is_err());
-        assert!(validate_password_strength("ALLUPPERCASE").is_err());
-        assert!(validate_password_strength("12345678901234567890").is_err());
+        assert!(validate_password_strength("123456789").is_err());
     }
 }

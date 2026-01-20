@@ -9,8 +9,9 @@ use serde::Deserialize;
 use std::net::SocketAddr;
 
 use crate::auth::{
-    generate_csrf_token, generate_password, generate_session_token, generate_username,
-    hash_password, verify_password, MaybeUser, RequireAdmin, RequireUser, SessionDuration,
+    generate_csrf_token, generate_password, generate_session_token, generate_unique_username,
+    hash_password, validate_display_name, verify_password, MaybeUser, RequireAdmin, RequireUser,
+    SessionDuration,
 };
 use crate::db as queries;
 use crate::web::{templates, AppState};
@@ -40,19 +41,28 @@ pub async fn login_page(MaybeUser(user): MaybeUser) -> Response {
 pub async fn login_post(
     State(state): State<AppState>,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
     Form(form): Form<LoginForm>,
 ) -> Response {
-    let ip = addr.ip().to_string();
+    let direct_ip = addr.ip().to_string();
+    let forwarded_for = headers
+        .get("x-forwarded-for")
+        .and_then(|h| h.to_str().ok())
+        .map(String::from);
 
     match form.action.as_str() {
-        "register" => handle_registration(state, ip).await,
-        "login" | "" => handle_login(state, ip, form).await,
+        "register" => handle_registration(state, direct_ip, forwarded_for).await,
+        "login" | "" => handle_login(state, direct_ip, forwarded_for, form).await,
         _ => (StatusCode::BAD_REQUEST, "Invalid action").into_response(),
     }
 }
 
 /// Handle user registration.
-async fn handle_registration(state: AppState, ip: String) -> Response {
+async fn handle_registration(
+    state: AppState,
+    ip: String,
+    forwarded_for: Option<String>,
+) -> Response {
     // Check rate limit: 1 registration per 5 minutes per IP
     let five_minutes_ago = Utc::now() - Duration::minutes(5);
     let count_result = sqlx::query_scalar::<_, i64>(
@@ -74,8 +84,14 @@ async fn handle_registration(state: AppState, ip: String) -> Response {
         }
     }
 
-    // Generate random credentials
-    let username = generate_username();
+    // Generate random credentials with unique username
+    let username = match generate_unique_username(state.db.pool()).await {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::error!("Failed to generate unique username: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Registration failed").into_response();
+        }
+    };
     let password = generate_password(16);
 
     // Hash password
@@ -92,18 +108,20 @@ async fn handle_registration(state: AppState, ip: String) -> Response {
     let is_first_user = user_count == 0;
 
     // Create user
-    let user_id = match queries::create_user(state.db.pool(), &username, &password_hash, is_first_user).await {
-        Ok(id) => id,
-        Err(e) => {
-            tracing::error!("Failed to create user: {e}");
-            return Html(templates::login_page(
-                Some("Registration failed. Please try again."),
-                None,
-                None,
-            ))
-            .into_response();
-        }
-    };
+    let user_id =
+        match queries::create_user(state.db.pool(), &username, &password_hash, is_first_user).await
+        {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!("Failed to create user: {e}");
+                return Html(templates::login_page(
+                    Some("Registration failed. Please try again."),
+                    None,
+                    None,
+                ))
+                .into_response();
+            }
+        };
 
     // Log registration event
     let _ = queries::create_audit_event(
@@ -114,6 +132,7 @@ async fn handle_registration(state: AppState, ip: String) -> Response {
         None,
         None,
         Some(&ip),
+        forwarded_for.as_deref(),
         None,
     )
     .await;
@@ -128,7 +147,12 @@ async fn handle_registration(state: AppState, ip: String) -> Response {
 }
 
 /// Handle user login.
-async fn handle_login(state: AppState, ip: String, form: LoginForm) -> Response {
+async fn handle_login(
+    state: AppState,
+    ip: String,
+    forwarded_for: Option<String>,
+    form: LoginForm,
+) -> Response {
     let username = match form.username {
         Some(u) if !u.is_empty() => u,
         _ => {
@@ -153,8 +177,9 @@ async fn handle_login(state: AppState, ip: String, form: LoginForm) -> Response 
         }
     };
 
-    // Get user
-    let user = match queries::get_user_by_username(state.db.pool(), &username).await {
+    // Get user by username or display_name (users can sign in with either)
+    let user = match queries::get_user_by_username_or_display_name(state.db.pool(), &username).await
+    {
         Ok(Some(u)) => u,
         Ok(None) => {
             return Html(templates::login_page(
@@ -229,6 +254,7 @@ async fn handle_login(state: AppState, ip: String, form: LoginForm) -> Response 
             None,
             None,
             Some(&ip),
+            forwarded_for.as_deref(),
             None,
         )
         .await;
@@ -243,6 +269,20 @@ async fn handle_login(state: AppState, ip: String, form: LoginForm) -> Response 
 
     // Reset failed login attempts
     let _ = queries::reset_failed_login_attempts(state.db.pool(), user.id).await;
+
+    // Enforce max concurrent sessions (10)
+    const MAX_SESSIONS: i64 = 10;
+    if let Ok(session_count) = queries::count_user_sessions(state.db.pool(), user.id).await {
+        if session_count >= MAX_SESSIONS {
+            // Delete oldest sessions to make room (keep MAX_SESSIONS - 1 so new one fits)
+            if let Err(e) =
+                queries::delete_oldest_user_sessions(state.db.pool(), user.id, MAX_SESSIONS - 1)
+                    .await
+            {
+                tracing::warn!("Failed to delete oldest sessions: {e}");
+            }
+        }
+    }
 
     // Create session
     let session_token = generate_session_token();
@@ -278,6 +318,7 @@ async fn handle_login(state: AppState, ip: String, form: LoginForm) -> Response 
         None,
         None,
         Some(&ip),
+        forwarded_for.as_deref(),
         None,
     )
     .await;
@@ -288,20 +329,18 @@ async fn handle_login(state: AppState, ip: String, form: LoginForm) -> Response 
         "session={session_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age={max_age}"
     );
 
-    (
-        [(header::SET_COOKIE, cookie)],
-        Redirect::to("/"),
-    )
-        .into_response()
+    ([(header::SET_COOKIE, cookie)], Redirect::to("/")).into_response()
 }
 
 /// POST /logout - Log out user.
 pub async fn logout(
     State(state): State<AppState>,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
     RequireUser(user): RequireUser,
 ) -> Response {
     let ip = addr.ip().to_string();
+    let forwarded_for = headers.get("x-forwarded-for").and_then(|h| h.to_str().ok());
 
     // Get session token from cookie
     // (In a real implementation, we'd extract this from the request)
@@ -317,6 +356,7 @@ pub async fn logout(
         None,
         None,
         Some(&ip),
+        forwarded_for,
         None,
     )
     .await;
@@ -324,11 +364,7 @@ pub async fn logout(
     // Clear session cookie
     let cookie = "session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0";
 
-    (
-        [(header::SET_COOKIE, cookie)],
-        Redirect::to("/login"),
-    )
-        .into_response()
+    ([(header::SET_COOKIE, cookie)], Redirect::to("/login")).into_response()
 }
 
 /// GET /profile - User profile page.
@@ -348,25 +384,62 @@ pub struct ProfileForm {
 
 pub async fn profile_post(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     RequireUser(user): RequireUser,
     Form(form): Form<ProfileForm>,
 ) -> Response {
     let mut error: Option<String> = None;
+    let mut password_changed = false;
+
+    // Extract current session token from cookie for later use
+    let current_token = headers
+        .get("cookie")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|cookies| {
+            cookies
+                .split(';')
+                .find_map(|cookie| cookie.trim().strip_prefix("session="))
+        })
+        .map(String::from);
 
     // Update email and display name if changed
     let email = form.email.filter(|e| !e.is_empty());
-    let display_name = form.display_name.filter(|d| !d.is_empty());
+    // Empty string means clear display_name (reset to null)
+    let display_name = form.display_name.as_ref().filter(|d| !d.is_empty());
 
-    if let Err(e) = queries::update_user_profile(
-        state.db.pool(),
-        user.id,
-        email.as_deref(),
-        display_name.as_deref(),
-    )
-    .await
-    {
-        tracing::error!("Failed to update profile: {e}");
-        error = Some("Failed to update profile".to_string());
+    // Validate display_name if provided
+    if let Some(dn) = &display_name {
+        // Validate format (1-20 chars, no spaces)
+        if let Err(e) = validate_display_name(dn) {
+            error = Some(e.to_string());
+        } else {
+            // Check uniqueness (excluding current user)
+            match queries::display_name_exists(state.db.pool(), dn, Some(user.id)).await {
+                Ok(true) => {
+                    error = Some("Display name is already taken".to_string());
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::error!("Failed to check display_name uniqueness: {e}");
+                    error = Some("Failed to update profile".to_string());
+                }
+            }
+        }
+    }
+
+    // Only update profile if no validation errors so far
+    if error.is_none() {
+        if let Err(e) = queries::update_user_profile(
+            state.db.pool(),
+            user.id,
+            email.as_deref(),
+            display_name.map(|s| s.as_str()),
+        )
+        .await
+        {
+            tracing::error!("Failed to update profile: {e}");
+            error = Some("Failed to update profile".to_string());
+        }
     }
 
     // Handle password change if requested
@@ -394,15 +467,37 @@ pub async fn profile_post(
                 // Hash new password
                 match hash_password(new) {
                     Ok(new_hash) => {
-                        if let Err(e) = queries::update_user_password(state.db.pool(), user.id, &new_hash).await {
+                        if let Err(e) =
+                            queries::update_user_password(state.db.pool(), user.id, &new_hash).await
+                        {
                             tracing::error!("Failed to update password: {e}");
                             error = Some("Failed to change password".to_string());
+                        } else {
+                            password_changed = true;
                         }
                     }
                     Err(e) => {
                         tracing::error!("Failed to hash password: {e}");
                         error = Some("Failed to change password".to_string());
                     }
+                }
+            }
+        }
+    }
+
+    // If password changed, invalidate all other sessions
+    if password_changed {
+        if let Some(token) = &current_token {
+            match queries::delete_other_user_sessions(state.db.pool(), user.id, token).await {
+                Ok(count) => {
+                    tracing::info!(
+                        user_id = user.id,
+                        invalidated = count,
+                        "Password changed, other sessions invalidated"
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("Failed to invalidate other sessions: {e}");
                 }
             }
         }
@@ -415,7 +510,11 @@ pub async fn profile_post(
         .flatten()
         .unwrap_or(user);
 
-    Html(templates::profile_page_with_message(&updated_user, error.as_deref())).into_response()
+    Html(templates::profile_page_with_message(
+        &updated_user,
+        error.as_deref(),
+    ))
+    .into_response()
 }
 
 /// GET /admin - Admin panel.
@@ -453,10 +552,12 @@ pub struct UserIdForm {
 pub async fn admin_approve_user(
     State(state): State<AppState>,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
     RequireAdmin(admin): RequireAdmin,
     Form(form): Form<UserIdForm>,
 ) -> Response {
     let ip = addr.ip().to_string();
+    let forwarded_for = headers.get("x-forwarded-for").and_then(|h| h.to_str().ok());
 
     if let Err(e) = queries::update_user_approval(state.db.pool(), form.user_id, true).await {
         tracing::error!("Failed to approve user: {e}");
@@ -472,6 +573,7 @@ pub async fn admin_approve_user(
         Some(form.user_id),
         None,
         Some(&ip),
+        forwarded_for,
         None,
     )
     .await;
@@ -483,14 +585,20 @@ pub async fn admin_approve_user(
 pub async fn admin_revoke_user(
     State(state): State<AppState>,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
     RequireAdmin(admin): RequireAdmin,
     Form(form): Form<UserIdForm>,
 ) -> Response {
     let ip = addr.ip().to_string();
+    let forwarded_for = headers.get("x-forwarded-for").and_then(|h| h.to_str().ok());
 
     if let Err(e) = queries::update_user_approval(state.db.pool(), form.user_id, false).await {
         tracing::error!("Failed to revoke user approval: {e}");
-        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to revoke approval").into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to revoke approval",
+        )
+            .into_response();
     }
 
     // Log audit event
@@ -502,6 +610,7 @@ pub async fn admin_revoke_user(
         Some(form.user_id),
         None,
         Some(&ip),
+        forwarded_for,
         None,
     )
     .await;
@@ -513,10 +622,12 @@ pub async fn admin_revoke_user(
 pub async fn admin_promote_user(
     State(state): State<AppState>,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
     RequireAdmin(admin): RequireAdmin,
     Form(form): Form<UserIdForm>,
 ) -> Response {
     let ip = addr.ip().to_string();
+    let forwarded_for = headers.get("x-forwarded-for").and_then(|h| h.to_str().ok());
 
     if let Err(e) = queries::update_user_admin(state.db.pool(), form.user_id, true).await {
         tracing::error!("Failed to promote user: {e}");
@@ -532,6 +643,7 @@ pub async fn admin_promote_user(
         Some(form.user_id),
         None,
         Some(&ip),
+        forwarded_for,
         None,
     )
     .await;
@@ -543,10 +655,12 @@ pub async fn admin_promote_user(
 pub async fn admin_demote_user(
     State(state): State<AppState>,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
     RequireAdmin(admin): RequireAdmin,
     Form(form): Form<UserIdForm>,
 ) -> Response {
     let ip = addr.ip().to_string();
+    let forwarded_for = headers.get("x-forwarded-for").and_then(|h| h.to_str().ok());
 
     // Prevent self-demotion
     if admin.id == form.user_id {
@@ -567,6 +681,7 @@ pub async fn admin_demote_user(
         Some(form.user_id),
         None,
         Some(&ip),
+        forwarded_for,
         None,
     )
     .await;
@@ -578,10 +693,12 @@ pub async fn admin_demote_user(
 pub async fn admin_deactivate_user(
     State(state): State<AppState>,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
     RequireAdmin(admin): RequireAdmin,
     Form(form): Form<UserIdForm>,
 ) -> Response {
     let ip = addr.ip().to_string();
+    let forwarded_for = headers.get("x-forwarded-for").and_then(|h| h.to_str().ok());
 
     // Prevent self-deactivation
     if admin.id == form.user_id {
@@ -590,7 +707,11 @@ pub async fn admin_deactivate_user(
 
     if let Err(e) = queries::update_user_active(state.db.pool(), form.user_id, false).await {
         tracing::error!("Failed to deactivate user: {e}");
-        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to deactivate user").into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to deactivate user",
+        )
+            .into_response();
     }
 
     // Delete all sessions for deactivated user
@@ -605,6 +726,7 @@ pub async fn admin_deactivate_user(
         Some(form.user_id),
         None,
         Some(&ip),
+        forwarded_for,
         None,
     )
     .await;
@@ -616,14 +738,20 @@ pub async fn admin_deactivate_user(
 pub async fn admin_reactivate_user(
     State(state): State<AppState>,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
     RequireAdmin(admin): RequireAdmin,
     Form(form): Form<UserIdForm>,
 ) -> Response {
     let ip = addr.ip().to_string();
+    let forwarded_for = headers.get("x-forwarded-for").and_then(|h| h.to_str().ok());
 
     if let Err(e) = queries::update_user_active(state.db.pool(), form.user_id, true).await {
         tracing::error!("Failed to reactivate user: {e}");
-        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to reactivate user").into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to reactivate user",
+        )
+            .into_response();
     }
 
     // Log audit event
@@ -635,9 +763,94 @@ pub async fn admin_reactivate_user(
         Some(form.user_id),
         None,
         Some(&ip),
+        forwarded_for,
         None,
     )
     .await;
 
     Redirect::to("/admin").into_response()
+}
+
+/// POST /admin/user/reset-password - Reset user password (admin).
+pub async fn admin_reset_password(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
+    RequireAdmin(admin): RequireAdmin,
+    Form(form): Form<UserIdForm>,
+) -> Response {
+    let ip = addr.ip().to_string();
+    let forwarded_for = headers.get("x-forwarded-for").and_then(|h| h.to_str().ok());
+
+    // Get target user info
+    let target_user = match queries::get_user_by_id(state.db.pool(), form.user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, "User not found").into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to get user: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to reset password",
+            )
+                .into_response();
+        }
+    };
+
+    // Generate new password
+    let new_password = generate_password(16);
+    let password_hash = match hash_password(&new_password) {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::error!("Failed to hash password: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to reset password",
+            )
+                .into_response();
+        }
+    };
+
+    // Update password
+    if let Err(e) =
+        queries::update_user_password(state.db.pool(), form.user_id, &password_hash).await
+    {
+        tracing::error!("Failed to update password: {e}");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to reset password",
+        )
+            .into_response();
+    }
+
+    // Invalidate all sessions for the user
+    let _ = queries::delete_user_sessions(state.db.pool(), form.user_id).await;
+
+    // Log audit event
+    let _ = queries::create_audit_event(
+        state.db.pool(),
+        Some(admin.id),
+        "admin_password_reset",
+        Some("user"),
+        Some(form.user_id),
+        None,
+        Some(&ip),
+        forwarded_for,
+        None,
+    )
+    .await;
+
+    tracing::info!(
+        admin_id = admin.id,
+        target_user_id = form.user_id,
+        "Admin reset user password"
+    );
+
+    // Show the new password (one-time display)
+    Html(templates::admin_password_reset_result(
+        &target_user.username,
+        &new_password,
+    ))
+    .into_response()
 }
