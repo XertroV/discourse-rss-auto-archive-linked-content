@@ -3290,26 +3290,73 @@ pub fn login_page(error: Option<&str>, username: Option<&str>, password: Option<
 
 /// Profile page.
 pub fn profile_page(user: &User) -> String {
-    profile_page_with_message(user, None)
+    profile_page_with_link_status(user, None, false)
 }
 
-/// Profile page with optional message.
+/// Profile page with optional message (legacy, assumes not linked).
 pub fn profile_page_with_message(user: &User, message: Option<&str>) -> String {
+    profile_page_with_link_status(user, message, false)
+}
+
+/// Profile page with forum link status.
+pub fn profile_page_with_link_status(
+    user: &User,
+    message: Option<&str>,
+    has_forum_link: bool,
+) -> String {
     let approval_status = if user.is_admin {
         r#"<div class="status-box status-box-success">
             <strong>✓ Admin Account</strong>
             <p>You have full administrative privileges.</p>
         </div>"#
+            .to_string()
     } else if user.is_approved {
-        r#"<div class="status-box status-box-success">
+        if has_forum_link {
+            r#"<div class="status-box status-box-success">
+            <strong>✓ Linked Forum Account</strong>
+            <p>Your account is linked to your forum identity and approved.</p>
+        </div>"#
+                .to_string()
+        } else {
+            r#"<div class="status-box status-box-success">
             <strong>✓ Approved Account</strong>
             <p>You can submit links for archiving.</p>
         </div>"#
+                .to_string()
+        }
     } else {
         r#"<div class="status-box status-box-warning">
             <strong>⚠️ Pending Approval</strong>
             <p>Your account is awaiting admin approval before you can submit links.</p>
         </div>"#
+            .to_string()
+    };
+
+    // Show linking instructions for users without a forum link
+    let linking_instructions = if !has_forum_link && !user.is_admin {
+        let link_command = format!("link_archive_account:{}", user.username);
+        format!(
+            r##"<div class="status-box status-box-info" style="margin-top: var(--spacing-md, 1rem);">
+            <strong>Link Your Forum Account</strong>
+            <p style="margin-top: 0.5rem;">To auto-approve your account and set your display name to your forum username, post this at the very start of any forum post:</p>
+            <div style="position: relative; margin: 0.75rem 0;">
+                <pre id="link-command" style="background: var(--bg-primary, #ffffff); padding: 0.75rem; padding-right: 4rem; border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem); font-family: monospace; font-size: 0.875rem; overflow-x: auto; margin: 0;">{}</pre>
+                <button onclick="copyLinkCommand()" style="position: absolute; top: 0.5rem; right: 0.5rem; padding: 0.25rem 0.5rem; background: var(--bg-secondary, #f4f4f5); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem); cursor: pointer; font-size: 0.75rem;">Copy</button>
+            </div>
+            <p style="font-size: 0.875rem; color: var(--text-secondary, #71717a); margin-bottom: 0;">Your display name will be set to your forum username.</p>
+        </div>
+        <script>
+        function copyLinkCommand() {{
+            const text = document.getElementById('link-command').textContent;
+            navigator.clipboard.writeText(text).then(function() {{
+                // Optional: Show feedback
+            }});
+        }}
+        </script>"##,
+            html_escape(&link_command)
+        )
+    } else {
+        String::new()
     };
 
     let message_html = message.map_or(String::new(), |m| {
@@ -3322,10 +3369,31 @@ pub fn profile_page_with_message(user: &User, message: Option<&str>) -> String {
     let display_name = user.display_name.as_ref().unwrap_or(&user.username);
     let email = user.email.as_deref().unwrap_or("");
 
+    // Display name field - disabled when linked to forum
+    let display_name_field = if has_forum_link {
+        format!(
+            r#"<div>
+                <label for="display_name" style="display: block; margin-bottom: var(--spacing-xs, 0.25rem); font-weight: 500;">Display Name</label>
+                <input type="text" id="display_name" name="display_name" value="{}" disabled style="width: 100%; padding: var(--spacing-sm, 0.5rem); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem); background: var(--bg-secondary, #f4f4f5); cursor: not-allowed;">
+                <p style="margin-top: var(--spacing-xs, 0.25rem); font-size: 0.875rem; color: var(--text-secondary, #71717a);">Your display name is linked to your forum account and cannot be changed.</p>
+            </div>"#,
+            html_escape(display_name)
+        )
+    } else {
+        format!(
+            r#"<div>
+                <label for="display_name" style="display: block; margin-bottom: var(--spacing-xs, 0.25rem); font-weight: 500;">Display Name (optional)</label>
+                <input type="text" id="display_name" name="display_name" value="{}" style="width: 100%; padding: var(--spacing-sm, 0.5rem); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
+            </div>"#,
+            html_escape(display_name)
+        )
+    };
+
     let content = format!(
         r#"<main class="container">
     <div style="max-width: 700px; margin: 2rem auto;">
         <h1>Profile</h1>
+        {}
         {}
         {}
 
@@ -3341,10 +3409,7 @@ pub fn profile_page_with_message(user: &User, message: Option<&str>) -> String {
                 <label for="email" style="display: block; margin-bottom: var(--spacing-xs, 0.25rem); font-weight: 500;">Email (optional)</label>
                 <input type="email" id="email" name="email" value="{}" style="width: 100%; padding: var(--spacing-sm, 0.5rem); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
             </div>
-            <div>
-                <label for="display_name" style="display: block; margin-bottom: var(--spacing-xs, 0.25rem); font-weight: 500;">Display Name (optional)</label>
-                <input type="text" id="display_name" name="display_name" value="{}" style="width: 100%; padding: var(--spacing-sm, 0.5rem); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
-            </div>
+            {}
 
             <h3 style="margin-top: var(--spacing-lg, 1.5rem); margin-bottom: 0;">Change Password</h3>
             <div>
@@ -3371,11 +3436,12 @@ pub fn profile_page_with_message(user: &User, message: Option<&str>) -> String {
     </div>
 </main>"#,
         approval_status,
+        linking_instructions,
         message_html,
         html_escape(&user.username),
         html_escape(&user.created_at),
         html_escape(email),
-        html_escape(display_name)
+        display_name_field
     );
 
     base_layout_with_user("Profile", &content, Some(user))

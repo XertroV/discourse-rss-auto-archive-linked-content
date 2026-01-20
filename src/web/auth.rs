@@ -368,8 +368,25 @@ pub async fn logout(
 }
 
 /// GET /profile - User profile page.
-pub async fn profile_page(RequireUser(user): RequireUser) -> Response {
-    Html(templates::profile_page(&user)).into_response()
+pub async fn profile_page(
+    State(state): State<AppState>,
+    RequireUser(user): RequireUser,
+) -> Response {
+    // Check if user has a forum account link
+    let has_forum_link = match queries::user_has_forum_link(state.db.pool(), user.id).await {
+        Ok(linked) => linked,
+        Err(e) => {
+            tracing::error!("Failed to check forum link status: {e}");
+            false
+        }
+    };
+
+    Html(templates::profile_page_with_link_status(
+        &user,
+        None,
+        has_forum_link,
+    ))
+    .into_response()
 }
 
 /// POST /profile - Update user profile.
@@ -391,6 +408,15 @@ pub async fn profile_post(
     let mut error: Option<String> = None;
     let mut password_changed = false;
 
+    // Check if user has a forum account link (prevents display_name changes)
+    let has_forum_link = match queries::user_has_forum_link(state.db.pool(), user.id).await {
+        Ok(linked) => linked,
+        Err(e) => {
+            tracing::error!("Failed to check forum link status: {e}");
+            false
+        }
+    };
+
     // Extract current session token from cookie for later use
     let current_token = headers
         .get("cookie")
@@ -404,24 +430,40 @@ pub async fn profile_post(
 
     // Update email and display name if changed
     let email = form.email.filter(|e| !e.is_empty());
-    // Empty string means clear display_name (reset to null)
-    let display_name = form.display_name.as_ref().filter(|d| !d.is_empty());
 
-    // Validate display_name if provided
-    if let Some(dn) = &display_name {
-        // Validate format (1-20 chars, no spaces)
-        if let Err(e) = validate_display_name(dn) {
-            error = Some(e.to_string());
-        } else {
-            // Check uniqueness (excluding current user)
-            match queries::display_name_exists(state.db.pool(), dn, Some(user.id)).await {
-                Ok(true) => {
-                    error = Some("Display name is already taken".to_string());
-                }
-                Ok(false) => {}
-                Err(e) => {
-                    tracing::error!("Failed to check display_name uniqueness: {e}");
-                    error = Some("Failed to update profile".to_string());
+    // If user has forum link, keep existing display_name (ignore form input)
+    // Otherwise, process the form's display_name value
+    let display_name = if has_forum_link {
+        // User is linked to forum account - keep existing display_name
+        user.display_name.as_deref()
+    } else {
+        // Empty string means clear display_name (reset to null)
+        form.display_name
+            .as_ref()
+            .filter(|d| !d.is_empty())
+            .map(|s| s.as_str())
+    };
+
+    // Store old display_name for audit logging
+    let old_display_name = user.display_name.clone();
+
+    // Validate display_name if provided and not linked
+    if !has_forum_link {
+        if let Some(dn) = &display_name {
+            // Validate format (1-20 chars, no spaces)
+            if let Err(e) = validate_display_name(dn) {
+                error = Some(e.to_string());
+            } else {
+                // Check uniqueness (excluding current user)
+                match queries::display_name_exists(state.db.pool(), dn, Some(user.id)).await {
+                    Ok(true) => {
+                        error = Some("Display name is already taken".to_string());
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        tracing::error!("Failed to check display_name uniqueness: {e}");
+                        error = Some("Failed to update profile".to_string());
+                    }
                 }
             }
         }
@@ -429,13 +471,9 @@ pub async fn profile_post(
 
     // Only update profile if no validation errors so far
     if error.is_none() {
-        if let Err(e) = queries::update_user_profile(
-            state.db.pool(),
-            user.id,
-            email.as_deref(),
-            display_name.map(|s| s.as_str()),
-        )
-        .await
+        if let Err(e) =
+            queries::update_user_profile(state.db.pool(), user.id, email.as_deref(), display_name)
+                .await
         {
             tracing::error!("Failed to update profile: {e}");
             error = Some("Failed to update profile".to_string());
@@ -510,9 +548,36 @@ pub async fn profile_post(
         .flatten()
         .unwrap_or(user);
 
-    Html(templates::profile_page_with_message(
+    // Audit log display_name change if it changed (and no error occurred)
+    if error.is_none() && !has_forum_link {
+        let new_display_name = updated_user.display_name.as_deref();
+        if old_display_name.as_deref() != new_display_name {
+            let metadata = serde_json::json!({
+                "old_value": old_display_name,
+                "new_value": new_display_name,
+            });
+            if let Err(e) = queries::create_audit_event(
+                state.db.pool(),
+                Some(updated_user.id),
+                "display_name_changed",
+                Some("user"),
+                Some(updated_user.id),
+                Some(&metadata.to_string()),
+                None,
+                None,
+                None,
+            )
+            .await
+            {
+                tracing::error!("Failed to create audit event for display_name change: {e}");
+            }
+        }
+    }
+
+    Html(templates::profile_page_with_link_status(
         &updated_user,
         error.as_deref(),
+        has_forum_link,
     ))
     .into_response()
 }

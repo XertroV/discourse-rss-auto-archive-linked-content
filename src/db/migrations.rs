@@ -115,6 +115,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 18).await?;
     }
 
+    if current_version < 19 {
+        debug!("Running migration v19");
+        run_migration_v19(pool).await?;
+        set_schema_version(pool, 19).await?;
+    }
+
     Ok(())
 }
 
@@ -1071,6 +1077,40 @@ async fn run_migration_v18(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to create thread_archive_jobs created_at index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v19(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v19: adding forum_account_links table for forum account linking");
+
+    // Create forum_account_links table for tracking links between forum accounts and archive accounts
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS forum_account_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+            forum_username TEXT NOT NULL UNIQUE,
+            linked_via_post_guid TEXT NOT NULL,
+            linked_via_post_url TEXT NOT NULL,
+            forum_author_raw TEXT,
+            post_title TEXT,
+            post_published_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create forum_account_links table")?;
+
+    // Index for looking up links by post GUID
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_forum_links_post_guid ON forum_account_links(linked_via_post_guid)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create forum_account_links post_guid index")?;
 
     Ok(())
 }

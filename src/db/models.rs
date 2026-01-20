@@ -523,6 +523,20 @@ pub struct User {
     pub updated_at: String,
 }
 
+/// A link between a Discourse forum account and an archive user account.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ForumAccountLink {
+    pub id: i64,
+    pub user_id: i64,
+    pub forum_username: String,
+    pub linked_via_post_guid: String,
+    pub linked_via_post_url: String,
+    pub forum_author_raw: Option<String>,
+    pub post_title: Option<String>,
+    pub post_published_at: Option<String>,
+    pub created_at: String,
+}
+
 /// User session.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Session {

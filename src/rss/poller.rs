@@ -1,18 +1,26 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use sha2::{Digest, Sha256};
 use tracing::{debug, error, info, trace, warn};
 
 use crate::config::Config;
 use crate::constants::ARCHIVER_HONEST_USER_AGENT;
 use crate::db::{
-    self, create_pending_archive, get_archive_by_link_id, get_link_by_normalized_url,
-    get_post_by_guid, insert_link, insert_link_occurrence, insert_post, link_occurrence_exists,
-    update_post, Database, NewLink, NewLinkOccurrence, NewPost,
+    self, create_audit_event, create_forum_account_link, create_pending_archive,
+    display_name_exists, get_archive_by_link_id, get_forum_link_by_forum_username,
+    get_forum_link_by_user_id, get_link_by_normalized_url, get_post_by_guid, get_user_by_username,
+    insert_link, insert_link_occurrence, insert_post, link_occurrence_exists, update_post,
+    update_user_approval, update_user_profile, Database, NewLink, NewLinkOccurrence, NewPost,
 };
 use crate::handlers::normalize_url;
 use crate::rss::link_extractor::{extract_links, ExtractedLink};
+
+/// Regex to match the link_archive_account command at the start of text content.
+static LINK_ACCOUNT_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^\s*link_archive_account:(\S+)").expect("Invalid regex"));
 
 /// Run the RSS polling loop forever.
 pub async fn poll_loop(config: Config, db: Database) {
@@ -214,6 +222,20 @@ async fn fetch_and_process_page(
 
         // Extract and process links
         process_links(db, post_id, &content_html, config).await?;
+
+        // Check for account linking command at start of post
+        if let Some(target_username) = extract_link_account_command(&content_html) {
+            process_account_link_command(
+                db,
+                &target_username,
+                new_post.author.as_deref(),
+                &new_post.guid,
+                &new_post.discourse_url,
+                new_post.title.as_deref(),
+                new_post.published_at.as_deref(),
+            )
+            .await;
+        }
     }
 
     Ok((new_count, min_post_id))
@@ -394,6 +416,213 @@ fn extract_post_id_from_guid(guid: &str) -> Option<i64> {
         .next_back()
 }
 
+/// Strip HTML tags from content to get plain text.
+fn strip_html_tags(html: &str) -> String {
+    // Use scraper to parse and extract text
+    let fragment = scraper::Html::parse_fragment(html);
+    let mut text = String::new();
+    for node in fragment.root_element().descendants() {
+        if let Some(txt) = node.value().as_text() {
+            text.push_str(txt);
+        }
+    }
+    text
+}
+
+/// Extract the link_archive_account command from HTML content.
+///
+/// Returns Some(username) if the content starts with `link_archive_account:<username>`.
+fn extract_link_account_command(html: &str) -> Option<String> {
+    let text = strip_html_tags(html);
+    LINK_ACCOUNT_RE
+        .captures(text.trim())
+        .and_then(|caps| caps.get(1))
+        .map(|m| m.as_str().to_string())
+}
+
+/// Process a link_archive_account command from a forum post.
+///
+/// This links a forum account to an existing archive account, sets the display name,
+/// and auto-approves the user.
+async fn process_account_link_command(
+    db: &Database,
+    target_username: &str,
+    forum_author: Option<&str>,
+    post_guid: &str,
+    post_url: &str,
+    post_title: Option<&str>,
+    published_at: Option<&str>,
+) {
+    let forum_username = match forum_author {
+        Some(name) if !name.is_empty() => name,
+        _ => {
+            warn!(
+                post_guid = %post_guid,
+                target_username = %target_username,
+                "Cannot link account: post has no author"
+            );
+            return;
+        }
+    };
+
+    // Check if this forum account is already linked
+    match get_forum_link_by_forum_username(db.pool(), forum_username).await {
+        Ok(Some(_)) => {
+            debug!(
+                forum_username = %forum_username,
+                "Forum account already linked to an archive account, skipping"
+            );
+            return;
+        }
+        Ok(None) => {}
+        Err(e) => {
+            error!(
+                forum_username = %forum_username,
+                "Failed to check forum link status: {e:#}"
+            );
+            return;
+        }
+    }
+
+    // Find the target archive account by username
+    let target_user = match get_user_by_username(db.pool(), target_username).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            warn!(
+                target_username = %target_username,
+                forum_username = %forum_username,
+                post_guid = %post_guid,
+                "Archive account not found for link command"
+            );
+            return;
+        }
+        Err(e) => {
+            error!(
+                target_username = %target_username,
+                "Failed to look up archive account: {e:#}"
+            );
+            return;
+        }
+    };
+
+    // Check if this archive account is already linked
+    match get_forum_link_by_user_id(db.pool(), target_user.id).await {
+        Ok(Some(_)) => {
+            info!(
+                target_username = %target_username,
+                "Archive account already linked to a forum account, skipping"
+            );
+            return;
+        }
+        Ok(None) => {}
+        Err(e) => {
+            error!(
+                target_username = %target_username,
+                "Failed to check archive account link status: {e:#}"
+            );
+            return;
+        }
+    }
+
+    // Check if the forum username is already taken as a display name by another user
+    match display_name_exists(db.pool(), forum_username, Some(target_user.id)).await {
+        Ok(true) => {
+            warn!(
+                forum_username = %forum_username,
+                target_username = %target_username,
+                "Forum username is already taken as display name, cannot link"
+            );
+            return;
+        }
+        Ok(false) => {}
+        Err(e) => {
+            error!(
+                forum_username = %forum_username,
+                "Failed to check display name availability: {e:#}"
+            );
+            return;
+        }
+    }
+
+    // Create the forum account link
+    if let Err(e) = create_forum_account_link(
+        db.pool(),
+        target_user.id,
+        forum_username,
+        post_guid,
+        post_url,
+        Some(forum_username),
+        post_title,
+        published_at,
+    )
+    .await
+    {
+        error!(
+            target_username = %target_username,
+            forum_username = %forum_username,
+            "Failed to create forum account link: {e:#}"
+        );
+        return;
+    }
+
+    // Update user's display_name to forum username
+    if let Err(e) = update_user_profile(
+        db.pool(),
+        target_user.id,
+        target_user.email.as_deref(),
+        Some(forum_username),
+    )
+    .await
+    {
+        error!(
+            target_username = %target_username,
+            "Failed to update display name: {e:#}"
+        );
+        // Continue anyway - the link is created, just display name failed
+    }
+
+    // Approve the user
+    if let Err(e) = update_user_approval(db.pool(), target_user.id, true).await {
+        error!(
+            target_username = %target_username,
+            "Failed to approve user: {e:#}"
+        );
+        // Continue anyway - user can be manually approved
+    }
+
+    // Create audit event
+    let metadata = serde_json::json!({
+        "forum_username": forum_username,
+        "post_guid": post_guid,
+        "post_url": post_url,
+    });
+    if let Err(e) = create_audit_event(
+        db.pool(),
+        Some(target_user.id),
+        "forum_account_linked",
+        Some("user"),
+        Some(target_user.id),
+        Some(&metadata.to_string()),
+        None, // No IP - triggered by RSS
+        None,
+        None,
+    )
+    .await
+    {
+        error!(
+            target_username = %target_username,
+            "Failed to create audit event: {e:#}"
+        );
+    }
+
+    info!(
+        target_username = %target_username,
+        forum_username = %forum_username,
+        post_guid = %post_guid,
+        "Successfully linked forum account to archive account and approved user"
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -467,5 +696,67 @@ mod tests {
 
         // Empty string
         assert_eq!(extract_post_id_from_guid(""), None);
+    }
+
+    #[test]
+    fn test_extract_link_account_command() {
+        // Simple plain text at start
+        assert_eq!(
+            extract_link_account_command("link_archive_account:TestUser123"),
+            Some("TestUser123".to_string())
+        );
+
+        // With leading whitespace
+        assert_eq!(
+            extract_link_account_command("  link_archive_account:TestUser123"),
+            Some("TestUser123".to_string())
+        );
+
+        // Wrapped in HTML paragraph
+        assert_eq!(
+            extract_link_account_command("<p>link_archive_account:TestUser123</p>"),
+            Some("TestUser123".to_string())
+        );
+
+        // With HTML and whitespace
+        assert_eq!(
+            extract_link_account_command("<p>  link_archive_account:MyUser  </p>"),
+            Some("MyUser".to_string())
+        );
+
+        // Not at start - should return None
+        assert_eq!(
+            extract_link_account_command("Hello link_archive_account:TestUser123"),
+            None
+        );
+
+        // Not at start with HTML
+        assert_eq!(
+            extract_link_account_command("<p>Hello</p><p>link_archive_account:TestUser123</p>"),
+            None
+        );
+
+        // Different text at start
+        assert_eq!(extract_link_account_command("Some other text here"), None);
+
+        // Empty string
+        assert_eq!(extract_link_account_command(""), None);
+
+        // Command with additional text after username
+        assert_eq!(
+            extract_link_account_command("link_archive_account:User123 and more text"),
+            Some("User123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_strip_html_tags() {
+        assert_eq!(strip_html_tags("<p>Hello World</p>"), "Hello World");
+        assert_eq!(strip_html_tags("<div><p>Nested</p></div>"), "Nested");
+        assert_eq!(strip_html_tags("Plain text"), "Plain text");
+        assert_eq!(
+            strip_html_tags("<p>Multiple</p><p>Paragraphs</p>"),
+            "MultipleParagraphs"
+        );
     }
 }

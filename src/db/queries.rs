@@ -3503,3 +3503,77 @@ pub async fn get_user_thread_archive_jobs(
     .await
     .context("Failed to fetch user thread archive jobs")
 }
+
+// ============================================================================
+// Forum Account Link queries
+// ============================================================================
+
+use super::models::ForumAccountLink;
+
+/// Get a forum account link by archive user ID.
+pub async fn get_forum_link_by_user_id(
+    pool: &SqlitePool,
+    user_id: i64,
+) -> Result<Option<ForumAccountLink>> {
+    sqlx::query_as("SELECT * FROM forum_account_links WHERE user_id = ?")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to get forum link by user ID")
+}
+
+/// Get a forum account link by forum username.
+pub async fn get_forum_link_by_forum_username(
+    pool: &SqlitePool,
+    forum_username: &str,
+) -> Result<Option<ForumAccountLink>> {
+    sqlx::query_as("SELECT * FROM forum_account_links WHERE forum_username = ?")
+        .bind(forum_username)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to get forum link by forum username")
+}
+
+/// Create a new forum account link.
+pub async fn create_forum_account_link(
+    pool: &SqlitePool,
+    user_id: i64,
+    forum_username: &str,
+    linked_via_post_guid: &str,
+    linked_via_post_url: &str,
+    forum_author_raw: Option<&str>,
+    post_title: Option<&str>,
+    post_published_at: Option<&str>,
+) -> Result<i64> {
+    let result = sqlx::query(
+        r"
+        INSERT INTO forum_account_links
+            (user_id, forum_username, linked_via_post_guid, linked_via_post_url, forum_author_raw, post_title, post_published_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ",
+    )
+    .bind(user_id)
+    .bind(forum_username)
+    .bind(linked_via_post_guid)
+    .bind(linked_via_post_url)
+    .bind(forum_author_raw)
+    .bind(post_title)
+    .bind(post_published_at)
+    .execute(pool)
+    .await
+    .context("Failed to create forum account link")?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Check if a user has a forum account link.
+pub async fn user_has_forum_link(pool: &SqlitePool, user_id: i64) -> Result<bool> {
+    let result: Option<(i64,)> =
+        sqlx::query_as("SELECT id FROM forum_account_links WHERE user_id = ? LIMIT 1")
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await
+            .context("Failed to check forum link status")?;
+
+    Ok(result.is_some())
+}
