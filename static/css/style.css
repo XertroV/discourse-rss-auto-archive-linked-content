@@ -179,6 +179,7 @@ header {
     position: sticky;
     top: 0;
     z-index: 100;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 header.container {
@@ -754,6 +755,18 @@ article.error,
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: var(--spacing-sm);
+}
+
+/* Single column gallery on mobile */
+@media (max-width: 480px) {
+    .media-gallery {
+        grid-template-columns: 1fr;
+    }
+
+    .media-gallery img {
+        height: auto;
+        max-height: 400px;
+    }
 }
 
 .media-gallery img {
@@ -1456,12 +1469,20 @@ pre {
     background-color: var(--bg-secondary);
 }
 
-/* Responsive: Stack on mobile */
+/* Responsive: Better table handling on mobile */
 @media (max-width: 768px) {
     .archives-table {
         display: block;
         overflow-x: auto;
         white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Add scroll shadow hint */
+    .archives-table thead {
+        position: sticky;
+        left: 0;
+        z-index: 10;
     }
 }
 
@@ -1750,12 +1771,24 @@ pre {
     header nav {
         flex-direction: column;
         gap: var(--spacing-sm);
+        padding: var(--spacing-sm);
     }
 
     header nav ul {
         flex-wrap: wrap;
         justify-content: center;
-        gap: var(--spacing-sm);
+        gap: var(--spacing-xs);
+    }
+
+    /* Larger tap targets on mobile */
+    header nav a,
+    .btn,
+    .filter-btn,
+    .archive-tab {
+        padding: var(--spacing-sm) var(--spacing-md);
+        min-height: 44px; /* iOS recommended tap target */
+        display: inline-flex;
+        align-items: center;
     }
 
     .comparison-header {
@@ -1773,6 +1806,56 @@ pre {
 
     article {
         padding: var(--spacing-md);
+    }
+
+    /* Hide less critical table columns on mobile for better readability */
+    .archives-table td:nth-child(1),
+    .archives-table th:nth-child(1),
+    .archives-table td:nth-child(4),
+    .archives-table th:nth-child(4) {
+        display: none;
+    }
+
+    /* Make title column full width on mobile */
+    .archives-table td:nth-child(3),
+    .archives-table th:nth-child(3) {
+        min-width: auto;
+        max-width: none;
+    }
+
+    /* Better table scrolling indicators */
+    .archives-table,
+    .artifacts-table,
+    .admin-table {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+        border-left: 3px solid var(--primary);
+    }
+
+    /* Reduce container padding on mobile */
+    .container {
+        padding: 0 var(--spacing-sm);
+    }
+
+    /* Stack filters vertically on mobile */
+    .filters-container {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-sm);
+    }
+
+    .filter-buttons {
+        gap: var(--spacing-xs);
+    }
+
+    /* Better pagination on mobile */
+    .pagination {
+        gap: 2px;
+        flex-wrap: wrap;
+    }
+
+    .pagination .btn {
+        min-width: 40px;
+        padding: var(--spacing-xs) var(--spacing-sm);
     }
 }
 
@@ -2786,6 +2869,7 @@ body.nsfw-hidden [data-nsfw="true"] {
     .comments-controls {
         flex-direction: column;
         align-items: stretch;
+        padding: var(--spacing-sm);
     }
 
     .comments-filters {
@@ -2795,5 +2879,15 @@ body.nsfw-hidden [data-nsfw="true"] {
 
     .filter-select {
         width: 100%;
+    }
+
+    /* Smaller font in comments on mobile for better readability */
+    .platform-comment {
+        font-size: var(--font-size-sm);
+        padding: var(--spacing-sm);
+    }
+
+    .comment-text {
+        font-size: var(--font-size-sm);
     }
 }
