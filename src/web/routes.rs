@@ -2054,7 +2054,7 @@ async fn serve_s3_file(State(state): State<AppState>, Path(path): Path<String>) 
     // Check if S3 is public (AWS S3) - if so, redirect to public URL
     if state.s3.is_public() {
         let public_url = state.s3.get_public_url(s3_key);
-        return axum::response::Redirect::permanent(&public_url).into_response();
+        return axum::response::Redirect::temporary(&public_url).into_response();
     }
 
     // For HTML files, prefer view.html over raw.html
