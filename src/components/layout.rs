@@ -181,6 +181,8 @@ impl<'a> BaseLayout<'a> {
             footer class="container" {
                 small {
                     "Discourse Link Archiver | "
+                    a href="https://github.com/XertroV/discourse-rss-auto-archive-linked-content" target="_blank" rel="noopener noreferrer" { "GitHub" }
+                    " | "
                     a href="/feed.rss" { "RSS" }
                     " | "
                     a href="/feed.atom" { "Atom" }
@@ -327,6 +329,7 @@ mod tests {
         // Check footer
         assert!(html.contains("<footer class=\"container\">"));
         assert!(html.contains("Discourse Link Archiver"));
+        assert!(html.contains(r#"<a href="https://github.com/XertroV/discourse-rss-auto-archive-linked-content" target="_blank" rel="noopener noreferrer">GitHub</a>"#));
         assert!(html.contains(r#"<a href="/feed.rss">RSS</a>"#));
         assert!(html.contains(r#"<a href="/feed.atom">Atom</a>"#));
     }
