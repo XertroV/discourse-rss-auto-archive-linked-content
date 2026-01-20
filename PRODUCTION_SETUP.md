@@ -20,6 +20,7 @@ S3_BUCKET=cf-archiver
 S3_REGION=us-east-1
 S3_ENDPOINT=https://78b58ea549bde2caee1829e6c5b4135e.r2.cloudflarestorage.com
 S3_PREFIX=a/
+S3_PUBLIC_URL_BASE=https://pub-xxxxx.r2.dev  # Your R2 public bucket URL (for redirects)
 AWS_ACCESS_KEY_ID=your-access-key-id
 AWS_SECRET_ACCESS_KEY=your-secret-access-key
 

@@ -16,6 +16,7 @@ use multipart::StreamingUploader;
 pub struct S3Client {
     bucket: Box<Bucket>,
     endpoint: Option<String>,
+    public_url_base: Option<String>,
     streaming_uploader: StreamingUploader,
 }
 
@@ -60,6 +61,7 @@ impl S3Client {
         Ok(Self {
             bucket,
             endpoint: config.s3_endpoint.clone(),
+            public_url_base: config.s3_public_url_base.clone(),
             streaming_uploader,
         })
     }
@@ -138,9 +140,22 @@ impl S3Client {
     }
 
     /// Get the public URL for an object.
+    ///
+    /// If a custom `public_url_base` is configured (for R2, custom domains, etc.),
+    /// uses that base URL. Otherwise, defaults to AWS S3 format.
+    ///
+    /// For R2, set `S3_PUBLIC_URL_BASE` to your public bucket URL, e.g.:
+    /// - `https://pub-xxxxx.r2.dev` (R2 public bucket)
+    /// - `https://cdn.example.com` (custom domain)
     #[must_use]
     pub fn get_public_url(&self, s3_key: &str) -> String {
-        format!("https://{}.s3.amazonaws.com/{}", self.bucket.name(), s3_key)
+        if let Some(ref base) = self.public_url_base {
+            // Use custom base URL (for R2, custom domains, etc.)
+            format!("{}/{}", base.trim_end_matches('/'), s3_key)
+        } else {
+            // Default AWS S3 format
+            format!("https://{}.s3.amazonaws.com/{}", self.bucket.name(), s3_key)
+        }
     }
 
     /// List objects with a given prefix.

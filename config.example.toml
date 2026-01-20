@@ -23,6 +23,11 @@ region = "us-east-1"
 # endpoint = "http://localhost:9000"
 # Prefix for S3 keys
 prefix = "archives/"
+# Public URL base for S3 redirects (optional, for R2/custom domains)
+# For Cloudflare R2 public buckets: "https://pub-xxxxx.r2.dev"
+# For custom domains: "https://cdn.example.com"
+# If not set, defaults to AWS S3 format: https://BUCKET.s3.amazonaws.com
+# public_url_base = "https://pub-xxxxx.r2.dev"
 
 [workers]
 # Number of concurrent archive workers

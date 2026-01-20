@@ -48,6 +48,7 @@ pub struct Config {
     pub s3_region: String,
     pub s3_endpoint: Option<String>,
     pub s3_prefix: String,
+    pub s3_public_url_base: Option<String>,
 
     // Archive Workers
     pub worker_concurrency: usize,
@@ -212,6 +213,7 @@ pub struct S3Config {
     pub region: Option<String>,
     pub endpoint: Option<String>,
     pub prefix: Option<String>,
+    pub public_url_base: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -485,6 +487,7 @@ impl Config {
             s3_region: get_string("S3_REGION", fc.s3.region, "us-east-1"),
             s3_endpoint: optional_env("S3_ENDPOINT").or(fc.s3.endpoint),
             s3_prefix: get_string("S3_PREFIX", fc.s3.prefix, "archives/"),
+            s3_public_url_base: optional_env("S3_PUBLIC_URL_BASE").or(fc.s3.public_url_base),
 
             // Archive Workers
             worker_concurrency: parse_env_usize(
@@ -962,6 +965,7 @@ impl Config {
             s3_region: "us-east-1".to_string(),
             s3_endpoint: None,
             s3_prefix: "archives/".to_string(),
+            s3_public_url_base: None,
             worker_concurrency: 4,
             per_domain_concurrency: 1,
             work_dir: PathBuf::from("./tmp"),
