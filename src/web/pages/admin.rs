@@ -215,7 +215,15 @@ fn render_audit_row(event: &AuditEvent, user_lookup: &HashMap<i64, &User>) -> Ma
     html! {
         tr {
             td class="audit-cell" { (event.created_at) }
-            td class="audit-cell" { (user_str) }
+            td class="audit-cell" {
+                @if let Some(user_id) = event.user_id {
+                    a href=(format!("/admin/user/{}", user_id)) {
+                        (user_str)
+                    }
+                } @else {
+                    (user_str)
+                }
+            }
             td class="audit-cell" { (event.event_type) }
             td class="audit-cell" { (target_str) }
             td class="audit-cell" { (event.ip_address.as_deref().unwrap_or("\u{2014}")) }

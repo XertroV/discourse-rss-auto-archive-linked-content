@@ -348,8 +348,12 @@ async fn search(
         {
             Ok(a) => a,
             Err(e) => {
-                tracing::error!("Failed to search archives: {e}");
-                return (StatusCode::INTERNAL_SERVER_ERROR, "Search error").into_response();
+                tracing::error!("Failed to search archives for query '{query}': {e}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Search error - please try a different query",
+                )
+                    .into_response();
             }
         }
     };

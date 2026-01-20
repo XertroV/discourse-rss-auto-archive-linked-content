@@ -1,7 +1,9 @@
+mod fts;
 mod migrations;
 mod models;
 mod queries;
 
+pub use fts::*;
 pub use models::*;
 pub use queries::*;
 

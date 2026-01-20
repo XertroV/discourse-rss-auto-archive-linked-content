@@ -782,6 +782,11 @@ pub async fn search_archives_display(
     query: &str,
     limit: i64,
 ) -> Result<Vec<ArchiveDisplay>> {
+    let sanitized = crate::db::sanitize_fts_query(query);
+    if sanitized.is_empty() {
+        return Ok(Vec::new());
+    }
+
     sqlx::query_as(
         r"
         SELECT
@@ -803,7 +808,7 @@ pub async fn search_archives_display(
         LIMIT ?
         ",
     )
-    .bind(query)
+    .bind(sanitized)
     .bind(limit)
     .fetch_all(pool)
     .await
@@ -889,6 +894,11 @@ pub async fn search_archives_display_filtered(
     content_type: Option<&str>,
     source: Option<&str>,
 ) -> Result<Vec<ArchiveDisplay>> {
+    let sanitized = crate::db::sanitize_fts_query(query);
+    if sanitized.is_empty() {
+        return Ok(Vec::new());
+    }
+
     // Build WHERE clause dynamically based on filters
     let mut where_clauses = vec!["archives_fts MATCH ?"];
 
@@ -932,7 +942,7 @@ pub async fn search_archives_display_filtered(
     let mut sql_query = sqlx::query_as(&sql);
 
     // Bind parameters in order
-    sql_query = sql_query.bind(query);
+    sql_query = sql_query.bind(sanitized);
 
     if let Some(ct) = content_type {
         sql_query = sql_query.bind(ct);
@@ -1072,6 +1082,11 @@ pub async fn get_archives_for_thread_job(
 
 /// Search archives using FTS.
 pub async fn search_archives(pool: &SqlitePool, query: &str, limit: i64) -> Result<Vec<Archive>> {
+    let sanitized = crate::db::sanitize_fts_query(query);
+    if sanitized.is_empty() {
+        return Ok(Vec::new());
+    }
+
     sqlx::query_as(
         r"
         SELECT archives.* FROM archives
@@ -1081,7 +1096,7 @@ pub async fn search_archives(pool: &SqlitePool, query: &str, limit: i64) -> Resu
         LIMIT ?
         ",
     )
-    .bind(query)
+    .bind(sanitized)
     .bind(limit)
     .fetch_all(pool)
     .await
@@ -1106,6 +1121,11 @@ pub async fn search_archives_filtered_full(
     nsfw_filter: Option<bool>,
     content_type: Option<&str>,
 ) -> Result<Vec<Archive>> {
+    let sanitized = crate::db::sanitize_fts_query(query);
+    if sanitized.is_empty() {
+        return Ok(Vec::new());
+    }
+
     // Build WHERE clause dynamically based on filters
     let mut where_clauses = vec!["archives_fts MATCH ?".to_string()];
 
@@ -1128,7 +1148,7 @@ pub async fn search_archives_filtered_full(
     );
 
     let mut q = sqlx::query_as(&sql);
-    q = q.bind(query);
+    q = q.bind(sanitized);
 
     // Bind content_type if present (bind in order of ? placeholders)
     if let Some(ct) = content_type {

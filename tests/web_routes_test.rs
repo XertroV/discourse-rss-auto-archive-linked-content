@@ -808,6 +808,290 @@ async fn test_search_by_author() {
 }
 
 #[tokio::test]
+async fn test_search_with_apostrophe() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Create a link and archive with content containing apostrophes
+    let new_link = NewLink {
+        original_url: "https://example.com/lets-test".to_string(),
+        normalized_url: "https://example.com/lets-test".to_string(),
+        canonical_url: None,
+        domain: "example.com".to_string(),
+    };
+    let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
+        .await
+        .unwrap();
+
+    set_archive_complete(
+        db.pool(),
+        archive_id,
+        Some("Let's learn Rust programming"),
+        Some("CodeTeacher"),
+        Some("Here's what we'll cover: don't worry, it's not hard"),
+        Some("text"),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let app = create_test_app(db);
+
+    // Search for query with apostrophe - should NOT error
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/search?q=let%27s")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Search with apostrophe should return 200 OK, not error"
+    );
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_str = String::from_utf8(body.to_vec()).unwrap();
+    assert!(
+        body_str.contains("1 results") || body_str.contains("Found 1 results"),
+        "Should find 1 result for \"let's\""
+    );
+}
+
+#[tokio::test]
+async fn test_search_with_quotes() {
+    let (db, _temp_dir) = setup_db().await;
+
+    let new_link = NewLink {
+        original_url: "https://example.com/quotes".to_string(),
+        normalized_url: "https://example.com/quotes".to_string(),
+        canonical_url: None,
+        domain: "example.com".to_string(),
+    };
+    let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
+        .await
+        .unwrap();
+
+    set_archive_complete(
+        db.pool(),
+        archive_id,
+        Some("The \"best\" Rust tutorial"),
+        Some("Author"),
+        Some("Content with \"quoted\" text"),
+        Some("text"),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let app = create_test_app(db);
+
+    // Search with double quotes - should NOT error
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/search?q=%22best%22")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Search with quotes should return 200 OK, not error"
+    );
+}
+
+#[tokio::test]
+async fn test_search_with_hyphen() {
+    let (db, _temp_dir) = setup_db().await;
+
+    let new_link = NewLink {
+        original_url: "https://example.com/rust-lang".to_string(),
+        normalized_url: "https://example.com/rust-lang".to_string(),
+        canonical_url: None,
+        domain: "example.com".to_string(),
+    };
+    let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
+        .await
+        .unwrap();
+
+    set_archive_complete(
+        db.pool(),
+        archive_id,
+        Some("Rust-lang programming guide"),
+        Some("DevTeacher"),
+        Some("Learn about rust-lang features"),
+        Some("text"),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let app = create_test_app(db);
+
+    // Search with hyphen (FTS5 NOT operator) - should NOT error
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/search?q=rust-lang")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Search with hyphen should return 200 OK, not error"
+    );
+}
+
+#[tokio::test]
+async fn test_search_with_asterisk() {
+    let (db, _temp_dir) = setup_db().await;
+
+    let new_link = NewLink {
+        original_url: "https://example.com/wildcard".to_string(),
+        normalized_url: "https://example.com/wildcard".to_string(),
+        canonical_url: None,
+        domain: "example.com".to_string(),
+    };
+    let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
+        .await
+        .unwrap();
+
+    set_archive_complete(
+        db.pool(),
+        archive_id,
+        Some("Test * wildcard search"),
+        Some("TestAuthor"),
+        Some("Content for testing"),
+        Some("text"),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let app = create_test_app(db);
+
+    // Search with asterisk (FTS5 wildcard operator) - should NOT error
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/search?q=test*")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Search with asterisk should return 200 OK, not error"
+    );
+}
+
+#[tokio::test]
+async fn test_search_with_parentheses() {
+    let (db, _temp_dir) = setup_db().await;
+
+    let new_link = NewLink {
+        original_url: "https://example.com/parens".to_string(),
+        normalized_url: "https://example.com/parens".to_string(),
+        canonical_url: None,
+        domain: "example.com".to_string(),
+    };
+    let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
+        .await
+        .unwrap();
+
+    set_archive_complete(
+        db.pool(),
+        archive_id,
+        Some("Rust (programming language)"),
+        Some("WikiAuthor"),
+        Some("Description of Rust (systems language)"),
+        Some("text"),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let app = create_test_app(db);
+
+    // Search with parentheses (FTS5 grouping operator) - should NOT error
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/search?q=(Rust)")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Search with parentheses should return 200 OK, not error"
+    );
+}
+
+#[tokio::test]
+async fn test_search_empty_query() {
+    let (db, _temp_dir) = setup_db().await;
+
+    let app = create_test_app(db);
+
+    // Empty search should return gracefully
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/search?q=")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Empty search should return 200 OK"
+    );
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_str = String::from_utf8(body.to_vec()).unwrap();
+    // Should not show results count for empty query
+    assert!(
+        !body_str.contains("Found"),
+        "Empty query should not show result count"
+    );
+}
+
+#[tokio::test]
 async fn test_home_page_with_archives() {
     let (db, _temp_dir) = setup_db().await;
 

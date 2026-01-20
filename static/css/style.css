@@ -2062,6 +2062,15 @@ pre {
     color: white;
 }
 
+/* Admin section headers - spacing between sections */
+.admin-section-header {
+    margin-top: var(--spacing-xl);
+}
+
+.admin-section-header:first-of-type {
+    margin-top: 0;
+}
+
 /* Profile/Admin status boxes */
 .status-box {
     padding: var(--spacing-md);
