@@ -187,8 +187,6 @@ impl S3Client {
     ///
     /// Returns an error if the download fails.
     pub async fn download_file(&self, s3_key: &str) -> Result<(Vec<u8>, String)> {
-        debug!(key = %s3_key, "Downloading file from S3");
-
         let response = self
             .bucket
             .get_object(s3_key)
