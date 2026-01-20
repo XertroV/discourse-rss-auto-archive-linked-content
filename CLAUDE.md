@@ -19,6 +19,10 @@ cargo fmt --check        # Format check
 cargo fmt                # Auto-format code
 ```
 
+## New Session
+
+When a new session is started, start `cargo build` and `cargo test` in background terminals so that everything gets compiled while you work on the users request.
+
 ## Before Committing
 
 Always run `cargo fmt` before committing to ensure code is properly formatted (CI checks formatting):
