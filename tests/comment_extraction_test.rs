@@ -337,10 +337,10 @@ async fn test_comment_json_structure_validation() {
 }
 
 #[tokio::test]
-async fn test_reddit_comment_id_extraction() {
-    // This is a unit test embedded in integration test file
-    // Testing the regex pattern for Reddit comment URLs
-    use discourse_link_archiver::handlers::reddit::RedditHandler;
+async fn test_reddit_comment_url_pattern_detection() {
+    // Testing Reddit URL patterns to distinguish comment permalinks from posts
+    // Comment URLs have format: /r/sub/comments/POST_ID/title/COMMENT_ID/
+    // Post URLs have format: /r/sub/comments/POST_ID/title/
 
     let comment_urls = vec![
         "https://old.reddit.com/r/rust/comments/abc123/post_title/def456/",
@@ -353,19 +353,24 @@ async fn test_reddit_comment_id_extraction() {
         "https://www.reddit.com/r/programming/comments/xyz789/",
     ];
 
-    // Comment URLs should be identified differently from post URLs
-    // (This assumes internal helper exists; if not, this tests URL patterns)
+    // Comment URLs should be identified by having additional path segments after title
+    // The regex pattern in reddit.rs checks for: /comments/POST_ID/title/COMMENT_ID
+    let comment_pattern = regex::Regex::new(r"/comments/[a-zA-Z0-9]+/[^/]+/([a-zA-Z0-9]+)")
+        .expect("Failed to compile regex");
+
     for url in comment_urls {
         assert!(
-            url.matches('/').count() >= 7,
-            "Comment URLs have more path segments"
+            comment_pattern.is_match(url),
+            "Should detect comment URL: {}",
+            url
         );
     }
 
     for url in post_urls {
         assert!(
-            url.matches('/').count() < 7,
-            "Post URLs have fewer path segments"
+            !comment_pattern.is_match(url),
+            "Should not detect post URL as comment: {}",
+            url
         );
     }
 }

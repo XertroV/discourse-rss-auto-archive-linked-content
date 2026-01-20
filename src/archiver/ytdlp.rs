@@ -218,8 +218,10 @@ pub async fn download(
         "--format".to_string(),
         format_string,
         // Enable JavaScript challenge solving for YouTube bot detection
-        "--remote-components".to_string(),
-        "ejs:github".to_string(),
+        // TODO: Re-enable --remote-components ejs:github once compatibility issue is resolved
+        // For now, yt-dlp will use default extractors (may have limited format availability)
+        // "--remote-components".to_string(),
+        // "ejs:github".to_string(),
     ];
 
     // Add comment extraction if enabled
