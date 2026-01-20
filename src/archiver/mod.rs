@@ -13,7 +13,7 @@ pub mod ytdlp;
 pub use monolith::{create_complete_html, MonolithConfig};
 pub use rate_limiter::DomainRateLimiter;
 pub use screenshot::{MhtmlConfig, PdfConfig, ScreenshotConfig, ScreenshotService};
-pub use worker::ArchiveWorker;
+pub use worker::{extract_platform_name, is_comments_supported_platform, ArchiveWorker};
 
 /// Sanitize a filename to be URL-safe and filesystem-safe.
 ///

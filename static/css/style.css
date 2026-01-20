@@ -2487,3 +2487,192 @@ body.nsfw-hidden [data-nsfw="true"] {
         margin-left: var(--spacing-md);
     }
 }
+
+/* Platform-specific accent colors */
+.platform-comment[data-platform="youtube"] {
+    border-left-color: #ff0000; /* YouTube red */
+}
+
+.platform-comment[data-platform="tiktok"] {
+    border-left-color: #000000; /* TikTok black */
+}
+
+.platform-comment[data-platform="twitter"] {
+    border-left-color: #1da1f2; /* Twitter blue */
+}
+
+.platform-comment[data-platform="instagram"] {
+    border-left-color: #e4405f; /* Instagram pink */
+}
+
+/* Platform badges */
+.platform-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: 2px var(--spacing-xs);
+    border-radius: var(--border-radius-sm);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.platform-badge.youtube { background: #ff0000; color: white; }
+.platform-badge.tiktok { background: #000000; color: white; }
+.platform-badge.twitter { background: #1da1f2; color: white; }
+.platform-badge.instagram { background: #e4405f; color: white; }
+
+/* Improved comment card */
+.platform-comment {
+    position: relative;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.platform-comment::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.platform-comment:hover::before {
+    opacity: 1;
+}
+
+/* Comment author with avatar placeholder */
+.comment-author-wrapper {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.comment-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+/* Engagement metrics bar */
+.comment-engagement {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+}
+
+.comment-engagement > * {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+/* Comments controls bar */
+.comments-controls {
+    padding: var(--spacing-md);
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.comments-search {
+    flex: 1;
+    min-width: 200px;
+    position: relative;
+}
+
+.search-input {
+    width: 100%;
+    padding: var(--spacing-sm);
+    padding-right: 30px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.btn-clear {
+    position: absolute;
+    right: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: var(--spacing-xs);
+    font-size: var(--font-size-md);
+}
+
+.btn-clear:hover {
+    color: var(--text-primary);
+}
+
+.comments-filters {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.comments-filters label {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.filter-select {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+}
+
+.filter-select:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+/* Virtual scroll viewport */
+.virtual-scroll-viewport {
+    will-change: transform;
+}
+
+/* Mobile responsive for controls */
+@media (max-width: 768px) {
+    .comments-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .comments-filters {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filter-select {
+        width: 100%;
+    }
+}

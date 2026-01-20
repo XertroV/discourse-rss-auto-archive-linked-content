@@ -31,6 +31,47 @@ use crate::s3::S3Client;
 
 const MAX_RETRIES: i32 = 3;
 
+/// Check if domain is in comments-supported platforms
+pub fn is_comments_supported_platform(domain: &str, config: &Config) -> bool {
+    // Platform domain mapping
+    let platform_domains = [
+        ("youtube", vec!["youtube.com", "youtu.be"]),
+        (
+            "tiktok",
+            vec!["tiktok.com", "vm.tiktok.com", "m.tiktok.com"],
+        ),
+        ("twitter", vec!["x.com", "twitter.com"]),
+        ("instagram", vec!["instagram.com", "instagr.am"]),
+    ];
+
+    // Check if domain matches any supported platform
+    for (platform, domains) in &platform_domains {
+        if config.comments_platforms.contains(&platform.to_string()) {
+            for supported_domain in domains {
+                if domain.contains(supported_domain) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Extract platform name from domain for metadata
+pub fn extract_platform_name(domain: &str) -> &'static str {
+    if domain.contains("youtube.com") || domain.contains("youtu.be") {
+        "youtube"
+    } else if domain.contains("tiktok.com") {
+        "tiktok"
+    } else if domain.contains("x.com") || domain.contains("twitter.com") {
+        "twitter"
+    } else if domain.contains("instagram.com") {
+        "instagram"
+    } else {
+        "unknown"
+    }
+}
+
 /// Archive worker pool.
 pub struct ArchiveWorker {
     config: Config,
@@ -181,8 +222,9 @@ impl ArchiveWorker {
         };
 
         // Download supplementary artifacts (subtitles, transcripts, comments)
-        let should_download_comments =
-            self.config.comments_enabled && link.domain.contains("tiktok.com") && needs_comments;
+        let should_download_comments = self.config.comments_enabled
+            && is_comments_supported_platform(&link.domain, &self.config)
+            && needs_comments;
 
         let result = super::ytdlp::download_supplementary_artifacts(
             &link.normalized_url,
@@ -260,7 +302,7 @@ impl ArchiveWorker {
                             let metadata_json = comment_stats.map(|stats| {
                                 serde_json::json!({
                                     "stats": stats,
-                                    "platform": "tiktok"
+                                    "platform": extract_platform_name(&link.domain)
                                 })
                                 .to_string()
                             });

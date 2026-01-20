@@ -669,8 +669,8 @@ async fn process_supplementary_artifacts_job(state: AppState, archive_id: i64, j
     };
 
     // Download supplementary artifacts (subtitles, transcripts, comments)
-    let should_download_comments =
-        state.config.comments_enabled && link.domain.contains("tiktok.com");
+    let should_download_comments = state.config.comments_enabled
+        && crate::archiver::is_comments_supported_platform(&link.domain, &state.config);
 
     let result = match ytdlp::download_supplementary_artifacts(
         &link.normalized_url,
@@ -834,7 +834,7 @@ async fn process_supplementary_artifacts_job(state: AppState, archive_id: i64, j
                         let metadata_json = comment_stats.map(|stats| {
                             serde_json::json!({
                                 "stats": stats,
-                                "platform": "tiktok"
+                                "platform": crate::archiver::extract_platform_name(&link.domain)
                             })
                             .to_string()
                         });
