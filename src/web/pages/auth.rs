@@ -208,8 +208,8 @@ pub fn render_profile_page(params: ProfilePageParams<'_>) -> Markup {
             // Account status box
             (render_account_status(user, params.has_forum_link))
 
-            // Forum linking instructions (for non-linked, non-admin users)
-            @if !params.has_forum_link && !user.is_admin {
+            // Forum linking instructions (for non-linked users)
+            @if !params.has_forum_link {
                 (render_forum_linking_instructions(&user.username))
             }
 
