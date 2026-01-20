@@ -354,8 +354,8 @@ async fn test_submit_rate_limiting() {
     // Create submissions to hit rate limit (limit is 2)
     for i in 0..2 {
         let submission = NewSubmission {
-            url: format!("https://example.com/page{}", i),
-            normalized_url: format!("https://example.com/page{}", i),
+            url: format!("https://example.com/page{i}"),
+            normalized_url: format!("https://example.com/page{i}"),
             submitted_by_ip: "127.0.0.1".to_string(),
         };
         insert_submission(db.pool(), &submission)
@@ -450,8 +450,8 @@ async fn test_submission_count_tracking() {
     let client_ip = "192.168.1.1";
     for i in 0..5 {
         let submission = NewSubmission {
-            url: format!("https://example.com/page{}", i),
-            normalized_url: format!("https://example.com/page{}", i),
+            url: format!("https://example.com/page{i}"),
+            normalized_url: format!("https://example.com/page{i}"),
             submitted_by_ip: client_ip.to_string(),
         };
         insert_submission(db.pool(), &submission)

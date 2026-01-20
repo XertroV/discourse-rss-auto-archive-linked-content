@@ -250,10 +250,8 @@ async fn process_archive(
             if let Err(e2) = set_archive_failed(db.pool(), archive_id, &error_msg).await {
                 error!(archive_id, domain = %domain, "Failed to store error message: {e2:#}");
             }
-        } else {
-            if let Err(e2) = set_archive_failed(db.pool(), archive_id, &error_msg).await {
-                error!(archive_id, domain = %domain, "Failed to mark archive as failed: {e2:#}");
-            }
+        } else if let Err(e2) = set_archive_failed(db.pool(), archive_id, &error_msg).await {
+            error!(archive_id, domain = %domain, "Failed to mark archive as failed: {e2:#}");
         }
     }
 }
@@ -844,9 +842,7 @@ async fn process_archive_inner(
             let cookies_file = config.cookies_file_path.as_deref();
 
             let monolith_input = Url::from_file_path(&raw_html_path)
-                .ok()
-                .map(|u| u.to_string())
-                .unwrap_or_else(|| raw_html_path.display().to_string());
+                .ok().map_or_else(|| raw_html_path.display().to_string(), |u| u.to_string());
 
             let monolith_job = start_job(db.pool(), archive_id, ArchiveJobType::Monolith).await;
 
@@ -1390,7 +1386,7 @@ async fn skip_job(
             }
         }
         Err(e) => {
-            warn!(archive_id, job_type = ?job_type, error = %e, "Failed to record skipped job")
+            warn!(archive_id, job_type = ?job_type, error = %e, "Failed to record skipped job");
         }
     }
 }

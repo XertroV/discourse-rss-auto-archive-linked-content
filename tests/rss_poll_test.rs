@@ -1,6 +1,5 @@
 //! Integration tests for RSS polling.
 
-use std::path::PathBuf;
 use std::time::Duration;
 
 use discourse_link_archiver::config::Config;

@@ -341,7 +341,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Stream ZIP generation to avoid memory issues (using spawn_blocking)
 - [x] Add database migration v8 for exports table
 - [x] Add export tracking and rate limiting queries
-- [ ] Write unit tests
+- [x] Write unit tests
 
 ---
 

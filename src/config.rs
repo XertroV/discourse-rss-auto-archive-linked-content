@@ -470,8 +470,7 @@ impl Config {
 
             // YouTube-specific limits
             youtube_max_duration_seconds: optional_env("YOUTUBE_MAX_DURATION_SECONDS")
-                .map(|s| s.parse().ok())
-                .flatten()
+                .and_then(|s| s.parse().ok())
                 .or(fc.workers.youtube_max_duration_seconds)
                 .or(Some(3600)), // Default: 60 minutes
             youtube_download_timeout_seconds: parse_env_u64(

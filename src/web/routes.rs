@@ -92,7 +92,7 @@ async fn home(State(state): State<AppState>, Query(params): Query<PaginationPara
 
     // Apply pagination
     let total_items = archives.len();
-    let total_pages = (total_items + ITEMS_PER_PAGE as usize - 1) / ITEMS_PER_PAGE as usize;
+    let total_pages = total_items.div_ceil(ITEMS_PER_PAGE as usize);
     let start = (page * ITEMS_PER_PAGE as usize).min(total_items);
     let end = ((page + 1) * ITEMS_PER_PAGE as usize).min(total_items);
     archives = archives.into_iter().skip(start).take(end - start).collect();
@@ -124,7 +124,7 @@ async fn recent_failed_archives(
 
     // Apply pagination
     let total_items = failed.len();
-    let total_pages = (total_items + ITEMS_PER_PAGE as usize - 1) / ITEMS_PER_PAGE as usize;
+    let total_pages = total_items.div_ceil(ITEMS_PER_PAGE as usize);
     let start = (page * ITEMS_PER_PAGE as usize).min(total_items);
     let end = ((page + 1) * ITEMS_PER_PAGE as usize).min(total_items);
     failed = failed.into_iter().skip(start).take(end - start).collect();
@@ -156,7 +156,7 @@ async fn recent_all_archives(
 
     // Apply pagination
     let total_items = all_recent.len();
-    let total_pages = (total_items + ITEMS_PER_PAGE as usize - 1) / ITEMS_PER_PAGE as usize;
+    let total_pages = total_items.div_ceil(ITEMS_PER_PAGE as usize);
     let start = (page * ITEMS_PER_PAGE as usize).min(total_items);
     let end = ((page + 1) * ITEMS_PER_PAGE as usize).min(total_items);
     let archives = all_recent
@@ -1041,9 +1041,7 @@ async fn serve_s3_file(State(state): State<AppState>, Path(path): Path<String>) 
         &mime_type
     };
 
-    let content_disposition = suggest_content_disposition_filename(&final_key)
-        .map(|name| format!("inline; filename=\"{}\"", name))
-        .unwrap_or_else(|| "inline".to_string());
+    let content_disposition = suggest_content_disposition_filename(&final_key).map_or_else(|| "inline".to_string(), |name| format!("inline; filename=\"{name}\""));
 
     (
         StatusCode::OK,

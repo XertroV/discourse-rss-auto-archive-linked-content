@@ -100,16 +100,12 @@ impl Default for PdfConfig {
 
 /// MHTML archive configuration.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct MhtmlConfig {
     /// Whether MHTML generation is enabled.
     pub enabled: bool,
 }
 
-impl Default for MhtmlConfig {
-    fn default() -> Self {
-        Self { enabled: false }
-    }
-}
 
 /// Screenshot, PDF, and MHTML capture service.
 ///
@@ -128,12 +124,11 @@ impl ScreenshotService {
     /// Create a new screenshot service.
     #[must_use]
     pub fn new(config: ScreenshotConfig) -> Self {
-        let (chromium_profile_dir, _) = config
+        let (chromium_profile_dir, ()) = config
             .cookies_from_browser
             .as_deref()
             .map(chromium_user_data_and_profile_from_spec)
-            .map(|(_ud, prof)| (prof, ()))
-            .unwrap_or((None, ()));
+            .map_or((None, ()), |(_ud, prof)| (prof, ()));
         Self {
             config,
             pdf_config: PdfConfig::default(),
@@ -147,12 +142,11 @@ impl ScreenshotService {
     /// Create a new screenshot service with PDF configuration.
     #[must_use]
     pub fn with_pdf_config(config: ScreenshotConfig, pdf_config: PdfConfig) -> Self {
-        let (chromium_profile_dir, _) = config
+        let (chromium_profile_dir, ()) = config
             .cookies_from_browser
             .as_deref()
             .map(chromium_user_data_and_profile_from_spec)
-            .map(|(_ud, prof)| (prof, ()))
-            .unwrap_or((None, ()));
+            .map_or((None, ()), |(_ud, prof)| (prof, ()));
         Self {
             config,
             pdf_config,
@@ -170,12 +164,11 @@ impl ScreenshotService {
         pdf_config: PdfConfig,
         mhtml_config: MhtmlConfig,
     ) -> Self {
-        let (chromium_profile_dir, _) = config
+        let (chromium_profile_dir, ()) = config
             .cookies_from_browser
             .as_deref()
             .map(chromium_user_data_and_profile_from_spec)
-            .map(|(_ud, prof)| (prof, ()))
-            .unwrap_or((None, ()));
+            .map_or((None, ()), |(_ud, prof)| (prof, ()));
         Self {
             config,
             pdf_config,
@@ -327,7 +320,7 @@ impl ScreenshotService {
                                 }
                             }
                             Err(e) => {
-                                warn!(url = %url, error = %e, "Failed to build SetCookiesParams")
+                                warn!(url = %url, error = %e, "Failed to build SetCookiesParams");
                             }
                         }
                     }
@@ -428,7 +421,7 @@ impl ScreenshotService {
                                 }
                             }
                             Err(e) => {
-                                warn!(url = %url, error = %e, "Failed to build SetCookiesParams for PDF")
+                                warn!(url = %url, error = %e, "Failed to build SetCookiesParams for PDF");
                             }
                         }
                     }
@@ -525,7 +518,7 @@ impl ScreenshotService {
                                 }
                             }
                             Err(e) => {
-                                warn!(url = %url, error = %e, "Failed to build SetCookiesParams for MHTML")
+                                warn!(url = %url, error = %e, "Failed to build SetCookiesParams for MHTML");
                             }
                         }
                     }
