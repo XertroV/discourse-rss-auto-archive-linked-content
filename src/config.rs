@@ -1026,6 +1026,7 @@ impl Config {
                 "reddit".to_string(),
                 "tiktok".to_string(),
                 "twitter".to_string(),
+                "instagram".to_string(),
             ],
             comments_max_depth: 3,
             comments_request_delay_ms: 1000,
