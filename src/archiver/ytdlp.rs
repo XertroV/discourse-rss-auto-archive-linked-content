@@ -200,9 +200,15 @@ pub async fn download(
         "--no-playlist".to_string(),
         "--write-info-json".to_string(),
         "--write-thumbnail".to_string(),
+        // Request both manual and auto-generated subtitles
         "--write-subs".to_string(),
+        "--write-auto-subs".to_string(),
+        // Request subtitles in multiple languages (English + original if different)
         "--sub-langs".to_string(),
-        "en".to_string(),
+        "en.*,en-orig,en".to_string(),
+        // Request subtitles in multiple formats (both VTT and SRT)
+        "--sub-format".to_string(),
+        "vtt,srt".to_string(),
         "--output".to_string(),
         output_template.to_string_lossy().to_string(),
         "--no-progress".to_string(),
@@ -355,6 +361,7 @@ async fn find_and_parse_metadata(work_dir: &Path) -> Result<ArchiveResult> {
     let mut video_file = None;
     let mut thumb_file = None;
     let mut extra_files = Vec::new();
+    let mut subtitle_files = Vec::new();
 
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
@@ -366,7 +373,9 @@ async fn find_and_parse_metadata(work_dir: &Path) -> Result<ArchiveResult> {
             video_file = Some(name.to_string());
         } else if is_thumbnail(&name) {
             thumb_file = Some(name.to_string());
-        } else if name.ends_with(".vtt") || name.ends_with(".srt") {
+        } else if is_subtitle_file(&name) {
+            subtitle_files.push(name.to_string());
+            // Keep subtitles in extra_files for backward compatibility
             extra_files.push(name.to_string());
         }
     }
@@ -509,6 +518,48 @@ fn is_thumbnail(name: &str) -> bool {
     let thumb_exts = [".jpg", ".jpeg", ".png", ".webp"];
     thumb_exts.iter().any(|ext| name.ends_with(ext))
         && (name.contains("thumb") || name.contains("thumbnail"))
+}
+
+fn is_subtitle_file(name: &str) -> bool {
+    name.ends_with(".vtt") || name.ends_with(".srt")
+}
+
+/// Parse subtitle file information from filename.
+///
+/// yt-dlp names subtitle files with patterns like:
+/// - `{title}.{lang}.vtt` (manual subtitles)
+/// - `{title}.{lang}.{format}.vtt` (auto-generated, format like "auto")
+///
+/// Returns (language, is_auto, format).
+pub fn parse_subtitle_info(filename: &str) -> (String, bool, String) {
+    // Remove file extension
+    let stem = filename
+        .strip_suffix(".vtt")
+        .or_else(|| filename.strip_suffix(".srt"))
+        .unwrap_or(filename);
+
+    // Split by dots to get components
+    let parts: Vec<&str> = stem.split('.').collect();
+
+    if parts.len() < 2 {
+        return ("unknown".to_string(), false, "vtt".to_string());
+    }
+
+    let format = if filename.ends_with(".vtt") {
+        "vtt"
+    } else {
+        "srt"
+    };
+
+    // Last part is usually the language code
+    let lang = parts[parts.len() - 1];
+
+    // If there's a middle part, it might indicate auto-generated
+    // yt-dlp typically uses patterns like "en.auto" or "en-US"
+    let is_auto =
+        parts.len() > 2 && (parts[parts.len() - 2].contains("auto") || stem.contains("-auto"));
+
+    (lang.to_string(), is_auto, format.to_string())
 }
 
 /// Check if yt-dlp is available.

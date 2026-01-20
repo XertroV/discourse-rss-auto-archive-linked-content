@@ -1067,8 +1067,20 @@ async fn process_archive_inner(
         }
     }
 
-    // Upload extra files (images, etc.) from handlers
+    // Separate subtitle files from other extra files for special processing
+    let mut subtitle_files = Vec::new();
+    let mut other_extra_files = Vec::new();
+
     for extra_file in &result.extra_files {
+        if extra_file.ends_with(".vtt") || extra_file.ends_with(".srt") {
+            subtitle_files.push(extra_file.clone());
+        } else {
+            other_extra_files.push(extra_file.clone());
+        }
+    }
+
+    // Upload non-subtitle extra files (images, etc.) from handlers
+    for extra_file in &other_extra_files {
         let local_path = work_dir.join(extra_file);
         if local_path.exists() {
             let key = format!("{s3_prefix}media/{extra_file}");
@@ -1090,11 +1102,6 @@ async fn process_archive_inner(
                 ArtifactKind::Image
             } else if content_type.starts_with("video/") {
                 ArtifactKind::Video
-            } else if content_type.contains("subtitle")
-                || extra_file.ends_with(".vtt")
-                || extra_file.ends_with(".srt")
-            {
-                ArtifactKind::Subtitles
             } else {
                 ArtifactKind::Metadata
             };
@@ -1116,6 +1123,11 @@ async fn process_archive_inner(
         } else {
             warn!(archive_id, file = %extra_file, "Extra file not found in work directory");
         }
+    }
+
+    // Process subtitle files with metadata tracking
+    if !subtitle_files.is_empty() {
+        process_subtitle_files(db, s3, archive_id, &subtitle_files, &work_dir, &s3_prefix).await;
     }
 
     // Capture screenshot if enabled (non-fatal if it fails)
@@ -1477,6 +1489,157 @@ async fn compute_perceptual_hash(path: &Path) -> Result<String> {
 /// Check if a file is a duplicate of an existing artifact.
 ///
 /// Returns the original artifact if a duplicate is found, or None if unique.
+/// Process subtitle files: upload them with metadata and generate a transcript.
+async fn process_subtitle_files(
+    db: &Database,
+    s3: &S3Client,
+    archive_id: i64,
+    subtitle_files: &[String],
+    work_dir: &Path,
+    s3_prefix: &str,
+) {
+    use super::transcript::build_transcript_from_file;
+    use super::ytdlp::parse_subtitle_info;
+
+    // Categorize subtitles by language and type
+    let mut best_subtitle_for_transcript: Option<(PathBuf, bool)> = None;
+
+    // Upload each subtitle file with metadata
+    for subtitle_file in subtitle_files {
+        let local_path = work_dir.join(subtitle_file);
+        if !local_path.exists() {
+            warn!(archive_id, file = %subtitle_file, "Subtitle file not found");
+            continue;
+        }
+
+        let (language, is_auto, format) = parse_subtitle_info(subtitle_file);
+        let key = format!("{s3_prefix}subtitles/{subtitle_file}");
+        let metadata_result = tokio::fs::metadata(&local_path).await.ok();
+        let size_bytes = metadata_result.map(|m| m.len() as i64);
+
+        let content_type = if format == "vtt" {
+            "text/vtt"
+        } else {
+            "application/x-subrip"
+        };
+
+        // Upload subtitle file
+        if let Err(e) = s3.upload_file(&local_path, &key, Some(archive_id)).await {
+            warn!(archive_id, file = %subtitle_file, error = %e, "Failed to upload subtitle file");
+            continue;
+        }
+
+        debug!(
+            archive_id,
+            file = %subtitle_file,
+            language = %language,
+            is_auto = is_auto,
+            "Uploaded subtitle file"
+        );
+
+        // Store metadata about the subtitle in JSON format
+        let subtitle_metadata = serde_json::json!({
+            "language": language,
+            "is_auto": is_auto,
+            "format": format,
+        });
+
+        // Insert subtitle artifact with metadata
+        if let Err(e) = crate::db::insert_artifact_with_metadata(
+            db.pool(),
+            archive_id,
+            ArtifactKind::Subtitles.as_str(),
+            &key,
+            Some(content_type),
+            size_bytes,
+            None, // sha256
+            Some(&subtitle_metadata.to_string()),
+        )
+        .await
+        {
+            warn!(archive_id, file = %subtitle_file, error = %e, "Failed to insert subtitle artifact");
+        }
+
+        // Select best subtitle for transcript generation
+        // Prefer: English manual > English auto > any manual > any auto
+        if language.starts_with("en") {
+            match &best_subtitle_for_transcript {
+                None => {
+                    best_subtitle_for_transcript = Some((local_path.clone(), is_auto));
+                }
+                Some((_, best_is_auto)) => {
+                    // Replace if current is better (manual preferred over auto)
+                    if !is_auto && *best_is_auto {
+                        best_subtitle_for_transcript = Some((local_path.clone(), is_auto));
+                    }
+                }
+            }
+        } else if best_subtitle_for_transcript.is_none() {
+            // If no English subtitle yet, use this one
+            best_subtitle_for_transcript = Some((local_path.clone(), is_auto));
+        }
+    }
+
+    // Generate transcript from the best subtitle file
+    if let Some((best_subtitle_path, is_auto)) = best_subtitle_for_transcript {
+        match build_transcript_from_file(&best_subtitle_path).await {
+            Ok(transcript) if !transcript.is_empty() => {
+                let transcript_key = format!("{s3_prefix}subtitles/transcript.txt");
+                let size_bytes = transcript.len() as i64;
+
+                // Upload transcript
+                match s3
+                    .upload_bytes(transcript.as_bytes(), &transcript_key, "text/plain")
+                    .await
+                {
+                    Ok(()) => {
+                        debug!(
+                            archive_id,
+                            key = %transcript_key,
+                            is_auto,
+                            size = size_bytes,
+                            "Generated and uploaded transcript"
+                        );
+
+                        // Store metadata about transcript source
+                        let transcript_metadata = serde_json::json!({
+                            "source": if is_auto { "auto_subtitles" } else { "manual_subtitles" },
+                            "source_file": best_subtitle_path.file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("unknown"),
+                        });
+
+                        // Insert transcript artifact
+                        if let Err(e) = crate::db::insert_artifact_with_metadata(
+                            db.pool(),
+                            archive_id,
+                            "transcript", // Custom artifact type for transcripts
+                            &transcript_key,
+                            Some("text/plain"),
+                            Some(size_bytes),
+                            None,
+                            Some(&transcript_metadata.to_string()),
+                        )
+                        .await
+                        {
+                            warn!(archive_id, error = %e, "Failed to insert transcript artifact");
+                        }
+                    }
+                    Err(e) => {
+                        warn!(archive_id, error = %e, "Failed to upload transcript");
+                    }
+                }
+            }
+            Ok(_) => {
+                debug!(archive_id, "Transcript was empty, skipping upload");
+            }
+            Err(e) => {
+                warn!(archive_id, error = %e, "Failed to generate transcript");
+            }
+        }
+    }
+}
+
 async fn check_for_duplicate(
     db: &Database,
     path: &Path,

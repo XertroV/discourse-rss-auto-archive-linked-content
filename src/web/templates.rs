@@ -931,6 +931,70 @@ pub fn render_archive_detail(
         ));
     }
 
+    // Display transcript if available (for videos with subtitles)
+    if let Some(transcript_artifact) = artifacts.iter().find(|a| a.kind == "transcript") {
+        // Fetch the transcript content from S3 (assuming it's available via /s3/ route)
+        let transcript_size = transcript_artifact.size_bytes.map_or_else(
+            || "Unknown".to_string(),
+            |size| {
+                if size >= 1024 {
+                    format!("{:.1} KB", size as f64 / 1024.0)
+                } else {
+                    format!("{size} bytes")
+                }
+            },
+        );
+
+        // Get subtitle artifacts for download links
+        let subtitle_artifacts: Vec<&ArchiveArtifact> =
+            artifacts.iter().filter(|a| a.kind == "subtitles").collect();
+
+        let mut subtitle_links = String::new();
+        if !subtitle_artifacts.is_empty() {
+            subtitle_links.push_str("<p><strong>Available subtitle files:</strong> ");
+            for (i, sub) in subtitle_artifacts.iter().enumerate() {
+                if i > 0 {
+                    subtitle_links.push_str(" • ");
+                }
+                let filename = sub.s3_key.rsplit('/').next().unwrap_or(&sub.s3_key);
+                let download_name =
+                    suggested_download_filename(&link.domain, archive.id, &sub.s3_key);
+
+                // Parse metadata to show language and type
+                let lang_info = if let Some(ref metadata) = sub.metadata {
+                    if let Ok(meta_json) = serde_json::from_str::<serde_json::Value>(metadata) {
+                        let lang = meta_json["language"].as_str().unwrap_or("unknown");
+                        let is_auto = meta_json["is_auto"].as_bool().unwrap_or(false);
+                        let format = meta_json["format"].as_str().unwrap_or("vtt");
+                        let auto_label = if is_auto { " (auto)" } else { "" };
+                        format!("{}{} ({})", lang, auto_label, format)
+                    } else {
+                        filename.to_string()
+                    }
+                } else {
+                    filename.to_string()
+                };
+
+                subtitle_links.push_str(&format!(
+                    r#"<a href="/s3/{}" download="{}" title="Download subtitle file">{}</a>"#,
+                    html_escape(&sub.s3_key),
+                    html_escape(&download_name),
+                    html_escape(&lang_info)
+                ));
+            }
+            subtitle_links.push_str("</p>");
+        }
+
+        // Render interactive transcript section
+        content.push_str(&render_interactive_transcript(
+            &transcript_artifact.s3_key,
+            &transcript_size,
+            &subtitle_links,
+            &link.domain,
+            archive.id,
+        ));
+    }
+
     let thumb_key = archive.s3_key_thumb.as_deref().or_else(|| {
         artifacts
             .iter()
@@ -1471,6 +1535,7 @@ fn artifact_kind_display(kind: &str) -> &'static str {
         "metadata" => "Metadata",
         "image" => "Image",
         "subtitles" => "Subtitles",
+        "transcript" => "Transcript",
         _ => "File",
     }
 }
@@ -1513,6 +1578,9 @@ fn is_viewable_in_browser(filename: &str) -> bool {
         || filename_lower.ends_with(".txt")
         || filename_lower.ends_with(".json")
         || filename_lower.ends_with(".xml")
+        // Subtitle files
+        || filename_lower.ends_with(".vtt")
+        || filename_lower.ends_with(".srt")
 }
 
 fn suggested_download_filename(domain: &str, archive_id: i64, s3_key: &str) -> String {
@@ -1537,6 +1605,81 @@ fn sanitize_filename_component(s: &str) -> String {
             }
         })
         .collect::<String>()
+}
+
+/// Render an interactive transcript section with search and clickable timestamps.
+fn render_interactive_transcript(
+    transcript_key: &str,
+    size_display: &str,
+    subtitle_links: &str,
+    domain: &str,
+    archive_id: i64,
+) -> String {
+    let download_name = suggested_download_filename(domain, archive_id, transcript_key);
+
+    format!(
+        r#"<section class="transcript-section">
+            <h2>Video Transcript</h2>
+            <div style="margin-bottom: 1rem;">
+                <input type="text"
+                       id="transcript-search"
+                       placeholder="Search transcript..."
+                       style="width: 100%; max-width: 400px; padding: 0.5rem; border: 1px solid #e5e7eb; border-radius: 0.375rem;">
+                <span id="match-counter" style="margin-left: 0.5rem; font-size: 0.875rem; color: #6b7280;"></span>
+            </div>
+            <details open>
+                <summary style="cursor: pointer; font-weight: 500; margin-bottom: 0.5rem;">
+                    Transcript ({})
+                </summary>
+                <div id="transcript-content"
+                     data-transcript-url="/s3/{}"
+                     style="max-height: 400px; overflow-y: auto; padding: 1rem; background: #f9fafb; border-radius: 0.375rem; font-family: monospace; white-space: pre-wrap; line-height: 1.6;">
+                    Loading transcript...
+                </div>
+                <p style="margin-top: 0.5rem;">
+                    <a href="/s3/{}" download="{}" class="btn-secondary">Download Transcript</a>
+                </p>
+                {}
+            </details>
+            <script src="/static/js/transcript.js"></script>
+            <script>
+                // Load transcript content when page loads
+                fetch('/s3/{}')
+                    .then(response => response.text())
+                    .then(text => {{
+                        const container = document.getElementById('transcript-content');
+                        container.textContent = text;
+                        container.setAttribute('data-original-text', text);
+                        makeTimestampsClickable(container);
+                    }})
+                    .catch(err => {{
+                        document.getElementById('transcript-content').textContent = 'Failed to load transcript: ' + err.message;
+                    }});
+            </script>
+            <style>
+                .timestamp-link {{
+                    color: #3b82f6;
+                    text-decoration: none;
+                    font-weight: 500;
+                    cursor: pointer;
+                }}
+                .timestamp-link:hover {{
+                    text-decoration: underline;
+                }}
+                .highlight {{
+                    background-color: #fef08a;
+                    padding: 0.125rem 0.25rem;
+                    border-radius: 0.25rem;
+                }}
+            </style>
+        </section>"#,
+        html_escape(size_display),
+        html_escape(transcript_key),
+        html_escape(transcript_key),
+        html_escape(&download_name),
+        subtitle_links,
+        html_escape(transcript_key)
+    )
 }
 
 /// Render site list page.
