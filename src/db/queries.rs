@@ -1438,23 +1438,38 @@ pub async fn has_artifact_kind(pool: &SqlitePool, archive_id: i64, kind: &str) -
 pub async fn has_missing_artifacts(pool: &SqlitePool, archive_id: i64) -> Result<bool> {
     use crate::db::models::ArtifactKind;
 
-    // Get the archive to check its content type
+    // Get the archive to check its content type and URL
     let archive = get_archive(pool, archive_id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Archive {} not found", archive_id))?;
 
-    // Only check video content for now (YouTube videos)
+    // Get the link to check the URL for platform detection
+    let link = get_link(pool, archive.link_id).await?;
+    let url = link
+        .as_ref()
+        .and_then(|l| l.final_url.as_deref().or(Some(&l.normalized_url)))
+        .unwrap_or("");
+
+    // Only check video content for now (YouTube, TikTok videos)
     if archive.content_type.as_deref() != Some("video") {
         return Ok(false);
     }
 
-    // Video content should have subtitles and transcript
+    // Video content should have subtitles, transcript, and comments (platform-dependent)
     let has_subtitles =
         has_artifact_kind(pool, archive_id, ArtifactKind::Subtitles.as_str()).await?;
     let has_transcript =
         has_artifact_kind(pool, archive_id, ArtifactKind::Transcript.as_str()).await?;
+    let has_comments = has_artifact_kind(pool, archive_id, ArtifactKind::Comments.as_str()).await?;
 
-    Ok(!has_subtitles || !has_transcript)
+    // Check if comments are missing on supported platforms (YouTube, TikTok)
+    let is_comments_platform =
+        url.contains("youtube.com") || url.contains("youtu.be") || url.contains("tiktok.com");
+
+    // Missing if any of these are missing:
+    // - Subtitles or transcript (for all videos)
+    // - Comments (for YouTube/TikTok videos)
+    Ok(!has_subtitles || !has_transcript || (is_comments_platform && !has_comments))
 }
 
 /// Find an artifact by its S3 key.
