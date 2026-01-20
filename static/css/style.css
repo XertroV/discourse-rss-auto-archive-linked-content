@@ -1359,6 +1359,91 @@ pre {
     font-size: var(--font-size-sm);
 }
 
+/* All Archives Table */
+.archives-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: var(--spacing-lg);
+    font-size: var(--font-size-sm);
+}
+
+.archives-table thead {
+    background-color: var(--bg-tertiary);
+    border-bottom: 2px solid var(--border-dark);
+}
+
+.archives-table th {
+    padding: var(--spacing-sm) var(--spacing-md);
+    text-align: left;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+}
+
+.archives-table tbody tr {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.archives-table tbody tr:hover {
+    background-color: var(--bg-secondary);
+}
+
+.archives-table td {
+    padding: var(--spacing-sm) var(--spacing-md);
+    vertical-align: middle;
+}
+
+/* Column-specific styles */
+.archives-table td:nth-child(1) {
+    /* ID column */
+    width: 80px;
+    font-family: 'Courier New', monospace;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+}
+
+.archives-table td:nth-child(2) {
+    /* Type column */
+    width: 100px;
+}
+
+.archives-table td:nth-child(3) {
+    /* Title column */
+    min-width: 200px;
+    max-width: 400px;
+}
+
+.archives-table td:nth-child(4) {
+    /* URL column */
+    font-family: 'Courier New', monospace;
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    max-width: 400px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Dark mode adjustments */
+[data-theme="dark"] .archives-table thead {
+    background-color: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .archives-table tbody tr:hover {
+    background-color: var(--bg-secondary);
+}
+
+/* Responsive: Stack on mobile */
+@media (max-width: 768px) {
+    .archives-table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+    }
+}
+
 /* Embedded preview */
 .embedded-preview {
     margin: var(--spacing-lg) 0;

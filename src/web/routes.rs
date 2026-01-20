@@ -16,15 +16,15 @@ use super::pages;
 use super::AppState;
 use crate::auth::{MaybeUser, RequireAdmin, RequireApproved, RequireUser};
 use crate::db::{
-    add_comment_reaction, can_user_edit_comment, count_all_threads, count_archives_by_status,
-    count_links, count_posts, count_submissions_from_ip_last_hour,
+    add_comment_reaction, can_user_edit_comment, count_all_archives_filtered, count_all_threads,
+    count_archives_by_status, count_links, count_posts, count_submissions_from_ip_last_hour,
     count_user_thread_archive_jobs_last_hour, create_comment, create_comment_reply,
-    create_pending_archive, delete_archive, find_artifact_by_s3_key, get_all_threads, get_archive,
-    get_archive_by_link_id, get_archives_by_domain_display, get_archives_for_post_display,
-    get_archives_for_posts_display, get_archives_for_thread_job, get_artifacts_for_archive,
-    get_comment_edit_history, get_comment_with_author, get_jobs_for_archive, get_link,
-    get_link_by_normalized_url, get_link_occurrences_with_posts, get_post_by_guid,
-    get_posts_by_thread_key, get_queue_stats, get_quote_reply_chain,
+    create_pending_archive, delete_archive, find_artifact_by_s3_key, get_all_archives_table_view,
+    get_all_threads, get_archive, get_archive_by_link_id, get_archives_by_domain_display,
+    get_archives_for_post_display, get_archives_for_posts_display, get_archives_for_thread_job,
+    get_artifacts_for_archive, get_comment_edit_history, get_comment_with_author,
+    get_jobs_for_archive, get_link, get_link_by_normalized_url, get_link_occurrences_with_posts,
+    get_post_by_guid, get_posts_by_thread_key, get_queue_stats, get_quote_reply_chain,
     get_recent_archives_display_filtered, get_recent_archives_filtered_full,
     get_recent_archives_with_filters, get_recent_failed_archives, get_thread_archive_job,
     get_video_file, has_missing_artifacts, insert_link, insert_submission,
@@ -49,6 +49,7 @@ struct PaginationParams {
 }
 
 const ITEMS_PER_PAGE: i64 = 50;
+const TABLE_ITEMS_PER_PAGE: i64 = 1000;
 
 /// Create the router with all routes.
 pub fn router() -> Router<AppState> {
@@ -257,9 +258,30 @@ async fn recent_all_archives(
 ) -> Response {
     let page = params.page;
 
-    let all_recent = match get_recent_archives_display_filtered(
+    // Count total archives with filters
+    let total_count = match count_all_archives_filtered(
         state.db.pool(),
-        100,
+        params.content_type.as_deref(),
+        params.source.as_deref(),
+    )
+    .await
+    {
+        Ok(count) => count,
+        Err(e) => {
+            tracing::error!("Failed to count archives: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    // Calculate pagination
+    let total_pages = ((total_count as f64 / TABLE_ITEMS_PER_PAGE as f64).ceil() as usize).max(1);
+    let offset = (page as i64) * TABLE_ITEMS_PER_PAGE;
+
+    // Fetch page of archives
+    let archives = match get_all_archives_table_view(
+        state.db.pool(),
+        TABLE_ITEMS_PER_PAGE,
+        offset,
         params.content_type.as_deref(),
         params.source.as_deref(),
     )
@@ -267,33 +289,21 @@ async fn recent_all_archives(
     {
         Ok(a) => a,
         Err(e) => {
-            tracing::error!("Failed to fetch recent archives: {e}");
+            tracing::error!("Failed to fetch archives: {e}");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
         }
     };
 
-    let recent_failed_count = all_recent.iter().filter(|a| a.status == "failed").count();
-
-    // Apply pagination
-    let total_items = all_recent.len();
-    let total_pages = total_items.div_ceil(ITEMS_PER_PAGE as usize);
-    let start = (page * ITEMS_PER_PAGE as usize).min(total_items);
-    let end = ((page + 1) * ITEMS_PER_PAGE as usize).min(total_items);
-    let archives = all_recent
-        .into_iter()
-        .skip(start)
-        .take(end - start)
-        .collect::<Vec<_>>();
-
-    let markup = pages::render_recent_all_archives_paginated(
-        &archives,
-        recent_failed_count,
+    let params_struct = pages::AllArchivesPageParams {
+        archives: &archives,
         page,
         total_pages,
-        params.content_type.as_deref(),
-        params.source.as_deref(),
-        user.as_ref(),
-    );
+        content_type_filter: params.content_type.as_deref(),
+        source_filter: params.source.as_deref(),
+        user: user.as_ref(),
+    };
+
+    let markup = pages::render_all_archives_table_page(&params_struct);
     Html(markup.into_string()).into_response()
 }
 

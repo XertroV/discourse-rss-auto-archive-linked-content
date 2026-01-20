@@ -114,6 +114,7 @@ impl<'a> BaseLayout<'a> {
                     }
                     ul {
                         li { a href="/" { "Home" } }
+                        li { a href="/archives/all" { "All Archives" } }
                         li { a href="/threads" { "Threads" } }
                         li { a href="/search" { "Search" } }
                         li { a href="/submit" { "Submit" } }

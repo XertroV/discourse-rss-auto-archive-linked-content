@@ -4,6 +4,7 @@
 //! Each page module exports a render function that produces the complete HTML.
 
 pub mod admin;
+pub mod all_archives;
 pub mod archive;
 pub mod auth;
 pub mod banner;
@@ -23,6 +24,7 @@ pub use admin::{
     render_admin_excluded_domains_page, render_admin_forum_user_profile, render_admin_panel,
     render_admin_password_reset_result, render_admin_user_profile,
 };
+pub use all_archives::{render_all_archives_table_page, AllArchivesPageParams};
 pub use archive::{render_archive_detail_page, ArchiveDetailParams};
 pub use auth::{
     login_page, profile_page, profile_page_with_link_status, profile_page_with_message,
