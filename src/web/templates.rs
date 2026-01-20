@@ -338,12 +338,8 @@ fn render_pagination(current_page: usize, total_pages: usize, base_url: &str) ->
     let end = (current_page + 3).min(total_pages);
 
     if start > 0 {
-        let url = if 0 == 0 {
-            base_url
-        } else {
-            &format!("{base_url}?page=0")
-        };
-        html.push_str(&format!(r#"<a href="{url}">1</a>"#));
+        // Page 0 uses base_url without query param
+        html.push_str(&format!(r#"<a href="{base_url}">1</a>"#));
         if start > 1 {
             html.push_str("<span>...</span>");
         }
