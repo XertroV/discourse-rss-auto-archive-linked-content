@@ -62,7 +62,8 @@ impl SiteHandler for TikTokHandler {
             url.to_string()
         };
 
-        let mut result = ytdlp::download(&resolved_url, work_dir, cookies, config).await?;
+        let mut result =
+            ytdlp::download(&resolved_url, work_dir, cookies, config, None, None).await?;
 
         // Extract video_id for deduplication
         if let Some(video_id) = extract_video_id(&resolved_url) {

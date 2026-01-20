@@ -140,6 +140,7 @@ pub fn router() -> Router<AppState> {
         .route("/feed.atom", get(feed_atom))
         .route("/export/:site", get(export::export_site))
         .route("/api/archives", get(api_archives))
+        .route("/api/archive/:id/progress", get(api_archive_progress))
         .route("/api/search", get(api_search))
         .route("/s3/*path", get(serve_s3_file))
         // Debug routes
@@ -1731,6 +1732,44 @@ async fn api_archives(
         per_page,
     })
     .into_response()
+}
+
+/// API endpoint to get download progress for an archive.
+///
+/// Returns JSON with progress percentage and details.
+#[derive(Debug, Serialize)]
+struct ProgressResponse {
+    progress_percent: Option<f64>,
+    progress_details: Option<serde_json::Value>,
+    status: String,
+}
+
+async fn api_archive_progress(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
+    // Fetch archive progress from database
+    let result = sqlx::query_as::<_, (String, Option<f64>, Option<String>)>(
+        "SELECT status, progress_percent, progress_details FROM archives WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(state.db.pool())
+    .await;
+
+    match result {
+        Ok(Some((status, progress_percent, progress_details))) => {
+            let details_json = progress_details.and_then(|s| serde_json::from_str(&s).ok());
+
+            Json(ProgressResponse {
+                progress_percent,
+                progress_details: details_json,
+                status,
+            })
+            .into_response()
+        }
+        Ok(None) => (StatusCode::NOT_FOUND, "Archive not found").into_response(),
+        Err(e) => {
+            tracing::error!("Failed to fetch archive progress: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response()
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

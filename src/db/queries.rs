@@ -2051,6 +2051,54 @@ pub async fn set_archive_http_status_code(
     Ok(())
 }
 
+/// Update download progress for an archive.
+///
+/// This is called periodically during yt-dlp downloads to track progress.
+/// The progress_details should be a JSON string with speed, ETA, etc.
+pub async fn update_archive_progress(
+    pool: &SqlitePool,
+    id: i64,
+    progress_percent: f64,
+    progress_details: &str,
+) -> Result<()> {
+    sqlx::query(
+        r"
+        UPDATE archives
+        SET progress_percent = ?,
+            progress_details = ?,
+            last_progress_update = datetime('now')
+        WHERE id = ?
+        ",
+    )
+    .bind(progress_percent)
+    .bind(progress_details)
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Failed to update archive progress")?;
+
+    Ok(())
+}
+
+/// Clear progress tracking when download completes or fails.
+pub async fn clear_archive_progress(pool: &SqlitePool, id: i64) -> Result<()> {
+    sqlx::query(
+        r"
+        UPDATE archives
+        SET progress_percent = NULL,
+            progress_details = NULL,
+            last_progress_update = NULL
+        WHERE id = ?
+        ",
+    )
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Failed to clear archive progress")?;
+
+    Ok(())
+}
+
 /// Set the quoted tweet archive link for a Twitter/X archive.
 pub async fn set_archive_quoted_link(
     pool: &SqlitePool,
@@ -2171,7 +2219,14 @@ pub async fn set_job_completed(
     metadata: Option<&str>,
 ) -> Result<()> {
     sqlx::query(
-        "UPDATE archive_jobs SET status = 'completed', completed_at = datetime('now'), metadata = ? WHERE id = ?",
+        r"
+        UPDATE archive_jobs
+        SET status = 'completed',
+            completed_at = datetime('now'),
+            metadata = ?,
+            duration_seconds = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER)
+        WHERE id = ?
+        ",
     )
     .bind(metadata)
     .bind(job_id)

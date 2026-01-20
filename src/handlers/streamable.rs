@@ -48,7 +48,7 @@ impl SiteHandler for StreamableHandler {
         cookies: &CookieOptions<'_>,
         config: &crate::config::Config,
     ) -> Result<ArchiveResult> {
-        let mut result = ytdlp::download(url, work_dir, cookies, config).await?;
+        let mut result = ytdlp::download(url, work_dir, cookies, config, None, None).await?;
 
         // Extract video_id for deduplication
         if let Some(video_id) = extract_video_id(url) {

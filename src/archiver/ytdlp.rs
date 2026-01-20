@@ -5,6 +5,8 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use chrono;
 use serde::Deserialize;
+use sqlx::SqlitePool;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tracing::{debug, info, warn};
 
@@ -25,6 +27,91 @@ struct VideoMetadata {
     width: Option<u32>,
     #[serde(default)]
     height: Option<u32>,
+}
+
+/// Download progress information parsed from yt-dlp output.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DownloadProgress {
+    /// Progress percentage (0.0-100.0)
+    pub percent: f64,
+    /// Download speed (e.g., "2.34MiB/s")
+    pub speed: Option<String>,
+    /// Estimated time remaining (e.g., "00:15")
+    pub eta: Option<String>,
+    /// Downloaded size (e.g., "45.5MiB")
+    pub downloaded: Option<String>,
+    /// Total size (e.g., "~100MiB")
+    pub total_size: Option<String>,
+}
+
+/// Parse download progress from yt-dlp output line.
+///
+/// Example yt-dlp progress lines:
+/// - `[download]   15.2% of ~45.50MiB at 2.34MiB/s ETA 00:15`
+/// - `[download] 100% of 45.50MiB in 00:20`
+/// - `[download] Destination: filename.mp4`
+///
+/// Returns `Some(DownloadProgress)` if the line contains parseable progress info.
+fn parse_ytdlp_progress(line: &str) -> Option<DownloadProgress> {
+    // Only process [download] lines
+    if !line.contains("[download]") {
+        return None;
+    }
+
+    // Skip non-progress lines (destination, resuming, etc.)
+    if line.contains("Destination:")
+        || line.contains("Resuming")
+        || line.contains("has already been downloaded")
+    {
+        return None;
+    }
+
+    // Try to extract percentage
+    let percent = if let Some(pct_pos) = line.find('%') {
+        // Look backwards from % to find the number
+        let before_pct = &line[..pct_pos];
+        let parts: Vec<&str> = before_pct.split_whitespace().collect();
+        if let Some(last_part) = parts.last() {
+            last_part.parse::<f64>().ok()?
+        } else {
+            return None;
+        }
+    } else {
+        return None;
+    };
+
+    // Extract speed (e.g., "at 2.34MiB/s")
+    let speed = if let Some(at_pos) = line.find(" at ") {
+        let after_at = &line[at_pos + 4..];
+        after_at.split_whitespace().next().map(|s| s.to_string())
+    } else {
+        None
+    };
+
+    // Extract ETA (e.g., "ETA 00:15")
+    let eta = if let Some(eta_pos) = line.find("ETA ") {
+        let after_eta = &line[eta_pos + 4..];
+        after_eta.split_whitespace().next().map(|s| s.to_string())
+    } else {
+        None
+    };
+
+    // Extract size info (e.g., "of ~45.50MiB" or "of 45.50MiB")
+    let (downloaded, total_size) = if let Some(of_pos) = line.find(" of ") {
+        let after_of = &line[of_pos + 4..];
+        let size_part = after_of.split_whitespace().next().map(|s| s.to_string());
+        (None, size_part)
+    } else {
+        (None, None)
+    };
+
+    Some(DownloadProgress {
+        percent,
+        speed,
+        eta,
+        downloaded,
+        total_size,
+    })
 }
 
 /// Determine the appropriate quality/format string based on video characteristics.
@@ -157,6 +244,8 @@ async fn get_video_metadata(url: &str, cookies: &CookieOptions<'_>) -> Result<Vi
 /// If both browser_profile and cookies_file are provided, browser_profile is preferred
 /// as it typically provides fresher cookies.
 ///
+/// If `archive_id` and `pool` are provided, progress updates will be written to the database.
+///
 /// # Errors
 ///
 /// Returns an error if yt-dlp fails or times out.
@@ -165,6 +254,8 @@ pub async fn download(
     work_dir: &Path,
     cookies: &CookieOptions<'_>,
     config: &Config,
+    archive_id: Option<i64>,
+    pool: Option<&SqlitePool>,
 ) -> Result<ArchiveResult> {
     // Pre-flight check: get video metadata to check duration limits and select quality
     let mut format_string = select_format_string(None); // Default
@@ -212,8 +303,8 @@ pub async fn download(
         "vtt,srt".to_string(),
         "--output".to_string(),
         output_template.to_string_lossy().to_string(),
-        "--no-progress".to_string(),
-        "--quiet".to_string(),
+        // Use --newline for parseable progress output (each update on a new line)
+        "--newline".to_string(),
         // Format selection: adaptive based on video characteristics
         "--format".to_string(),
         format_string,
@@ -262,30 +353,117 @@ pub async fn download(
 
     debug!(url = %url, "Running yt-dlp");
 
-    // Wrap download with timeout
+    // Spawn yt-dlp and capture stdout/stderr for progress tracking
+    let mut child = Command::new("yt-dlp")
+        .args(&args)
+        .current_dir(work_dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("Failed to spawn yt-dlp")?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .context("Failed to capture yt-dlp stdout")?;
+    let stderr = child
+        .stderr
+        .take()
+        .context("Failed to capture yt-dlp stderr")?;
+
+    // Stream stdout line by line for progress tracking
+    let mut stdout_reader = BufReader::new(stdout).lines();
+    let mut stderr_lines = Vec::new();
+    let mut stderr_reader = BufReader::new(stderr).lines();
+
+    // Track last progress update time to avoid excessive DB writes
+    let mut last_update = std::time::Instant::now();
+    let update_interval = Duration::from_secs(2); // Update DB every 2 seconds max
+
+    // Wrap the streaming in a timeout
     let timeout_duration = Duration::from_secs(config.youtube_download_timeout_seconds);
-    let download_future = async {
-        Command::new("yt-dlp")
-            .args(&args)
-            .current_dir(work_dir)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("Failed to spawn yt-dlp")?
-            .wait_with_output()
-            .await
-            .context("Failed to wait for yt-dlp")
+    let streaming_future = async {
+        loop {
+            tokio::select! {
+                line_result = stdout_reader.next_line() => {
+                    match line_result {
+                        Ok(Some(line)) => {
+                            debug!("yt-dlp: {}", line);
+
+                            // Try to parse progress
+                            if let Some(progress) = parse_ytdlp_progress(&line) {
+                                // Only update DB if enough time has passed and we have pool + archive_id
+                                if let (Some(id), Some(db_pool)) = (archive_id, pool) {
+                                    if last_update.elapsed() >= update_interval {
+                                        let progress_json = serde_json::to_string(&progress)
+                                            .unwrap_or_else(|_| "{}".to_string());
+
+                                        if let Err(e) = crate::db::update_archive_progress(
+                                            db_pool,
+                                            id,
+                                            progress.percent,
+                                            &progress_json,
+                                        )
+                                        .await
+                                        {
+                                            warn!("Failed to update progress: {}", e);
+                                        } else {
+                                            debug!(
+                                                percent = progress.percent,
+                                                speed = ?progress.speed,
+                                                eta = ?progress.eta,
+                                                "Updated download progress"
+                                            );
+                                        }
+
+                                        last_update = std::time::Instant::now();
+                                    }
+                                }
+                            }
+                        }
+                        Ok(None) => break, // EOF
+                        Err(e) => {
+                            warn!("Error reading yt-dlp stdout: {}", e);
+                            break;
+                        }
+                    }
+                }
+                line_result = stderr_reader.next_line() => {
+                    match line_result {
+                        Ok(Some(line)) => {
+                            stderr_lines.push(line);
+                        }
+                        Ok(None) => {} // stderr EOF
+                        Err(e) => {
+                            warn!("Error reading yt-dlp stderr: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Wait for process to complete
+        let status = child.wait().await.context("Failed to wait for yt-dlp")?;
+
+        Ok::<_, anyhow::Error>((status, stderr_lines))
     };
 
-    let output = tokio::time::timeout(timeout_duration, download_future)
+    let (status, stderr_lines) = tokio::time::timeout(timeout_duration, streaming_future)
         .await
         .context(format!(
             "yt-dlp download timed out after {} seconds",
             config.youtube_download_timeout_seconds
         ))??;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    // Clear progress from database when done
+    if let (Some(id), Some(db_pool)) = (archive_id, pool) {
+        if let Err(e) = crate::db::clear_archive_progress(db_pool, id).await {
+            warn!("Failed to clear progress: {}", e);
+        }
+    }
+
+    if !status.success() {
+        let stderr = stderr_lines.join("\n");
         if stderr.contains("could not find chromium cookies database") {
             anyhow::bail!(
                 "yt-dlp failed: {stderr}\n\nHint: yt-dlp couldn't locate Chromium's Cookies database under the path from YT_DLP_COOKIES_FROM_BROWSER.\n- If you're using a persisted --user-data-dir, the DB is commonly under .../Default (or .../Default/Network/Cookies).\n- Run ./dc-cookies-browser.sh once and let Chromium fully start, then log in and retry."

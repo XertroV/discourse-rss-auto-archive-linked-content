@@ -127,6 +127,18 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 20).await?;
     }
 
+    if current_version < 21 {
+        debug!("Running migration v21");
+        run_migration_v21(pool).await?;
+        set_schema_version(pool, 21).await?;
+    }
+
+    if current_version < 22 {
+        debug!("Running migration v22");
+        run_migration_v22(pool).await?;
+        set_schema_version(pool, 22).await?;
+    }
+
     Ok(())
 }
 
@@ -1154,6 +1166,51 @@ async fn run_migration_v20(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to create archives submitted_by_user_id index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v21(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v21: adding download progress tracking for yt-dlp");
+
+    // Add progress_percent column to track download percentage (0.0-100.0)
+    sqlx::query("ALTER TABLE archives ADD COLUMN progress_percent REAL")
+        .execute(pool)
+        .await
+        .context("Failed to add progress_percent column")?;
+
+    // Add progress_details column to store JSON with speed, ETA, size, etc.
+    sqlx::query("ALTER TABLE archives ADD COLUMN progress_details TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add progress_details column")?;
+
+    // Add last_progress_update to track when progress was last updated
+    sqlx::query("ALTER TABLE archives ADD COLUMN last_progress_update TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add last_progress_update column")?;
+
+    // Create index for efficient querying of active downloads
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_archives_last_progress_update ON archives(last_progress_update) WHERE status = 'processing'",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create last_progress_update index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v22(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v22: adding duration tracking for archive jobs");
+
+    // Add duration_seconds column to track job execution time
+    // This is calculated as the difference between started_at and completed_at
+    sqlx::query("ALTER TABLE archive_jobs ADD COLUMN duration_seconds INTEGER")
+        .execute(pool)
+        .await
+        .context("Failed to add duration_seconds column")?;
 
     Ok(())
 }

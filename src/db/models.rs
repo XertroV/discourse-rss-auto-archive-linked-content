@@ -140,6 +140,12 @@ pub struct Archive {
     pub reply_to_archive_id: Option<i64>,
     /// User who submitted this for archiving (NULL for RSS-sourced archives).
     pub submitted_by_user_id: Option<i64>,
+    /// Download progress percentage (0.0-100.0) for active downloads.
+    pub progress_percent: Option<f64>,
+    /// JSON string with download progress details (speed, ETA, size).
+    pub progress_details: Option<String>,
+    /// Timestamp of the last progress update.
+    pub last_progress_update: Option<String>,
 }
 
 impl Archive {
@@ -496,6 +502,8 @@ pub struct ArchiveJob {
     pub error_message: Option<String>,
     pub metadata: Option<String>,
     pub created_at: String,
+    /// Duration of job execution in seconds (calculated from started_at to completed_at).
+    pub duration_seconds: Option<i64>,
 }
 
 impl ArchiveJob {

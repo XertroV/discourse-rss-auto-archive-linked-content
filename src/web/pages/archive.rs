@@ -122,6 +122,67 @@ pub fn render_archive_detail_page(params: &ArchiveDetailParams<'_>) -> Markup {
 
         // Comparison form
         (render_comparison_form(archive))
+
+        // Progress polling script for active downloads
+        @if archive.status == "processing" {
+            script {
+                (PreEscaped(format!(r#"
+                (function() {{
+                    var archiveId = {};
+                    var progressDiv = document.getElementById('download-progress');
+                    if (!progressDiv) return;
+
+                    function updateProgress() {{
+                        fetch('/api/archive/' + archiveId + '/progress')
+                            .then(function(response) {{ return response.json(); }})
+                            .then(function(data) {{
+                                if (data.status !== 'processing') {{
+                                    // Download complete or failed - reload page to show final status
+                                    setTimeout(function() {{ window.location.reload(); }}, 1000);
+                                    return;
+                                }}
+
+                                if (data.progress_percent !== null && data.progress_percent !== undefined) {{
+                                    var percent = Math.round(data.progress_percent * 10) / 10;
+                                    var fill = progressDiv.querySelector('.progress-fill');
+                                    var text = progressDiv.querySelector('.progress-text');
+
+                                    if (fill && text) {{
+                                        fill.style.width = percent + '%';
+                                        text.textContent = percent + '%';
+                                    }}
+
+                                    if (data.progress_details) {{
+                                        var details = progressDiv.querySelector('.progress-details');
+                                        if (details) {{
+                                            var html = '';
+                                            if (data.progress_details.speed) {{
+                                                html += '<span class="progress-speed">' + data.progress_details.speed + '</span>';
+                                            }}
+                                            if (data.progress_details.eta) {{
+                                                html += ' • ETA: <span class="progress-eta">' + data.progress_details.eta + '</span>';
+                                            }}
+                                            details.innerHTML = html;
+                                        }}
+                                    }}
+                                }}
+                            }})
+                            .catch(function(err) {{
+                                console.error('Failed to fetch progress:', err);
+                            }});
+                    }}
+
+                    // Poll every 2 seconds
+                    var pollInterval = setInterval(updateProgress, 2000);
+
+                    // Stop polling after 2 hours (same as download timeout)
+                    setTimeout(function() {{
+                        clearInterval(pollInterval);
+                    }}, 7200000);
+                }})();
+                "#, archive.id)))
+            }
+        }
     };
 
     BaseLayout::new(title)
@@ -141,6 +202,10 @@ fn render_archive_header(archive: &Archive, link: &Link) -> Markup {
     html! {
         p class="meta" {
             strong { "Status:" } " " (status_badge) br;
+            // Progress bar for active downloads
+            @if archive.status == "processing" && archive.progress_percent.is_some() {
+                (render_progress_bar(archive))
+            }
             strong { "Original URL:" } " "
             a href=(link.normalized_url) target="_blank" rel="noopener" {
                 (link.normalized_url)
@@ -153,6 +218,37 @@ fn render_archive_header(archive: &Archive, link: &Link) -> Markup {
             strong { "Archived:" } " "
             (archive.archived_at.as_deref().unwrap_or("pending"))
         }
+    }
+}
+
+/// Render progress bar for active downloads.
+fn render_progress_bar(archive: &Archive) -> Markup {
+    let percent = archive.progress_percent.unwrap_or(0.0);
+    let details = archive
+        .progress_details
+        .as_ref()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+
+    html! {
+        div class="download-progress" id="download-progress" {
+            div class="progress-bar" {
+                div class="progress-fill" style=(format!("width: {:.1}%", percent)) {
+                    span class="progress-text" { (format!("{:.1}%", percent)) }
+                }
+            }
+            @if let Some(d) = details {
+                div class="progress-details" {
+                    @if let Some(speed) = d.get("speed").and_then(|v| v.as_str()) {
+                        span class="progress-speed" { (speed) }
+                    }
+                    @if let Some(eta) = d.get("eta").and_then(|v| v.as_str()) {
+                        " • ETA: "
+                        span class="progress-eta" { (eta) }
+                    }
+                }
+            }
+        }
+        br;
     }
 }
 

@@ -244,7 +244,7 @@ async fn archive_twitter_direct(
 
     // Fall back to yt-dlp for videos
     debug!(url = %url, "Trying yt-dlp for Twitter content");
-    let mut result = ytdlp::download(url, work_dir, cookies, config).await?;
+    let mut result = ytdlp::download(url, work_dir, cookies, config, None, None).await?;
 
     // Extract tweet ID for deduplication
     if result.content_type == "video" {
@@ -315,7 +315,7 @@ async fn archive_nitter(
     }
 
     // Fall back to yt-dlp
-    ytdlp::download(nitter_url, work_dir, cookies, config).await
+    ytdlp::download(nitter_url, work_dir, cookies, config, None, None).await
 }
 
 /// Convert Twitter/X URL to nitter URL.

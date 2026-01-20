@@ -72,7 +72,7 @@ impl SiteHandler for YouTubeHandler {
         }
 
         // Regular video handling
-        let mut result = ytdlp::download(url, work_dir, cookies, config).await?;
+        let mut result = ytdlp::download(url, work_dir, cookies, config, None, None).await?;
 
         // Store video_id in metadata for predictable S3 path
         if let Some(video_id) = extract_video_id(url) {
