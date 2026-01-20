@@ -1,5 +1,5 @@
 use axum::extract::{ConnectInfo, Path, Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Form;
@@ -14,6 +14,7 @@ use super::export;
 use super::feeds;
 use super::templates;
 use super::AppState;
+use crate::auth::{RequireAdmin, RequireApproved};
 use crate::db::{
     count_archives_by_status, count_links, count_posts, count_submissions_from_ip_last_hour,
     create_pending_archive, delete_archive, get_all_threads, get_archive, get_archive_by_link_id,
@@ -334,7 +335,11 @@ async fn archive_detail(State(state): State<AppState>, Path(id): Path<i64>) -> R
 ///
 /// This resets the archive to pending state and triggers a fresh archive
 /// through the full pipeline, including redirect handling.
-async fn rearchive(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
+async fn rearchive(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    RequireAdmin(_admin): RequireAdmin,
+) -> Response {
     // Check that the archive exists
     let archive = match get_archive(state.db.pool(), id).await {
         Ok(Some(a)) => a,
@@ -369,10 +374,37 @@ async fn rearchive(State(state): State<AppState>, Path(id): Path<i64>) -> Respon
 }
 
 /// Handler for toggling NSFW status (POST /archive/:id/toggle-nsfw).
-async fn toggle_nsfw(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
+async fn toggle_nsfw(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    RequireApproved(user): RequireApproved,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Response {
+    let client_ip = addr.ip().to_string();
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+    
     match toggle_archive_nsfw(state.db.pool(), id).await {
         Ok(new_status) => {
             tracing::info!(archive_id = id, is_nsfw = new_status, "Toggled NSFW status");
+            
+            // Audit log the NSFW toggle
+            if let Err(e) = crate::db::create_audit_event(
+                state.db.pool(),
+                Some(user.id),
+                if new_status { "nsfw_enabled" } else { "nsfw_disabled" },
+                Some("archive"),
+                Some(id),
+                None,
+                Some(&client_ip),
+                user_agent.as_deref(),
+            ).await {
+                tracing::error!("Failed to create audit event: {e}");
+            }
+            
             axum::response::Redirect::to(&format!("/archive/{id}")).into_response()
         }
         Err(e) => {
@@ -383,7 +415,11 @@ async fn toggle_nsfw(State(state): State<AppState>, Path(id): Path<i64>) -> Resp
 }
 
 /// Handler for deleting an archive (POST /archive/:id/delete).
-async fn delete_archive_handler(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
+async fn delete_archive_handler(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    RequireAdmin(_admin): RequireAdmin,
+) -> Response {
     // Get the archive first to log what we're deleting
     let archive = match get_archive(state.db.pool(), id).await {
         Ok(Some(a)) => a,
@@ -421,7 +457,11 @@ async fn delete_archive_handler(State(state): State<AppState>, Path(id): Path<i6
 }
 
 /// Handler for retrying a single skipped archive (POST /archive/:id/retry-skipped).
-async fn retry_skipped(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
+async fn retry_skipped(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    RequireAdmin(_admin): RequireAdmin,
+) -> Response {
     match reset_single_skipped_archive(state.db.pool(), id).await {
         Ok(true) => {
             tracing::info!(archive_id = id, "Reset skipped archive for retry");
@@ -440,7 +480,10 @@ async fn retry_skipped(State(state): State<AppState>, Path(id): Path<i64>) -> Re
 const MAX_RETRIES: i32 = 3;
 
 /// Handler for debug queue page (GET /debug/queue).
-async fn debug_queue(State(state): State<AppState>) -> Response {
+async fn debug_queue(
+    State(state): State<AppState>,
+    RequireAdmin(_admin): RequireAdmin,
+) -> Response {
     let stats = match get_queue_stats(state.db.pool(), MAX_RETRIES).await {
         Ok(s) => s,
         Err(e) => {
@@ -462,7 +505,10 @@ async fn debug_queue(State(state): State<AppState>) -> Response {
 }
 
 /// Handler for resetting all skipped archives (POST /debug/reset-skipped).
-async fn debug_reset_skipped(State(state): State<AppState>) -> Response {
+async fn debug_reset_skipped(
+    State(state): State<AppState>,
+    RequireAdmin(_admin): RequireAdmin,
+) -> Response {
     match reset_skipped_archives(state.db.pool()).await {
         Ok(count) => {
             tracing::info!(count, "Reset all skipped archives");
@@ -710,6 +756,7 @@ pub struct SubmitForm {
 async fn submit_url(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    RequireApproved(_user): RequireApproved,
     Form(form): Form<SubmitForm>,
 ) -> Response {
     // Check if submissions are enabled
