@@ -214,22 +214,31 @@ fn create_app(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(add_no_archive_header))
         .layer(CompressionLayer::new())
         .layer(
-            TraceLayer::new_for_http().make_span_with(|req: &Request<_>| {
-                let client_ip = best_effort_client_ip(req).unwrap_or_else(|| "unknown".to_string());
-                let user_agent = req
-                    .headers()
-                    .get(axum::http::header::USER_AGENT)
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("");
+            TraceLayer::new_for_http()
+                .make_span_with(|req: &Request<_>| {
+                    let client_ip =
+                        best_effort_client_ip(req).unwrap_or_else(|| "unknown".to_string());
+                    let user_agent = req
+                        .headers()
+                        .get(axum::http::header::USER_AGENT)
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("");
 
-                tracing::info_span!(
-                    "http_request",
-                    method = %req.method(),
-                    uri = %req.uri(),
-                    client_ip = %client_ip,
-                    user_agent = %user_agent,
-                )
-            }),
+                    tracing::info_span!(
+                        "http_request",
+                        method = %req.method(),
+                        uri = %req.uri(),
+                        client_ip = %client_ip,
+                        user_agent = %user_agent,
+                    )
+                })
+                .on_request(|req: &Request<_>, _span: &tracing::Span| {
+                    tracing::debug!(
+                        method = %req.method(),
+                        uri = %req.uri(),
+                        "incoming request"
+                    );
+                }),
         )
         .with_state(state)
 }

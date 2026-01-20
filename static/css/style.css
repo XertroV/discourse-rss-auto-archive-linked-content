@@ -1848,3 +1848,197 @@ pre {
         padding: 12px;
     }
 }
+
+/* ==================== Admin Panel Styles ==================== */
+
+/* Admin tables */
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+.admin-table thead {
+    background: var(--bg-secondary);
+}
+
+.admin-table th {
+    padding: 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.admin-table td {
+    padding: 0.75rem;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.admin-table tbody tr:hover {
+    background: var(--bg-secondary);
+}
+
+.admin-table tbody tr.current-user {
+    background: var(--primary-low);
+}
+
+.admin-table code {
+    background: var(--bg-tertiary);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+/* Status badges */
+.status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.status-deactivated {
+    background: var(--error-bg);
+    color: var(--error-text);
+}
+
+.status-admin {
+    background: var(--primary);
+    color: white;
+}
+
+.status-approved {
+    background: var(--success-bg);
+    color: var(--success-text);
+}
+
+.status-pending {
+    background: var(--warning-bg);
+    color: var(--warning-text);
+}
+
+/* Admin buttons */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 4px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.btn-sm {
+    padding: 4px 12px;
+    font-size: 0.875rem;
+}
+
+.btn-primary {
+    background: var(--primary);
+    color: white;
+    border: none;
+}
+
+.btn-primary:hover {
+    background: var(--primary-hover);
+}
+
+.btn-secondary {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+    background: var(--bg-tertiary);
+}
+
+.btn-success {
+    background: var(--success-bg);
+    color: var(--success-text);
+    border: 1px solid var(--success-border);
+}
+
+.btn-success:hover {
+    background: var(--success);
+    color: white;
+}
+
+.btn-warning {
+    background: var(--warning-bg);
+    color: var(--warning-text);
+    border: 1px solid var(--warning-border);
+}
+
+.btn-warning:hover {
+    background: var(--warning);
+    color: white;
+}
+
+.btn-danger {
+    background: var(--error-bg);
+    color: var(--error-text);
+    border: 1px solid var(--error-border);
+}
+
+.btn-danger:hover {
+    background: var(--danger);
+    color: white;
+}
+
+/* Profile/Admin status boxes */
+.status-box {
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.status-box-success {
+    background: var(--success-bg);
+    border: 1px solid var(--success-border);
+}
+
+.status-box-success strong {
+    color: var(--success-text);
+}
+
+.status-box-success p {
+    color: var(--success-text);
+    margin: var(--spacing-xs) 0;
+    font-size: var(--font-size-sm);
+}
+
+.status-box-warning {
+    background: var(--warning-bg);
+    border: 1px solid var(--warning-border);
+}
+
+.status-box-warning strong {
+    color: var(--warning-text);
+}
+
+.status-box-warning p {
+    color: var(--warning-text);
+    margin: var(--spacing-xs) 0;
+    font-size: var(--font-size-sm);
+}
+
+.status-box-error {
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
+}
+
+.status-box-error strong,
+.status-box-error p {
+    color: var(--error-text);
+}

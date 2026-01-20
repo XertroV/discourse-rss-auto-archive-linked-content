@@ -293,7 +293,11 @@ pub struct SearchParams {
     source: Option<String>,
 }
 
-async fn search(State(state): State<AppState>, Query(params): Query<SearchParams>) -> Response {
+async fn search(
+    State(state): State<AppState>,
+    Query(params): Query<SearchParams>,
+    MaybeUser(user): MaybeUser,
+) -> Response {
     tracing::debug!(q = ?params.q, page = ?params.page, "HTTP API: GET /search");
     let query = params.q.unwrap_or_default();
     let page = params.page.unwrap_or(1);
@@ -333,7 +337,7 @@ async fn search(State(state): State<AppState>, Query(params): Query<SearchParams
         }
     };
 
-    let html = templates::render_search(&query, &archives, page);
+    let html = templates::render_search(&query, &archives, page, user.as_ref());
     Html(html).into_response()
 }
 
@@ -804,7 +808,7 @@ async fn site_list(
     Html(html).into_response()
 }
 
-async fn stats(State(state): State<AppState>) -> Response {
+async fn stats(State(state): State<AppState>, MaybeUser(user): MaybeUser) -> Response {
     let status_counts = match count_archives_by_status(state.db.pool()).await {
         Ok(c) => c,
         Err(e) => {
@@ -816,7 +820,7 @@ async fn stats(State(state): State<AppState>) -> Response {
     let link_count = count_links(state.db.pool()).await.unwrap_or(0);
     let post_count = count_posts(state.db.pool()).await.unwrap_or(0);
 
-    let html = templates::render_stats(&status_counts, link_count, post_count);
+    let html = templates::render_stats(&status_counts, link_count, post_count, user.as_ref());
     Html(html).into_response()
 }
 

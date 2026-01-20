@@ -708,7 +708,12 @@ fn render_pagination(
 }
 
 /// Render search results page.
-pub fn render_search(query: &str, archives: &[ArchiveDisplay], page: u32) -> String {
+pub fn render_search(
+    query: &str,
+    archives: &[ArchiveDisplay],
+    page: u32,
+    user: Option<&User>,
+) -> String {
     let mut content = String::from("<h1>Search Archives</h1>");
 
     content.push_str(&format!(
@@ -744,7 +749,7 @@ pub fn render_search(query: &str, archives: &[ArchiveDisplay], page: u32) -> Str
         ));
     }
 
-    base_layout("Search", &content)
+    base_layout_with_user("Search", &content, user)
 }
 
 /// Render archive detail page.
@@ -1844,7 +1849,12 @@ pub fn render_site_list(site: &str, archives: &[ArchiveDisplay], page: u32) -> S
 }
 
 /// Render stats page.
-pub fn render_stats(status_counts: &[(String, i64)], link_count: i64, post_count: i64) -> String {
+pub fn render_stats(
+    status_counts: &[(String, i64)],
+    link_count: i64,
+    post_count: i64,
+    user: Option<&User>,
+) -> String {
     let mut content = String::from("<h1>Statistics</h1>");
 
     content.push_str("<section><h2>Overview</h2>");
@@ -1866,7 +1876,7 @@ pub fn render_stats(status_counts: &[(String, i64)], link_count: i64, post_count
 
     content.push_str("</tbody></table></section>");
 
-    base_layout("Statistics", &content)
+    base_layout_with_user("Statistics", &content, user)
 }
 
 /// Render post detail page showing all archives from a post.
@@ -3056,25 +3066,25 @@ pub fn profile_page(user: &User) -> String {
 /// Profile page with optional message.
 pub fn profile_page_with_message(user: &User, message: Option<&str>) -> String {
     let approval_status = if user.is_admin {
-        r#"<div style="background: var(--success-bg, #d1fae5); border: 1px solid var(--success-border, #6ee7b7); padding: var(--spacing-md, 1rem); border-radius: var(--radius, 0.375rem); margin-bottom: var(--spacing-md, 1rem);">
-            <strong style="color: var(--success-text, #065f46);">✓ Admin Account</strong>
-            <p style="margin: var(--spacing-xs, 0.25rem) 0; font-size: var(--font-size-sm, 0.875rem);">You have full administrative privileges.</p>
+        r#"<div class="status-box status-box-success">
+            <strong>✓ Admin Account</strong>
+            <p>You have full administrative privileges.</p>
         </div>"#
     } else if user.is_approved {
-        r#"<div style="background: var(--success-bg, #d1fae5); border: 1px solid var(--success-border, #6ee7b7); padding: var(--spacing-md, 1rem); border-radius: var(--radius, 0.375rem); margin-bottom: var(--spacing-md, 1rem);">
-            <strong style="color: var(--success-text, #065f46);">✓ Approved Account</strong>
-            <p style="margin: var(--spacing-xs, 0.25rem) 0; font-size: var(--font-size-sm, 0.875rem);">You can submit links for archiving.</p>
+        r#"<div class="status-box status-box-success">
+            <strong>✓ Approved Account</strong>
+            <p>You can submit links for archiving.</p>
         </div>"#
     } else {
-        r#"<div style="background: var(--warning-bg, #fef3c7); border: 1px solid var(--warning-border, #fcd34d); padding: var(--spacing-md, 1rem); border-radius: var(--radius, 0.375rem); margin-bottom: var(--spacing-md, 1rem);">
-            <strong style="color: var(--warning-text, #92400e);">⚠️ Pending Approval</strong>
-            <p style="margin: var(--spacing-xs, 0.25rem) 0; font-size: var(--font-size-sm, 0.875rem);">Your account is awaiting admin approval before you can submit links.</p>
+        r#"<div class="status-box status-box-warning">
+            <strong>⚠️ Pending Approval</strong>
+            <p>Your account is awaiting admin approval before you can submit links.</p>
         </div>"#
     };
 
     let message_html = message.map_or(String::new(), |m| {
         format!(
-            r#"<div style="background: var(--error-bg, #fee2e2); border: 1px solid var(--error-border, #fca5a5); padding: var(--spacing-md, 1rem); margin-bottom: var(--spacing-md, 1rem); border-radius: var(--radius, 0.375rem); color: var(--error-text, #991b1b);">{}</div>"#,
+            r#"<div class="status-box status-box-error">{}</div>"#,
             html_escape(m)
         )
     });
@@ -3138,32 +3148,42 @@ pub fn profile_page_with_message(user: &User, message: Option<&str>) -> String {
         html_escape(display_name)
     );
 
-    base_layout("Profile", &content)
+    base_layout_with_user("Profile", &content, Some(user))
 }
 
 /// Admin panel page.
-pub fn admin_panel(users: &[User], audit_events: &[AuditEvent]) -> String {
+pub fn admin_panel(users: &[User], audit_events: &[AuditEvent], current_user: &User) -> String {
+    // Build a lookup map for user display names in audit log
+    let user_lookup: std::collections::HashMap<i64, &User> =
+        users.iter().map(|u| (u.id, u)).collect();
+
     let users_html: String = users
         .iter()
         .map(|u| {
+            let is_current_user = u.id == current_user.id;
             let status_badge = if !u.is_active {
-                r#"<span style="background: var(--error-bg, #fee2e2); color: var(--error-text, #991b1b); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">DEACTIVATED</span>"#
+                r#"<span class="status-badge status-deactivated">DEACTIVATED</span>"#
             } else if u.is_admin {
-                r#"<span style="background: var(--primary, #ec4899); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">ADMIN</span>"#
+                r#"<span class="status-badge status-admin">ADMIN</span>"#
             } else if u.is_approved {
-                r#"<span style="background: var(--success-bg, #d1fae5); color: var(--success-text, #065f46); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">APPROVED</span>"#
+                r#"<span class="status-badge status-approved">APPROVED</span>"#
             } else {
-                r#"<span style="background: var(--warning-bg, #fef3c7); color: var(--warning-text, #92400e); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">PENDING</span>"#
+                r#"<span class="status-badge status-pending">PENDING</span>"#
             };
 
             let actions = if !u.is_active {
-                format!(
-                    r#"<form method="post" action="/admin/user/reactivate" style="display: inline;">
-                        <input type="hidden" name="user_id" value="{}">
-                        <button type="submit" style="padding: 4px 12px; font-size: 0.875rem; background: var(--success-bg, #d1fae5); color: var(--success-text, #065f46); border: 1px solid var(--success-border, #6ee7b7); border-radius: 4px; cursor: pointer;">Reactivate</button>
-                    </form>"#,
-                    u.id
-                )
+                // Only show reactivate for deactivated users (not self)
+                if is_current_user {
+                    String::new()
+                } else {
+                    format!(
+                        r#"<form method="post" action="/admin/user/reactivate" style="display: inline;">
+                            <input type="hidden" name="user_id" value="{}">
+                            <button type="submit" class="btn btn-success btn-sm">Reactivate</button>
+                        </form>"#,
+                        u.id
+                    )
+                }
             } else {
                 let mut actions_html = String::new();
 
@@ -3171,15 +3191,16 @@ pub fn admin_panel(users: &[User], audit_events: &[AuditEvent]) -> String {
                     actions_html.push_str(&format!(
                         r#"<form method="post" action="/admin/user/approve" style="display: inline; margin-right: 0.5rem;">
                             <input type="hidden" name="user_id" value="{}">
-                            <button type="submit" style="padding: 4px 12px; font-size: 0.875rem; background: var(--success-bg, #d1fae5); color: var(--success-text, #065f46); border: 1px solid var(--success-border, #6ee7b7); border-radius: 4px; cursor: pointer;">Approve</button>
+                            <button type="submit" class="btn btn-success btn-sm">Approve</button>
                         </form>"#,
                         u.id
                     ));
-                } else {
+                } else if !is_current_user {
+                    // Don't show revoke for current user
                     actions_html.push_str(&format!(
                         r#"<form method="post" action="/admin/user/revoke" style="display: inline; margin-right: 0.5rem;">
                             <input type="hidden" name="user_id" value="{}">
-                            <button type="submit" style="padding: 4px 12px; font-size: 0.875rem; background: var(--warning-bg, #fef3c7); color: var(--warning-text, #92400e); border: 1px solid var(--warning-border, #fcd34d); border-radius: 4px; cursor: pointer;">Revoke</button>
+                            <button type="submit" class="btn btn-warning btn-sm">Revoke</button>
                         </form>"#,
                         u.id
                     ));
@@ -3189,32 +3210,36 @@ pub fn admin_panel(users: &[User], audit_events: &[AuditEvent]) -> String {
                     actions_html.push_str(&format!(
                         r#"<form method="post" action="/admin/user/promote" style="display: inline; margin-right: 0.5rem;">
                             <input type="hidden" name="user_id" value="{}">
-                            <button type="submit" onclick="return confirm('Are you sure you want to make this user an admin?')" style="padding: 4px 12px; font-size: 0.875rem; background: var(--primary, #ec4899); color: white; border: none; border-radius: 4px; cursor: pointer;">Make Admin</button>
+                            <button type="submit" onclick="return confirm('Are you sure you want to make this user an admin?')" class="btn btn-primary btn-sm">Make Admin</button>
                         </form>"#,
                         u.id
                     ));
-                } else {
+                } else if !is_current_user {
+                    // Don't show remove admin for current user
                     actions_html.push_str(&format!(
                         r#"<form method="post" action="/admin/user/demote" style="display: inline; margin-right: 0.5rem;">
                             <input type="hidden" name="user_id" value="{}">
-                            <button type="submit" onclick="return confirm('Are you sure you want to remove admin privileges from this user?')" style="padding: 4px 12px; font-size: 0.875rem; background: var(--bg-secondary, #fafafa); color: var(--text-primary, #18181b); border: 1px solid var(--border-color, #e4e4e7); border-radius: 4px; cursor: pointer;">Remove Admin</button>
+                            <button type="submit" onclick="return confirm('Are you sure you want to remove admin privileges from this user?')" class="btn btn-secondary btn-sm">Remove Admin</button>
+                        </form>"#,
+                        u.id
+                    ));
+                }
+
+                // Don't show deactivate for current user
+                if !is_current_user {
+                    actions_html.push_str(&format!(
+                        r#"<form method="post" action="/admin/user/deactivate" style="display: inline; margin-right: 0.5rem;">
+                            <input type="hidden" name="user_id" value="{}">
+                            <button type="submit" onclick="return confirm('Are you sure you want to deactivate this user?')" class="btn btn-danger btn-sm">Deactivate</button>
                         </form>"#,
                         u.id
                     ));
                 }
 
                 actions_html.push_str(&format!(
-                    r#"<form method="post" action="/admin/user/deactivate" style="display: inline; margin-right: 0.5rem;">
-                        <input type="hidden" name="user_id" value="{}">
-                        <button type="submit" onclick="return confirm('Are you sure you want to deactivate this user?')" style="padding: 4px 12px; font-size: 0.875rem; background: var(--error-bg, #fee2e2); color: var(--error-text, #991b1b); border: 1px solid var(--error-border, #fca5a5); border-radius: 4px; cursor: pointer;">Deactivate</button>
-                    </form>"#,
-                    u.id
-                ));
-
-                actions_html.push_str(&format!(
                     r#"<form method="post" action="/admin/user/reset-password" style="display: inline;">
                         <input type="hidden" name="user_id" value="{}">
-                        <button type="submit" onclick="return confirm('Are you sure you want to reset this user\\'s password? Their current sessions will be invalidated.')" style="padding: 4px 12px; font-size: 0.875rem; background: var(--bg-secondary, #fafafa); color: var(--text-primary, #18181b); border: 1px solid var(--border-color, #e4e4e7); border-radius: 4px; cursor: pointer;">Reset PW</button>
+                        <button type="submit" onclick="return confirm('Are you sure you want to reset this user\\'s password? Their current sessions will be invalidated.')" class="btn btn-secondary btn-sm">Reset PW</button>
                     </form>"#,
                     u.id
                 ));
@@ -3222,15 +3247,32 @@ pub fn admin_panel(users: &[User], audit_events: &[AuditEvent]) -> String {
                 actions_html
             };
 
+            // Display name with fallback to username
+            let display_name = u
+                .display_name
+                .as_ref()
+                .filter(|n| !n.is_empty())
+                .map(|n| html_escape(n))
+                .unwrap_or_else(|| html_escape(&u.username));
+
             format!(
-                r#"<tr>
+                r#"<tr{}>
+                    <td style="padding: 0.75rem;">{}</td>
+                    <td style="padding: 0.75rem;"><code>{}</code></td>
                     <td style="padding: 0.75rem;">{}</td>
                     <td style="padding: 0.75rem;">{}</td>
                     <td style="padding: 0.75rem;">{}</td>
                     <td style="padding: 0.75rem;">{}</td>
                     <td style="padding: 0.75rem;">{}</td>
                 </tr>"#,
+                if is_current_user {
+                    r#" class="current-user""#
+                } else {
+                    ""
+                },
+                u.id,
                 html_escape(&u.username),
+                display_name,
                 u.email.as_deref().unwrap_or("—"),
                 status_badge,
                 html_escape(&u.created_at),
@@ -3242,9 +3284,18 @@ pub fn admin_panel(users: &[User], audit_events: &[AuditEvent]) -> String {
     let audit_html: String = audit_events
         .iter()
         .map(|e| {
-            let user_str = e
-                .user_id
-                .map_or("System".to_string(), |id| format!("User #{id}"));
+            // Use display name > username > User #X for user display
+            let user_str = e.user_id.map_or("System".to_string(), |id| {
+                if let Some(user) = user_lookup.get(&id) {
+                    user.display_name
+                        .as_ref()
+                        .filter(|n| !n.is_empty())
+                        .map(|n| html_escape(n))
+                        .unwrap_or_else(|| html_escape(&user.username))
+                } else {
+                    format!("User #{id}")
+                }
+            });
             let target_str = match (&e.target_type, e.target_id) {
                 (Some(t), Some(id)) => format!("{t} #{id}"),
                 _ => "—".to_string(),
@@ -3269,19 +3320,21 @@ pub fn admin_panel(users: &[User], audit_events: &[AuditEvent]) -> String {
 
     let content = format!(
         r#"<main class="container">
-    <div style="max-width: 1200px; margin: 2rem auto;">
+    <div style="max-width: 1400px; margin: 2rem auto;">
         <h1>Admin Panel</h1>
 
         <h2 style="margin-top: var(--spacing-xl, 2rem);">Users</h2>
         <div style="overflow-x: auto;">
-            <table style="width: 100%; border-collapse: collapse; background: white; border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
-                <thead style="background: var(--bg-secondary, #fafafa);">
+            <table class="admin-table">
+                <thead>
                     <tr>
-                        <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Username</th>
-                        <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Email</th>
-                        <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Status</th>
-                        <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Created</th>
-                        <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Actions</th>
+                        <th>ID</th>
+                        <th>Username</th>
+                        <th>Display Name</th>
+                        <th>Email</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -3292,19 +3345,19 @@ pub fn admin_panel(users: &[User], audit_events: &[AuditEvent]) -> String {
 
         <h2 style="margin-top: var(--spacing-xl, 2rem);">Admin Tools</h2>
         <div style="display: flex; gap: 1rem; margin-bottom: 2rem;">
-            <a href="/admin/excluded-domains" style="display: inline-block; padding: 0.75rem 1.5rem; background: var(--primary, #ec4899); color: white; text-decoration: none; border-radius: var(--radius, 0.375rem); font-weight: 600;">Manage Excluded Domains</a>
+            <a href="/admin/excluded-domains" class="btn btn-primary">Manage Excluded Domains</a>
         </div>
 
         <h2 style="margin-top: var(--spacing-xl, 2rem);">Recent Audit Log</h2>
         <div style="overflow-x: auto;">
-            <table style="width: 100%; border-collapse: collapse; background: white; border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
-                <thead style="background: var(--bg-secondary, #fafafa);">
+            <table class="admin-table">
+                <thead>
                     <tr>
-                        <th style="padding: 0.75rem; text-align: left; font-weight: 600; font-size: 0.875rem;">Timestamp</th>
-                        <th style="padding: 0.75rem; text-align: left; font-weight: 600; font-size: 0.875rem;">User</th>
-                        <th style="padding: 0.75rem; text-align: left; font-weight: 600; font-size: 0.875rem;">Event</th>
-                        <th style="padding: 0.75rem; text-align: left; font-weight: 600; font-size: 0.875rem;">Target</th>
-                        <th style="padding: 0.75rem; text-align: left; font-weight: 600; font-size: 0.875rem;">IP</th>
+                        <th>Timestamp</th>
+                        <th>User</th>
+                        <th>Event</th>
+                        <th>Target</th>
+                        <th>IP</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -3317,7 +3370,7 @@ pub fn admin_panel(users: &[User], audit_events: &[AuditEvent]) -> String {
         users_html, audit_html
     );
 
-    base_layout("Admin Panel", &content)
+    base_layout_with_user("Admin Panel", &content, Some(current_user))
 }
 
 /// Render password reset result page (shows the new password once).

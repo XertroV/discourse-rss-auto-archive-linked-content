@@ -520,7 +520,7 @@ pub async fn profile_post(
 /// GET /admin - Admin panel.
 pub async fn admin_panel(
     State(state): State<AppState>,
-    RequireAdmin(_admin): RequireAdmin,
+    RequireAdmin(admin): RequireAdmin,
 ) -> Response {
     // Get all users
     let users = match queries::get_all_users(state.db.pool(), 100, 0).await {
@@ -540,7 +540,7 @@ pub async fn admin_panel(
         }
     };
 
-    Html(templates::admin_panel(&users, &audit_events)).into_response()
+    Html(templates::admin_panel(&users, &audit_events, &admin)).into_response()
 }
 
 /// POST /admin/user/:id/approve - Approve a user.
