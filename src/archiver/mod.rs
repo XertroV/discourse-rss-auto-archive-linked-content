@@ -2,6 +2,7 @@ use std::path::Path;
 
 pub mod gallerydl;
 pub mod monolith;
+pub mod playlist;
 pub mod rate_limiter;
 pub mod screenshot;
 pub mod worker;

@@ -6,7 +6,7 @@ use regex::Regex;
 use tracing::debug;
 
 use super::traits::{ArchiveResult, SiteHandler};
-use crate::archiver::{ytdlp, CookieOptions};
+use crate::archiver::{playlist as playlist_archiver, ytdlp, CookieOptions};
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
     vec![
@@ -14,6 +14,7 @@ static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
         Regex::new(r"^https?://(www\.)?youtube\.com/shorts/").unwrap(),
         Regex::new(r"^https?://(www\.)?youtube\.com/live/").unwrap(),
         Regex::new(r"^https?://(www\.)?youtube\.com/embed/").unwrap(),
+        Regex::new(r"^https?://(www\.)?youtube\.com/playlist").unwrap(),
         Regex::new(r"^https?://youtu\.be/").unwrap(),
         Regex::new(r"^https?://m\.youtube\.com/").unwrap(),
     ]
@@ -55,6 +56,22 @@ impl SiteHandler for YouTubeHandler {
         cookies: &CookieOptions<'_>,
         config: &crate::config::Config,
     ) -> Result<ArchiveResult> {
+        // Check if this is a playlist URL
+        if is_playlist_url(url) {
+            if let Some(playlist_id) = extract_playlist_id(url) {
+                debug!(playlist_id = %playlist_id, "Extracted YouTube playlist ID, delegating to playlist archiver");
+                return playlist_archiver::archive_playlist(
+                    url,
+                    work_dir,
+                    cookies,
+                    config,
+                    &playlist_id,
+                )
+                .await;
+            }
+        }
+
+        // Regular video handling
         let mut result = ytdlp::download(url, work_dir, cookies, config).await?;
 
         // Store video_id in metadata for predictable S3 path
@@ -65,6 +82,28 @@ impl SiteHandler for YouTubeHandler {
 
         Ok(result)
     }
+}
+
+/// Check if a URL is a YouTube playlist URL.
+pub fn is_playlist_url(url: &str) -> bool {
+    url.contains("youtube.com/playlist")
+}
+
+/// Extract playlist ID from YouTube URL.
+///
+/// Playlist URLs have format: `youtube.com/playlist?list=PLAYLIST_ID`
+pub fn extract_playlist_id(url: &str) -> Option<String> {
+    if let Some(query_string) = url.split('?').nth(1) {
+        for param in query_string.split('&') {
+            if let Some(playlist_id) = param.strip_prefix("list=") {
+                let playlist_id = playlist_id.split('&').next().unwrap_or(playlist_id);
+                if !playlist_id.is_empty() {
+                    return Some(playlist_id.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Extract video ID from YouTube URL.
@@ -204,6 +243,39 @@ mod tests {
         assert_eq!(extract_video_id("https://youtube.com/"), None);
         assert_eq!(
             extract_video_id("https://www.youtube.com/channel/xyz"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_is_playlist_url() {
+        assert!(is_playlist_url(
+            "https://www.youtube.com/playlist?list=PLxyz"
+        ));
+        assert!(is_playlist_url(
+            "https://youtube.com/playlist?list=PLabc123"
+        ));
+        assert!(!is_playlist_url("https://www.youtube.com/watch?v=abc123"));
+        assert!(!is_playlist_url("https://youtu.be/abc123"));
+    }
+
+    #[test]
+    fn test_extract_playlist_id() {
+        assert_eq!(
+            extract_playlist_id("https://www.youtube.com/playlist?list=PLxyz"),
+            Some("PLxyz".to_string())
+        );
+        assert_eq!(
+            extract_playlist_id("https://youtube.com/playlist?list=PLabc123&index=1"),
+            Some("PLabc123".to_string())
+        );
+        assert_eq!(
+            extract_playlist_id("https://www.youtube.com/playlist?index=1&list=PLtest"),
+            Some("PLtest".to_string())
+        );
+        assert_eq!(extract_playlist_id("https://youtube.com/playlist"), None);
+        assert_eq!(
+            extract_playlist_id("https://www.youtube.com/watch?v=abc123"),
             None
         );
     }

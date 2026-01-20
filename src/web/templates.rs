@@ -64,6 +64,67 @@ fn base_layout(title: &str, content: &str) -> String {
             color: var(--text-primary, #18181b);
             border-color: var(--primary, #ec4899);
         }}
+
+        /* Playlist styles */
+        .playlist-section {{
+            margin: var(--spacing-lg, 1.5rem) 0;
+        }}
+        .playlist-info {{
+            background-color: var(--bg-secondary, #fafafa);
+            padding: var(--spacing-md, 1rem);
+            border-radius: var(--radius, 0.375rem);
+            margin-bottom: var(--spacing-md, 1rem);
+            border-left: 4px solid var(--primary, #ec4899);
+        }}
+        .playlist-info p {{
+            margin: var(--spacing-xs, 0.25rem) 0;
+            font-size: var(--font-size-sm, 0.875rem);
+        }}
+        .playlist-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: var(--spacing-md, 1rem);
+        }}
+        .playlist-table thead {{
+            background-color: var(--bg-secondary, #fafafa);
+            border-bottom: 2px solid var(--border-color, #e4e4e7);
+        }}
+        .playlist-table th {{
+            padding: var(--spacing-sm, 0.5rem);
+            text-align: left;
+            font-weight: 600;
+            font-size: var(--font-size-sm, 0.875rem);
+            color: var(--text-primary, #18181b);
+        }}
+        .playlist-table td {{
+            padding: var(--spacing-sm, 0.5rem);
+            border-bottom: 1px solid var(--border-color, #e4e4e7);
+            font-size: var(--font-size-sm, 0.875rem);
+        }}
+        .playlist-table tbody tr:hover {{
+            background-color: var(--bg-secondary, #fafafa);
+        }}
+        .playlist-table .position {{
+            text-align: center;
+            color: var(--text-secondary, #52525b);
+            font-weight: 500;
+            width: 60px;
+        }}
+        .playlist-table .duration {{
+            text-align: center;
+            color: var(--text-secondary, #52525b);
+            font-family: monospace;
+            width: 80px;
+        }}
+        .playlist-table .video-link {{
+            text-decoration: none;
+            font-size: 1.2em;
+            display: inline-block;
+            padding: var(--spacing-xs, 0.25rem);
+        }}
+        .playlist-table .video-link:hover {{
+            transform: scale(1.2);
+        }}
     </style>
     <script>
         (function() {{
@@ -411,6 +472,7 @@ fn render_content_type_filters(
         ("Gallery", Some("gallery")),
         ("Text", Some("text")),
         ("Thread", Some("thread")),
+        ("Playlist", Some("playlist")),
     ];
 
     for (label, type_value) in &types {
@@ -783,7 +845,12 @@ pub fn render_archive_detail(
         ));
     }
 
-    if let Some(ref text) = archive.content_text {
+    // Handle playlist content type specially
+    if archive.content_type.as_deref() == Some("playlist") {
+        if let Some(ref metadata_json) = archive.content_text {
+            content.push_str(&render_playlist_content(metadata_json));
+        }
+    } else if let Some(ref text) = archive.content_text {
         let text_size = text.len();
         let size_display = if text_size >= 1024 {
             format!("{:.1} KB", text_size as f64 / 1024.0)
@@ -2415,4 +2482,119 @@ pub fn render_debug_queue(stats: &QueueStats, recent_failures: &[Archive]) -> St
     content.push_str(r#"<section class="debug-nav"><p><a href="/">← Back to Home</a> | <a href="/stats">View Stats</a></p></section>"#);
 
     base_layout("Debug: Queue Status", &content)
+}
+
+/// Render a YouTube playlist as an HTML table.
+fn render_playlist_content(metadata_json: &str) -> String {
+    // Try to parse the playlist metadata JSON
+    let playlist_info: Result<serde_json::Value, _> = serde_json::from_str(metadata_json);
+
+    match playlist_info {
+        Ok(info) => {
+            let mut html =
+                String::from(r#"<section class="playlist-section"><h2>Playlist Videos</h2>"#);
+
+            // Show playlist info
+            if let Some(title) = info.get("title").and_then(|v| v.as_str()) {
+                html.push_str(&format!(
+                    r#"<div class="playlist-info"><p><strong>Title:</strong> {}</p>"#,
+                    html_escape(title)
+                ));
+            }
+
+            if let Some(video_count) = info.get("video_count").and_then(|v| v.as_i64()) {
+                html.push_str(&format!("<p><strong>Videos:</strong> {}</p>", video_count));
+            }
+
+            if let Some(uploader) = info.get("uploader").and_then(|v| v.as_str()) {
+                html.push_str(&format!(
+                    "<p><strong>Channel:</strong> {}</p>",
+                    html_escape(uploader)
+                ));
+            }
+
+            html.push_str("</div>");
+
+            // Render videos table
+            html.push_str(
+                r#"<table class="playlist-table"><thead><tr>
+                    <th>Position</th>
+                    <th>Video Title</th>
+                    <th>Channel</th>
+                    <th>Date</th>
+                    <th>Duration</th>
+                    <th>Link</th>
+                </tr></thead><tbody>"#,
+            );
+
+            if let Some(videos) = info.get("videos").and_then(|v| v.as_array()) {
+                for (idx, video) in videos.iter().enumerate() {
+                    let position = idx + 1;
+                    let title = video
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Untitled");
+                    let url = video.get("url").and_then(|v| v.as_str()).unwrap_or("#");
+                    let uploader = video
+                        .get("uploader")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown");
+                    let upload_date = video
+                        .get("upload_date")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("—");
+                    let duration = video.get("duration").and_then(|v| v.as_i64());
+
+                    let duration_str = if let Some(secs) = duration {
+                        format_duration_seconds(secs as u64)
+                    } else {
+                        "—".to_string()
+                    };
+
+                    html.push_str(&format!(
+                        r#"<tr>
+                            <td class="position">{}</td>
+                            <td><strong>{}</strong></td>
+                            <td>{}</td>
+                            <td>{}</td>
+                            <td class="duration">{}</td>
+                            <td><a href="{}" target="_blank" rel="noopener" class="video-link" title="Watch on YouTube">🔗</a></td>
+                        </tr>"#,
+                        position,
+                        html_escape(title),
+                        html_escape(uploader),
+                        html_escape(upload_date),
+                        duration_str,
+                        html_escape(url)
+                    ));
+                }
+            }
+
+            html.push_str("</tbody></table></section>");
+            html
+        }
+        Err(_) => {
+            // Fallback to plaintext if JSON parsing fails
+            format!(
+                r#"<section class="content-text-section"><details>
+                <summary><h2 style="display: inline;">Playlist Metadata</h2></summary>
+                <pre class="content-text">{}</pre>
+                </details></section>"#,
+                html_escape(metadata_json)
+            )
+        }
+    }
+}
+
+/// Format duration in seconds to a human-readable string (HH:MM:SS or MM:SS).
+fn format_duration_seconds(total_seconds: u64) -> String {
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+
+    if hours > 0 {
+        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{:02}:{:02}", minutes, seconds)
+    }
 }
