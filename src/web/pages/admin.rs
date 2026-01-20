@@ -10,7 +10,7 @@ use crate::components::{
     Alert, BaseLayout, Button, Form, FormGroup, HiddenInput, Input, ResponsiveTable, StatusBox,
     Table, TableRow, TableVariant,
 };
-use crate::db::{AuditEvent, ExcludedDomain, User};
+use crate::db::{AuditEvent, ExcludedDomain, ForumAccountLink, User};
 
 /// User status badge for admin panel.
 #[derive(Debug, Clone, Copy)]
@@ -148,7 +148,11 @@ fn render_user_row(user: &User, current_user: &User) -> Markup {
 
     let row = TableRow::new()
         .cell(&user.id.to_string())
-        .cell_markup(html! { code { (user.username) } })
+        .cell_markup(html! {
+            a href=(format!("/admin/user/{}", user.id)) {
+                code { (user.username) }
+            }
+        })
         .cell(display_name)
         .cell(user.email.as_deref().unwrap_or("\u{2014}"))
         .cell_markup(render_user_status_badge(user))
@@ -451,6 +455,254 @@ pub fn render_admin_excluded_domains_page(
     };
 
     BaseLayout::new("Excluded Domains").render(content)
+}
+
+/// Render the admin user profile page.
+///
+/// # Arguments
+///
+/// * `user` - The user to display
+/// * `forum_link` - Optional forum account link
+/// * `audit_events` - Recent audit events for this user
+/// * `current_user` - The currently logged-in admin user
+///
+/// # Returns
+///
+/// Complete HTML page as maud Markup
+#[must_use]
+pub fn render_admin_user_profile(
+    user: &User,
+    forum_link: Option<&ForumAccountLink>,
+    audit_events: &[AuditEvent],
+    current_user: &User,
+) -> Markup {
+    let display_name = user
+        .display_name
+        .as_ref()
+        .filter(|n| !n.is_empty())
+        .map_or_else(|| user.username.as_str(), String::as_str);
+
+    let content = html! {
+        div class="user-profile-container" {
+            h1 { "User Profile" }
+
+            // User info section
+            div class="user-info-section" {
+                h2 { "User Details" }
+                table class="user-details-table" {
+                    tr {
+                        th { "ID:" }
+                        td { (user.id) }
+                    }
+                    tr {
+                        th { "Username:" }
+                        td { code { (user.username) } }
+                    }
+                    tr {
+                        th { "Display Name:" }
+                        td { (display_name) }
+                    }
+                    tr {
+                        th { "Email:" }
+                        td { (user.email.as_deref().unwrap_or("\u{2014}")) }
+                    }
+                    tr {
+                        th { "Status:" }
+                        td { (render_user_status_badge(user)) }
+                    }
+                    tr {
+                        th { "Created:" }
+                        td { (user.created_at) }
+                    }
+                    tr {
+                        th { "Updated:" }
+                        td { (user.updated_at) }
+                    }
+                    tr {
+                        th { "Password Updated:" }
+                        td { (user.password_updated_at) }
+                    }
+                    @if let Some(locked_until) = &user.locked_until {
+                        tr {
+                            th { "Locked Until:" }
+                            td { (locked_until) }
+                        }
+                    }
+                    tr {
+                        th { "Failed Login Attempts:" }
+                        td { (user.failed_login_attempts) }
+                    }
+                }
+            }
+
+            // Forum account link section
+            @if let Some(link) = forum_link {
+                div class="forum-link-section" {
+                    h2 { "Forum Account Link" }
+                    table class="user-details-table" {
+                        tr {
+                            th { "Forum Username:" }
+                            td {
+                                a href=(format!("/admin/forum-user/{}", link.forum_username)) {
+                                    code { (link.forum_username) }
+                                }
+                            }
+                        }
+                        tr {
+                            th { "Linked Via Post:" }
+                            td {
+                                a href=(&link.linked_via_post_url) target="_blank" { (&link.linked_via_post_guid) }
+                            }
+                        }
+                        @if let Some(title) = &link.post_title {
+                            tr {
+                                th { "Post Title:" }
+                                td { (title) }
+                            }
+                        }
+                        tr {
+                            th { "Linked At:" }
+                            td { (link.created_at) }
+                        }
+                    }
+                }
+            }
+
+            // Audit log section
+            @if !audit_events.is_empty() {
+                div class="audit-log-section" {
+                    h2 { "Recent Activity" }
+                    (render_user_audit_table(audit_events))
+                }
+            }
+
+            // Back button
+            div class="action-buttons" {
+                (Button::outline("Back to Admin Panel").href("/admin"))
+            }
+        }
+    };
+
+    BaseLayout::new(&format!("User: {}", user.username))
+        .with_user(Some(current_user))
+        .render(content)
+}
+
+/// Render the admin forum user profile page.
+///
+/// # Arguments
+///
+/// * `forum_link` - The forum account link
+/// * `user` - Optional linked user account
+/// * `current_user` - The currently logged-in admin user
+///
+/// # Returns
+///
+/// Complete HTML page as maud Markup
+#[must_use]
+pub fn render_admin_forum_user_profile(
+    forum_link: &ForumAccountLink,
+    user: Option<&User>,
+    current_user: &User,
+) -> Markup {
+    let content = html! {
+        div class="forum-user-profile-container" {
+            h1 { "Forum User Profile" }
+
+            // Forum user info section
+            div class="forum-user-info-section" {
+                h2 { "Forum Account Details" }
+                table class="user-details-table" {
+                    tr {
+                        th { "Forum Username:" }
+                        td { code { (forum_link.forum_username) } }
+                    }
+                    tr {
+                        th { "Linked Via Post:" }
+                        td {
+                            a href=(&forum_link.linked_via_post_url) target="_blank" { (&forum_link.linked_via_post_guid) }
+                        }
+                    }
+                    @if let Some(title) = &forum_link.post_title {
+                        tr {
+                            th { "Post Title:" }
+                            td { (title) }
+                        }
+                    }
+                    @if let Some(author_raw) = &forum_link.forum_author_raw {
+                        tr {
+                            th { "Author Raw:" }
+                            td { (author_raw) }
+                        }
+                    }
+                    tr {
+                        th { "Linked At:" }
+                        td { (forum_link.created_at) }
+                    }
+                }
+            }
+
+            // Linked user section
+            @if let Some(linked_user) = user {
+                div class="linked-user-section" {
+                    h2 { "Linked User Account" }
+                    (StatusBox::info(
+                        "Account Link",
+                        &format!("This forum user is linked to user account: {}", linked_user.username)
+                    ).render())
+
+                    div class="action-buttons" {
+                        (Button::primary("View User Profile")
+                            .href(&format!("/admin/user/{}", linked_user.id)))
+                    }
+                }
+            } @else {
+                div class="no-link-section" {
+                    (StatusBox::warning(
+                        "No Link",
+                        "This forum user is not linked to any user account."
+                    ).render())
+                }
+            }
+
+            // Back button
+            div class="action-buttons" {
+                (Button::outline("Back to Admin Panel").href("/admin"))
+            }
+        }
+    };
+
+    BaseLayout::new(&format!("Forum User: {}", forum_link.forum_username))
+        .with_user(Some(current_user))
+        .render(content)
+}
+
+/// Render the audit log table for user profile.
+fn render_user_audit_table(audit_events: &[AuditEvent]) -> Markup {
+    let rows: Vec<Markup> = audit_events
+        .iter()
+        .map(|event| {
+            let target_str = match (&event.target_type, event.target_id) {
+                (Some(t), Some(id)) => format!("{t} #{id}"),
+                _ => "\u{2014}".to_string(),
+            };
+
+            html! {
+                tr {
+                    td class="audit-cell" { (event.created_at) }
+                    td class="audit-cell" { (event.event_type) }
+                    td class="audit-cell" { (target_str) }
+                    td class="audit-cell" { (event.ip_address.as_deref().unwrap_or("\u{2014}")) }
+                }
+            }
+        })
+        .collect();
+
+    let table = Table::new(vec!["Timestamp", "Event", "Target", "IP"])
+        .variant(TableVariant::Admin)
+        .rows(rows);
+
+    ResponsiveTable::new(table.render()).render()
 }
 
 #[cfg(test)]
