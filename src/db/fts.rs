@@ -24,7 +24,7 @@
 /// # Examples
 ///
 /// ```
-/// use discourse_rss_auto_archive_linked_content::db::sanitize_fts_query;
+/// use discourse_link_archiver::db::sanitize_fts_query;
 ///
 /// assert_eq!(sanitize_fts_query("let's"), "\"let's\"");
 /// assert_eq!(sanitize_fts_query("test query"), "\"test query\"");

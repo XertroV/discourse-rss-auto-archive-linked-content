@@ -760,7 +760,7 @@ async fn extract_comments_from_info_json(
 }
 
 /// Find and parse the info.json metadata file.
-async fn find_and_parse_metadata(work_dir: &Path, config: &Config) -> Result<ArchiveResult> {
+async fn find_and_parse_metadata(work_dir: &Path, _config: &Config) -> Result<ArchiveResult> {
     let mut entries = tokio::fs::read_dir(work_dir)
         .await
         .context("Failed to read work directory")?;

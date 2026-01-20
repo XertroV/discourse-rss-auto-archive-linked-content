@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{error, info, trace, warn};
 
 use crate::archiver::{ytdlp, CookieOptions};
 use crate::config::Config;
