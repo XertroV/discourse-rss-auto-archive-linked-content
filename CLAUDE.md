@@ -92,6 +92,11 @@ cargo fmt && git add -A && git commit -m "your message"
 - Handler modules: `handlers/{site}.rs`
 - Test modules: inline `#[cfg(test)] mod tests` or `tests/` directory
 
+### Web UI
+
+- All HTML UI elements should use or extend the shadcn-inspired styles defined in [static/css/style.css](static/css/style.css).
+- Keep the UI style consistent, minimal, and functional.
+
 ## Testing Strategy
 
 ### Unit Tests
