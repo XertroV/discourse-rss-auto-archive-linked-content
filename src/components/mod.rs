@@ -39,6 +39,7 @@ pub mod card;
 pub mod form;
 pub mod layout;
 pub mod media;
+pub mod metadata;
 pub mod pagination;
 pub mod table;
 pub mod tabs;
@@ -82,6 +83,9 @@ pub use pagination::Pagination;
 
 // Re-export tab components
 pub use tabs::{archive_list_tabs, ArchiveTab, ContentTab, ContentTabs, Tab, TabGroup};
+
+// Re-export metadata components
+pub use metadata::{truncate_text, OpenGraphMetadata};
 
 /// Re-export maud for convenience
 pub use maud::{html, Markup, PreEscaped, DOCTYPE};

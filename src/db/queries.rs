@@ -1510,6 +1510,20 @@ pub async fn count_posts(pool: &SqlitePool) -> Result<i64> {
     Ok(row.0)
 }
 
+/// Get total count of completed archives by content type.
+pub async fn count_archives_by_content_type(pool: &SqlitePool) -> Result<Vec<(String, i64)>> {
+    sqlx::query_as(
+        "SELECT COALESCE(content_type, 'unknown') as content_type, COUNT(*)
+         FROM archives
+         WHERE status = 'complete'
+         GROUP BY content_type
+         ORDER BY COUNT(*) DESC",
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to count archives by content type")
+}
+
 /// Get a post by ID.
 pub async fn get_post(pool: &SqlitePool, id: i64) -> Result<Option<Post>> {
     sqlx::query_as("SELECT * FROM posts WHERE id = ?")

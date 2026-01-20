@@ -4,6 +4,7 @@ pub mod export;
 mod feeds;
 pub mod pages;
 mod routes;
+mod stats_cache;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -38,6 +39,7 @@ pub struct AppState {
     pub db: Database,
     pub config: Arc<Config>,
     pub s3: Arc<S3Client>,
+    pub stats_cache: Arc<stats_cache::StatsCache>,
 }
 
 // Implement FromRef for SqlitePool to enable auth extractors
@@ -73,6 +75,7 @@ async fn serve_http_only(config: Config, db: Database, s3: S3Client) -> Result<(
         db,
         config: Arc::new(config),
         s3: Arc::new(s3),
+        stats_cache: Arc::new(stats_cache::StatsCache::default()),
     };
 
     let app = create_app(state);
@@ -114,6 +117,7 @@ async fn serve_with_tls(config: Config, db: Database, s3: S3Client) -> Result<()
         db,
         config: Arc::new(config),
         s3: Arc::new(s3),
+        stats_cache: Arc::new(stats_cache::StatsCache::default()),
     };
 
     let app = create_app(state);

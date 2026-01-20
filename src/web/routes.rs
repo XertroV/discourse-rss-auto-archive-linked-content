@@ -15,6 +15,7 @@ use super::feeds;
 use super::pages;
 use super::AppState;
 use crate::auth::{MaybeUser, RequireAdmin, RequireApproved, RequireUser};
+use crate::components::OpenGraphMetadata;
 use crate::db::{
     add_comment_reaction, can_user_edit_comment, count_all_archives_filtered, count_all_threads,
     count_archives_by_status, count_links, count_posts, count_submissions_from_ip_last_hour,
@@ -191,6 +192,26 @@ async fn home(
     let end = ((page + 1) * ITEMS_PER_PAGE as usize).min(total_items);
     archives = archives.into_iter().skip(start).take(end - start).collect();
 
+    // Generate OG metadata for home page (only on first page without filters)
+    let og_metadata = if page == 0 && params.content_type.is_none() && params.source.is_none() {
+        match state.stats_cache.get_or_refresh(state.db.pool()).await {
+            Ok(stats) => {
+                let description = stats.format_breakdown();
+                Some(
+                    OpenGraphMetadata::new("CF Archive", &description, "/")
+                        .with_type("website")
+                        .with_twitter_card("summary"),
+                )
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch stats for OG metadata: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let markup = pages::render_home_paginated(
         &archives,
         recent_failed_count,
@@ -199,6 +220,7 @@ async fn home(
         params.content_type.as_deref(),
         params.source.as_deref(),
         user.as_ref(),
+        og_metadata,
     );
     Html(markup.into_string()).into_response()
 }
@@ -453,6 +475,50 @@ async fn archive_detail(
         }
     };
 
+    // Generate Open Graph metadata for archive detail page
+    let og_metadata = {
+        let title = archive
+            .content_title
+            .as_deref()
+            .unwrap_or("Untitled Archive");
+
+        // Generate description from content text
+        let description = if let Some(text) = &archive.content_text {
+            crate::components::truncate_text(text, 200)
+        } else {
+            format!("Archived content from {}", link.domain)
+        };
+
+        // Get thumbnail URL if available (only for non-NSFW content)
+        let image_url = if !archive.is_nsfw {
+            // Check if we have a public URL base configured
+            if let Some(ref base) = state.config.s3_public_url_base {
+                artifacts
+                    .iter()
+                    .find(|a| a.kind == "thumbnail")
+                    .map(|a| format!("{}/{}", base, a.s3_key))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let archive_url = format!("/archive/{}", archive.id);
+
+        Some(
+            OpenGraphMetadata::new(title, &description, &archive_url)
+                .with_type("article")
+                .with_image(image_url.as_deref())
+                .with_nsfw(archive.is_nsfw)
+                .with_twitter_card(if image_url.is_some() {
+                    "summary_large_image"
+                } else {
+                    "summary"
+                }),
+        )
+    };
+
     let params = pages::ArchiveDetailParams {
         archive: &archive,
         link: &link,
@@ -462,6 +528,7 @@ async fn archive_detail(
         quote_reply_chain: &quote_reply_chain,
         user: user.as_ref(),
         has_missing_artifacts,
+        og_metadata,
     };
     let markup = pages::render_archive_detail_page(&params);
     Html(markup.into_string()).into_response()

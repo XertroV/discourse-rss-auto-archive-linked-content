@@ -5,6 +5,7 @@
 
 use maud::{html, Markup, PreEscaped, DOCTYPE};
 
+use super::metadata::OpenGraphMetadata;
 use crate::db::User;
 
 /// Critical theme initialization script that runs in <head> to prevent flash of wrong theme.
@@ -43,13 +44,18 @@ const NSFW_FILTER_STYLE: &str =
 pub struct BaseLayout<'a> {
     title: &'a str,
     user: Option<&'a User>,
+    og_metadata: Option<OpenGraphMetadata>,
 }
 
 impl<'a> BaseLayout<'a> {
     /// Create a new base layout with the given page title.
     #[must_use]
     pub fn new(title: &'a str) -> Self {
-        Self { title, user: None }
+        Self {
+            title,
+            user: None,
+            og_metadata: None,
+        }
     }
 
     /// Set the authenticated user for the layout.
@@ -59,6 +65,13 @@ impl<'a> BaseLayout<'a> {
     #[must_use]
     pub fn with_user(mut self, user: Option<&'a User>) -> Self {
         self.user = user;
+        self
+    }
+
+    /// Set the Open Graph metadata for social media previews.
+    #[must_use]
+    pub fn with_og_metadata(mut self, metadata: OpenGraphMetadata) -> Self {
+        self.og_metadata = Some(metadata);
         self
     }
 
@@ -77,6 +90,12 @@ impl<'a> BaseLayout<'a> {
                     meta name="robots" content="noarchive";
                     meta name="x-no-archive" content="1";
                     title { (self.title) " - Discourse Link Archiver" }
+
+                    // Open Graph and Twitter Card metadata
+                    @if let Some(ref og) = self.og_metadata {
+                        (og.render())
+                    }
+
                     link rel="stylesheet" href="/static/css/style.css";
                     link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>";
                     link rel="alternate" type="application/rss+xml" title="Archive RSS Feed" href="/feed.rss";

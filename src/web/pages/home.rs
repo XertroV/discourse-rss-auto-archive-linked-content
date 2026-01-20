@@ -7,7 +7,8 @@ use maud::{html, Markup, Render};
 use urlencoding::encode;
 
 use crate::components::{
-    archive_list_tabs, ArchiveGrid, ArchiveTab, BaseLayout, EmptyState, Pagination,
+    archive_list_tabs, ArchiveGrid, ArchiveTab, BaseLayout, EmptyState, OpenGraphMetadata,
+    Pagination,
 };
 use crate::db::{ArchiveDisplay, User};
 
@@ -242,6 +243,8 @@ pub struct HomePageParams<'a> {
     pub source_filter: Option<&'a str>,
     /// Current user (for auth-aware navigation)
     pub user: Option<&'a User>,
+    /// Optional Open Graph metadata for social media previews
+    pub og_metadata: Option<OpenGraphMetadata>,
 }
 
 impl<'a> HomePageParams<'a> {
@@ -261,6 +264,7 @@ impl<'a> HomePageParams<'a> {
             content_type_filter: None,
             source_filter: None,
             user: None,
+            og_metadata: None,
         }
     }
 
@@ -282,6 +286,7 @@ impl<'a> HomePageParams<'a> {
             content_type_filter: None,
             source_filter: None,
             user: None,
+            og_metadata: None,
         }
     }
 
@@ -303,6 +308,13 @@ impl<'a> HomePageParams<'a> {
     #[must_use]
     pub fn with_user(mut self, user: Option<&'a User>) -> Self {
         self.user = user;
+        self
+    }
+
+    /// Set the Open Graph metadata.
+    #[must_use]
+    pub fn with_og_metadata(mut self, og: OpenGraphMetadata) -> Self {
+        self.og_metadata = Some(og);
         self
     }
 }
@@ -383,9 +395,13 @@ pub fn render_home_page(params: &HomePageParams) -> Markup {
         }
     };
 
-    BaseLayout::new(page_title)
-        .with_user(params.user)
-        .render(content)
+    let mut layout = BaseLayout::new(page_title).with_user(params.user);
+
+    if let Some(ref og) = params.og_metadata {
+        layout = layout.with_og_metadata(og.clone());
+    }
+
+    layout.render(content)
 }
 
 /// Render the recent archives home page (simple version without pagination).
@@ -405,8 +421,9 @@ pub fn render_home_paginated(
     content_type_filter: Option<&str>,
     source_filter: Option<&str>,
     user: Option<&User>,
+    og_metadata: Option<OpenGraphMetadata>,
 ) -> Markup {
-    let params = HomePageParams::paginated(
+    let mut params = HomePageParams::paginated(
         archives,
         RecentArchivesTab::Recent,
         recent_failed_count,
@@ -416,6 +433,10 @@ pub fn render_home_paginated(
     .with_content_type_filter(content_type_filter)
     .with_source_filter(source_filter)
     .with_user(user);
+
+    if let Some(og) = og_metadata {
+        params = params.with_og_metadata(og);
+    }
 
     render_home_page(&params)
 }
@@ -762,8 +783,17 @@ mod tests {
     #[test]
     fn test_render_home_paginated_convenience() {
         let archives = vec![sample_archive()];
-        let html = render_home_paginated(&archives, 0, 2, 5, Some("video"), Some("reddit"), None)
-            .into_string();
+        let html = render_home_paginated(
+            &archives,
+            0,
+            2,
+            5,
+            Some("video"),
+            Some("reddit"),
+            None,
+            None,
+        )
+        .into_string();
 
         assert!(html.contains("<h1>Recent Archives</h1>"));
         assert!(html.contains("pagination"));

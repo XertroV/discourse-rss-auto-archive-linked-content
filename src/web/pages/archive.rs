@@ -18,8 +18,8 @@
 use maud::{html, Markup, PreEscaped, Render};
 
 use crate::components::{
-    render_media_player, BaseLayout, Button, KeyValueTable, NsfwBadge, NsfwWarning, StatusBadge,
-    Table, TableRow, TableVariant,
+    render_media_player, BaseLayout, Button, KeyValueTable, NsfwBadge, NsfwWarning,
+    OpenGraphMetadata, StatusBadge, Table, TableRow, TableVariant,
 };
 use crate::db::{Archive, ArchiveArtifact, ArchiveJob, Link, LinkOccurrenceWithPost, User};
 
@@ -42,6 +42,8 @@ pub struct ArchiveDetailParams<'a> {
     pub user: Option<&'a User>,
     /// Whether the archive has missing artifacts (e.g., subtitles, transcripts).
     pub has_missing_artifacts: bool,
+    /// Optional Open Graph metadata for social media previews.
+    pub og_metadata: Option<OpenGraphMetadata>,
 }
 
 /// Render the archive detail page.
@@ -188,9 +190,13 @@ pub fn render_archive_detail_page(params: &ArchiveDetailParams<'_>) -> Markup {
         }
     };
 
-    BaseLayout::new(title)
-        .with_user(params.user)
-        .render(content)
+    let mut layout = BaseLayout::new(title).with_user(params.user);
+
+    if let Some(ref og) = params.og_metadata {
+        layout = layout.with_og_metadata(og.clone());
+    }
+
+    layout.render(content)
 }
 
 // =============================================================================
@@ -1579,6 +1585,7 @@ mod tests {
             quote_reply_chain: &[],
             user: None,
             has_missing_artifacts: false,
+            og_metadata: None,
         };
 
         let html = render_archive_detail_page(&params).into_string();
@@ -1605,6 +1612,7 @@ mod tests {
             quote_reply_chain: &[],
             user: None,
             has_missing_artifacts: false,
+            og_metadata: None,
         };
 
         let html = render_archive_detail_page(&params).into_string();
@@ -1630,6 +1638,7 @@ mod tests {
             quote_reply_chain: &[],
             user: None,
             has_missing_artifacts: false,
+            og_metadata: None,
         };
 
         let html = render_archive_detail_page(&params).into_string();
