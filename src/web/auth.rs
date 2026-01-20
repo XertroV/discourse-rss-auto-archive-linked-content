@@ -1105,3 +1105,79 @@ pub async fn admin_delete_excluded_domain(
         }
     }
 }
+
+/// GET /admin/user/:id - Show user profile (admin-only).
+pub async fn admin_user_profile(
+    State(state): State<AppState>,
+    axum::extract::Path(user_id): axum::extract::Path<i64>,
+    RequireAdmin(admin): RequireAdmin,
+) -> Response {
+    // Fetch the user
+    let user = match queries::get_user_by_id(state.db.pool(), user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, "User not found").into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch user: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    // Fetch forum account link if it exists
+    let forum_link = match queries::get_forum_link_by_user_id(state.db.pool(), user_id).await {
+        Ok(link) => link,
+        Err(e) => {
+            tracing::warn!("Failed to fetch forum link for user {}: {e}", user_id);
+            None
+        }
+    };
+
+    // Fetch audit events for this user
+    let audit_events =
+        match queries::get_audit_events_for_user(state.db.pool(), user_id, 50, 0).await {
+            Ok(events) => events,
+            Err(e) => {
+                tracing::warn!("Failed to fetch audit events for user {}: {e}", user_id);
+                Vec::new()
+            }
+        };
+
+    Html(
+        pages::render_admin_user_profile(&user, forum_link.as_ref(), &audit_events, &admin)
+            .into_string(),
+    )
+    .into_response()
+}
+
+/// GET /admin/forum-user/:username - Show forum user profile (admin-only).
+pub async fn admin_forum_user_profile(
+    State(state): State<AppState>,
+    axum::extract::Path(forum_username): axum::extract::Path<String>,
+    RequireAdmin(admin): RequireAdmin,
+) -> Response {
+    // Fetch forum account link
+    let forum_link =
+        match queries::get_forum_link_by_forum_username(state.db.pool(), &forum_username).await {
+            Ok(Some(link)) => link,
+            Ok(None) => {
+                return (StatusCode::NOT_FOUND, "Forum user not found").into_response();
+            }
+            Err(e) => {
+                tracing::error!("Failed to fetch forum link: {e}");
+                return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+            }
+        };
+
+    // Fetch the linked user
+    let user = match queries::get_user_by_id(state.db.pool(), forum_link.user_id).await {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::warn!("Failed to fetch user for forum link: {e}");
+            None
+        }
+    };
+
+    Html(pages::render_admin_forum_user_profile(&forum_link, user.as_ref(), &admin).into_string())
+        .into_response()
+}

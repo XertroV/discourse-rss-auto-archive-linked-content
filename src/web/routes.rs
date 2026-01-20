@@ -83,6 +83,11 @@ pub fn router() -> Router<AppState> {
             "/admin/excluded-domains/delete",
             post(auth::admin_delete_excluded_domain),
         )
+        .route("/admin/user/:id", get(auth::admin_user_profile))
+        .route(
+            "/admin/forum-user/:username",
+            get(auth::admin_forum_user_profile),
+        )
         .route("/archives/failed", get(recent_failed_archives))
         .route("/archives/all", get(recent_all_archives))
         .route("/search", get(search))
