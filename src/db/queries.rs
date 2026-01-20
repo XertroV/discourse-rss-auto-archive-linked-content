@@ -567,56 +567,49 @@ pub async fn get_recent_archives_filtered(
     offset: i64,
     nsfw_filter: Option<bool>,
 ) -> Result<Vec<Archive>> {
+    get_recent_archives_filtered_full(pool, limit, offset, nsfw_filter, None).await
+}
+
+/// Get recent archives with NSFW and content_type filters and pagination.
+pub async fn get_recent_archives_filtered_full(
+    pool: &SqlitePool,
+    limit: i64,
+    offset: i64,
+    nsfw_filter: Option<bool>,
+    content_type: Option<&str>,
+) -> Result<Vec<Archive>> {
+    // Build WHERE clause dynamically based on filters
+    let mut where_clauses = vec!["status = 'complete'".to_string()];
+
     match nsfw_filter {
-        Some(true) => {
-            // Only NSFW
-            sqlx::query_as(
-                r"
-                SELECT * FROM archives
-                WHERE status = 'complete' AND is_nsfw = 1
-                ORDER BY COALESCE(post_date, archived_at, created_at) DESC
-                LIMIT ? OFFSET ?
-                ",
-            )
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(pool)
-            .await
-            .context("Failed to fetch NSFW archives")
-        }
-        Some(false) => {
-            // Hide NSFW
-            sqlx::query_as(
-                r"
-                SELECT * FROM archives
-                WHERE status = 'complete' AND (is_nsfw = 0 OR is_nsfw IS NULL)
-                ORDER BY COALESCE(post_date, archived_at, created_at) DESC
-                LIMIT ? OFFSET ?
-                ",
-            )
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(pool)
-            .await
-            .context("Failed to fetch SFW archives")
-        }
-        None => {
-            // Show all
-            sqlx::query_as(
-                r"
-                SELECT * FROM archives
-                WHERE status = 'complete'
-                ORDER BY COALESCE(post_date, archived_at, created_at) DESC
-                LIMIT ? OFFSET ?
-                ",
-            )
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(pool)
-            .await
-            .context("Failed to fetch archives")
-        }
+        Some(true) => where_clauses.push("is_nsfw = 1".to_string()),
+        Some(false) => where_clauses.push("(is_nsfw = 0 OR is_nsfw IS NULL)".to_string()),
+        None => {}
     }
+
+    if content_type.is_some() {
+        where_clauses.push("content_type = ?".to_string());
+    }
+
+    let where_clause = where_clauses.join(" AND ");
+    let sql = format!(
+        "SELECT * FROM archives WHERE {} ORDER BY COALESCE(post_date, archived_at, created_at) DESC LIMIT ? OFFSET ?",
+        where_clause
+    );
+
+    let mut query = sqlx::query_as(&sql);
+
+    // Bind content_type if present (bind in order of ? placeholders)
+    if let Some(ct) = content_type {
+        query = query.bind(ct);
+    }
+
+    query
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+        .context("Failed to fetch filtered archives")
 }
 
 /// Get total count of archives with NSFW filter.
@@ -775,6 +768,83 @@ pub async fn search_archives_display(
     .context("Failed to search archives with links")
 }
 
+/// Get recent archives with link info for display, with optional content_type filter.
+pub async fn get_recent_archives_display_filtered(
+    pool: &SqlitePool,
+    limit: i64,
+    content_type: Option<&str>,
+) -> Result<Vec<ArchiveDisplay>> {
+    if let Some(ct) = content_type {
+        sqlx::query_as(
+            r"
+            SELECT
+                a.id, a.link_id, a.status, a.archived_at,
+                a.content_title, a.content_author, a.content_type,
+                a.is_nsfw, a.error_message, a.retry_count,
+                l.original_url, l.domain,
+                COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
+            FROM archives a
+            JOIN links l ON a.link_id = l.id
+            LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
+            WHERE a.content_type = ?
+            GROUP BY a.id, a.link_id, a.status, a.archived_at,
+                     a.content_title, a.content_author, a.content_type,
+                     a.is_nsfw, a.error_message, a.retry_count,
+                     l.original_url, l.domain
+            ORDER BY COALESCE(a.archived_at, a.last_attempt_at, a.created_at) DESC
+            LIMIT ?
+            ",
+        )
+        .bind(ct)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .context("Failed to fetch recent archives with content_type filter")
+    } else {
+        get_recent_archives_display(pool, limit).await
+    }
+}
+
+/// Search archives with link info for display, with optional content_type filter.
+pub async fn search_archives_display_filtered(
+    pool: &SqlitePool,
+    query: &str,
+    limit: i64,
+    content_type: Option<&str>,
+) -> Result<Vec<ArchiveDisplay>> {
+    if let Some(ct) = content_type {
+        sqlx::query_as(
+            r"
+            SELECT
+                a.id, a.link_id, a.status, a.archived_at,
+                a.content_title, a.content_author, a.content_type,
+                a.is_nsfw, a.error_message, a.retry_count,
+                l.original_url, l.domain,
+                COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
+            FROM archives a
+            JOIN links l ON a.link_id = l.id
+            JOIN archives_fts ON a.id = archives_fts.rowid
+            LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
+            WHERE archives_fts MATCH ? AND a.content_type = ?
+            GROUP BY a.id, a.link_id, a.status, a.archived_at,
+                     a.content_title, a.content_author, a.content_type,
+                     a.is_nsfw, a.error_message, a.retry_count,
+                     l.original_url, l.domain
+            ORDER BY rank
+            LIMIT ?
+            ",
+        )
+        .bind(query)
+        .bind(ct)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .context("Failed to search archives with content_type filter")
+    } else {
+        search_archives_display(pool, query, limit).await
+    }
+}
+
 /// Get archives by domain with link info for display (all statuses).
 pub async fn get_archives_by_domain_display(
     pool: &SqlitePool,
@@ -888,46 +958,50 @@ pub async fn search_archives_filtered(
     limit: i64,
     nsfw_filter: Option<bool>,
 ) -> Result<Vec<Archive>> {
+    search_archives_filtered_full(pool, query, limit, nsfw_filter, None).await
+}
+
+/// Search archives with NSFW and content_type filters.
+pub async fn search_archives_filtered_full(
+    pool: &SqlitePool,
+    query: &str,
+    limit: i64,
+    nsfw_filter: Option<bool>,
+    content_type: Option<&str>,
+) -> Result<Vec<Archive>> {
+    // Build WHERE clause dynamically based on filters
+    let mut where_clauses = vec!["archives_fts MATCH ?".to_string()];
+
     match nsfw_filter {
-        Some(true) => {
-            // Only NSFW
-            sqlx::query_as(
-                r"
-                SELECT archives.* FROM archives
-                JOIN archives_fts ON archives.id = archives_fts.rowid
-                WHERE archives_fts MATCH ? AND archives.is_nsfw = 1
-                ORDER BY rank
-                LIMIT ?
-                ",
-            )
-            .bind(query)
-            .bind(limit)
-            .fetch_all(pool)
-            .await
-            .context("Failed to search NSFW archives")
-        }
+        Some(true) => where_clauses.push("archives.is_nsfw = 1".to_string()),
         Some(false) => {
-            // Hide NSFW
-            sqlx::query_as(
-                r"
-                SELECT archives.* FROM archives
-                JOIN archives_fts ON archives.id = archives_fts.rowid
-                WHERE archives_fts MATCH ? AND (archives.is_nsfw = 0 OR archives.is_nsfw IS NULL)
-                ORDER BY rank
-                LIMIT ?
-                ",
-            )
-            .bind(query)
-            .bind(limit)
-            .fetch_all(pool)
-            .await
-            .context("Failed to search SFW archives")
+            where_clauses.push("(archives.is_nsfw = 0 OR archives.is_nsfw IS NULL)".to_string())
         }
-        None => {
-            // Show all
-            search_archives(pool, query, limit).await
-        }
+        None => {}
     }
+
+    if content_type.is_some() {
+        where_clauses.push("archives.content_type = ?".to_string());
+    }
+
+    let where_clause = where_clauses.join(" AND ");
+    let sql = format!(
+        "SELECT archives.* FROM archives JOIN archives_fts ON archives.id = archives_fts.rowid WHERE {} ORDER BY rank LIMIT ?",
+        where_clause
+    );
+
+    let mut q = sqlx::query_as(&sql);
+    q = q.bind(query);
+
+    // Bind content_type if present (bind in order of ? placeholders)
+    if let Some(ct) = content_type {
+        q = q.bind(ct);
+    }
+
+    q.bind(limit)
+        .fetch_all(pool)
+        .await
+        .context("Failed to search filtered archives")
 }
 
 /// Get archives by domain.

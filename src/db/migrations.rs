@@ -67,6 +67,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 10).await?;
     }
 
+    if current_version < 11 {
+        debug!("Running migration v11");
+        run_migration_v11(pool).await?;
+        set_schema_version(pool, 11).await?;
+    }
+
     Ok(())
 }
 
@@ -606,6 +612,18 @@ async fn run_migration_v10(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to create archive_artifacts video_file_id index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v11(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v11: adding content_type index for efficient filtering");
+
+    // Create index for filtering by content type (video, image, gallery, text, thread)
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_archives_content_type ON archives(content_type)")
+        .execute(pool)
+        .await
+        .context("Failed to create content_type index")?;
 
     Ok(())
 }
