@@ -4,16 +4,158 @@ A Rust service that monitors a Discourse forum's RSS feed and automatically arch
 
 ## Features
 
-- Polls Discourse RSS feed for new posts
-- Extracts and normalizes links from post content
-- Archives media via yt-dlp and gallery-dl
-- Stores artifacts in S3-compatible storage (AWS S3, MinIO, Cloudflare R2)
-- SQLite database with full-text search
-- Public web UI for browsing and searching archives
-- Automatic HTTPS with Let's Encrypt certificates
-- Wayback Machine submission for redundancy
-- Optional IPFS pinning for decentralized storage
-- Manual URL submission form with rate limiting
+### Archiving Engine
+
+**Supported Platforms:**
+- Reddit (posts, comments, galleries, videos)
+- YouTube (videos, playlists, live streams, shorts)
+- TikTok (videos with metadata)
+- Twitter/X (tweets, quoted tweets, reply chains)
+- Instagram (posts, reels, stories)
+- Imgur (images and albums)
+- Bluesky (posts and threads)
+- Streamable (videos)
+- Generic fallback for any URL
+
+**Archive Artifacts:**
+- Video downloads via yt-dlp (best quality with subtitles/transcripts)
+- Images via gallery-dl with metadata
+- Self-contained HTML archives (Monolith, MHTML)
+- Screenshots and PDF snapshots
+- Comments extraction (YouTube, Reddit, TikTok, Twitter)
+- Platform metadata (JSON format)
+
+**Advanced Archiving:**
+- Video deduplication (canonical storage with references)
+- Perceptual hashing for content deduplication
+- Real-time download progress tracking
+- Automatic NSFW detection and tagging
+- Retry logic with exponential backoff
+- Per-domain rate limiting
+- Cookie support for authenticated downloads
+- Playlist archiving support
+
+### RSS Feed Processing
+
+- Automatic RSS polling with configurable intervals
+- Multi-page feed fetching
+- New post detection and edit monitoring
+- Smart link extraction with quote detection
+- Quote-only policy (skip links only in quotes)
+- URL normalization and redirect resolution
+- Thread-level archiving via RSS
+
+### Web Interface
+
+**Browse & Discover:**
+- Recent archives grid with card-based layout
+- All archives table view (high-density, 1000 items/page)
+- Failed archives monitoring
+- Thread view (archives grouped by Discourse thread)
+- Post view (archives from specific posts)
+- Site browsing (filter by domain)
+- Statistics dashboard
+
+**Search & Filter:**
+- Full-text search (FTS5) across titles, authors, content
+- Content type filters (video, image, gallery, text, thread, playlist)
+- Source filters (Reddit, YouTube, TikTok, Twitter/X)
+- Status filters (complete, failed, pending, processing, skipped)
+- Combined filter preservation across pagination
+
+**Interactive Features:**
+- Comment system with threaded replies
+- Comment reactions (helpful votes)
+- Comment edit history tracking
+- Pin important comments (admin)
+- Re-archive and retry failed archives
+- NSFW toggle for content
+- Archive comparison (text diff between versions)
+- Manual URL submission form
+- Bulk thread archiving
+
+**Export & Feeds:**
+- RSS/Atom feeds of recent archives
+- Bulk ZIP export by domain with metadata manifest
+- API endpoints (JSON, search, comments)
+
+### User Management & Security
+
+**Authentication:**
+- Self-service registration with admin approval
+- Session-based authentication with CSRF protection
+- Password hashing (bcrypt)
+- Account lockout after failed login attempts
+- Discourse forum account linking via verification
+
+**Admin Features:**
+- User management panel (approve, revoke, promote, deactivate)
+- Role-based access control
+- Excluded domains configuration
+- Audit logging
+- Comment moderation
+- Per-user archive filtering
+
+**Security:**
+- Rate limiting on submissions (per IP/user)
+- Secure session management
+- IP logging with proxy header support
+- X-No-Archive header support
+
+### Storage & Redundancy
+
+**S3-Compatible Storage:**
+- AWS S3, MinIO, Cloudflare R2 support
+- Custom endpoint configuration
+- Streaming uploads for large files
+- Configurable prefixes and regions
+- Public URL serving via `/s3/*` proxy
+
+**Database:**
+- SQLite with WAL mode
+- FTS5 full-text search
+- Automated schema migrations
+- Foreign key constraints
+- Optimized indexes
+
+**Backups:**
+- Automatic database backups to S3
+- zstd compression
+- Configurable retention policy
+- Hourly scheduling
+
+**External Archives:**
+- Wayback Machine submission with rate limiting
+- Archive.today submission
+- Optional IPFS pinning with multi-gateway support
+
+### Production Ready
+
+**TLS/HTTPS:**
+- Automatic Let's Encrypt certificates (ACME protocol)
+- Multi-domain support
+- HTTP to HTTPS redirect
+- Certificate auto-renewal
+- Staging mode for testing
+
+**Monitoring:**
+- Health check endpoint (`/healthz`)
+- Structured logging (JSON or pretty format)
+- Queue inspection (debug mode)
+- Worker statistics tracking
+- Request tracing with client IPs
+
+**Configuration:**
+- Environment variable based
+- Optional TOML config files
+- Comprehensive defaults
+- Validation on startup
+
+**Deployment:**
+- Docker Compose setup with MinIO
+- Systemd service files
+- Multi-distribution install scripts (Ubuntu, Fedora, Arch, Alpine, openSUSE)
+- Low-downtime update scripts
 
 ## Requirements
 
