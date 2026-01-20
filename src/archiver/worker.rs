@@ -148,14 +148,22 @@ impl ArchiveWorker {
         .await
         .unwrap_or(true);
 
-        if !needs_subtitles && !needs_transcript {
+        let needs_comments =
+            !has_artifact_kind(self.db.pool(), archive_id, ArtifactKind::Comments.as_str())
+                .await
+                .unwrap_or(true);
+
+        if !needs_subtitles && !needs_transcript && !needs_comments {
             info!(archive_id, "No missing artifacts to fetch");
             return Ok(());
         }
 
         info!(
             archive_id,
-            needs_subtitles, needs_transcript, "Downloading missing supplementary artifacts"
+            needs_subtitles,
+            needs_transcript,
+            needs_comments,
+            "Downloading missing supplementary artifacts"
         );
 
         // Create a temporary work directory
@@ -172,14 +180,17 @@ impl ArchiveWorker {
             browser_profile: self.config.yt_dlp_cookies_from_browser.as_deref(),
         };
 
-        // Download supplementary artifacts (subtitles, transcripts)
+        // Download supplementary artifacts (subtitles, transcripts, comments)
+        let should_download_comments =
+            self.config.comments_enabled && link.domain.contains("tiktok.com") && needs_comments;
+
         let result = super::ytdlp::download_supplementary_artifacts(
             &link.normalized_url,
             &work_dir,
             &cookies,
             &self.config,
             needs_subtitles,
-            false, // don't download comments for now
+            should_download_comments,
         )
         .await
         .context("Failed to download supplementary artifacts")?;
@@ -211,8 +222,80 @@ impl ArchiveWorker {
                 info!(
                     archive_id,
                     count = subtitle_files.len(),
-                    "Successfully fetched missing artifacts"
+                    "Successfully fetched subtitle artifacts"
                 );
+            }
+
+            // Process comments.json if present
+            let comments_file = result
+                .extra_files
+                .iter()
+                .find(|f| f.ends_with("comments.json"));
+
+            if let Some(comments_filename) = comments_file {
+                let comments_path = work_dir.join(comments_filename);
+                if comments_path.exists() {
+                    let s3_prefix = format!("archives/{}/", archive_id);
+                    let s3_key = format!("{}comments.json", s3_prefix);
+
+                    // Read comment stats from JSON for metadata
+                    let comment_stats = tokio::fs::read_to_string(&comments_path)
+                        .await
+                        .ok()
+                        .and_then(|content| {
+                            serde_json::from_str::<serde_json::Value>(&content).ok()
+                        })
+                        .and_then(|json| json.get("stats").cloned());
+
+                    // Upload to S3
+                    match self
+                        .s3
+                        .upload_file(&comments_path, &s3_key, Some(archive_id))
+                        .await
+                    {
+                        Ok(_) => {
+                            let size = comments_path.metadata().ok().map(|m| m.len() as i64);
+
+                            // Prepare metadata JSON
+                            let metadata_json = comment_stats.map(|stats| {
+                                serde_json::json!({
+                                    "stats": stats,
+                                    "platform": "tiktok"
+                                })
+                                .to_string()
+                            });
+
+                            // Insert artifact with Comments kind
+                            if let Err(e) = crate::db::insert_artifact_with_metadata(
+                                self.db.pool(),
+                                archive_id,
+                                ArtifactKind::Comments.as_str(),
+                                &s3_key,
+                                Some("application/json"),
+                                size,
+                                None, // sha256
+                                metadata_json.as_deref(),
+                            )
+                            .await
+                            {
+                                error!(
+                                    archive_id,
+                                    error = %e,
+                                    "Failed to insert comments artifact"
+                                );
+                            } else {
+                                info!(archive_id, "Successfully uploaded comments artifact");
+                            }
+                        }
+                        Err(e) => {
+                            error!(
+                                archive_id,
+                                error = %e,
+                                "Failed to upload comments.json to S3"
+                            );
+                        }
+                    }
+                }
             }
         } else {
             warn!(

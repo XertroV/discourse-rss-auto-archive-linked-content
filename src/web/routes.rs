@@ -506,8 +506,7 @@ async fn get_missing_artifacts(
     Path(id): Path<i64>,
     RequireAdmin(_admin): RequireAdmin,
 ) -> Response {
-    use crate::archiver::{ytdlp, CookieOptions};
-    use crate::db::{has_artifact_kind, ArtifactKind};
+    use crate::db::{has_artifact_kind, ArchiveJobType, ArtifactKind};
 
     let archive_id = id;
 
@@ -1934,8 +1933,8 @@ async fn api_archive_progress(State(state): State<AppState>, Path(id): Path<i64>
 async fn api_archive_comments(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
     use axum::http::header;
 
-    // Get archive
-    let archive = match get_archive(state.db.pool(), id).await {
+    // Get archive (to verify it exists)
+    let _archive = match get_archive(state.db.pool(), id).await {
         Ok(Some(a)) => a,
         Ok(None) => {
             return (StatusCode::NOT_FOUND, "Archive not found").into_response();
