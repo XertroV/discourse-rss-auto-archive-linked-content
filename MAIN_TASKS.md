@@ -398,6 +398,7 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [ ] Admin UI: list users, approve users, promote/demote admins, reset passwords, view audit log
 - [ ] UI and templates should use/extend the shadcn-inspired styles in static/css/style.css (login, registration, profile, admin views)
 - [ ] Tests: unit and integration coverage for registration, approval, login, session handling, role checks, and password changes
+- [ ] Approved users can toggle NSFW status on archived posts (should show in audit log)
 
 ## Discovered Tasks
 
@@ -478,6 +479,19 @@ Database-backed video deduplication system to store each video once and referenc
 - [x] Add video_id extraction to handlers: YouTube, TikTok, Streamable, Twitter, Reddit
 - [x] Add comprehensive database tests for video file operations
 - [x] Eliminates redundant storage on S3 (same video from different posts stored once)
+
+### YouTube Transcripts & Subtitles
+- [ ] Request English subtitles (manual and auto) in YouTube handler via yt-dlp (`--write-subs --write-auto-subs --sub-lang en --sub-format vtt`) and surface subtitle metadata in ArchiveResult
+- [ ] Store subtitle artifacts separately (manual vs auto) with consistent S3 keys and artifact types; persist size, language, and kind in database records
+- [ ] Add transcript build job that prefers manual subtitles (fallback to auto), flattens subtitle cues into a readable transcript with timestamps, and uploads as its own artifact
+- [ ] Wire subtitle download and transcript build into archive worker/job tracking so YouTube archives enqueue transcript generation post-download without blocking video completion
+- [ ] Render transcript on archive detail page as an auto-collapsed section (similar to plaintext content) with download links for manual/auto subtitle files when available
+- [ ] Tests: YouTube handler requests subtitles, worker uploads subtitle/transcript artifacts, and web route renders transcript section when data exists
+- [ ] Multi-language subs: download English tracks (manual and auto) plus the video's original language track when not English; label and store per-language artifacts
+- [ ] Better formats: store both VTT and SRT for subtitle tracks; normalize filenames/S3 keys for consistency across archives (use s3 filename aliasing feature used for videos if appropriate)
+- [ ] Quality/recency checks: record track source (manual/auto) and revision date if available; prefer freshest manual track, then manual, then auto when building transcript
+- [ ] Resilience: retry/fallback when subtitles are missing or throttled; mark subtitle/transcript jobs as "subtitle-missing" without failing video archive
+- [ ] UI polish: add per-cue timestamp links in transcript viewer to jump playback; support keyword highlighting and keep section auto-collapsed by default
 
 ### Future Improvements
 - [x] Request largest RSS feed size via GET parameters (implemented via RSS_MAX_PAGES pagination)
