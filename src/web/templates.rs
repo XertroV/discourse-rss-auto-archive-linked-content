@@ -193,29 +193,77 @@ fn base_layout(title: &str, content: &str) -> String {
             // NSFW toggle
             var nsfwToggle = document.getElementById('nsfw-toggle');
             if (nsfwToggle) {{
-                // Initialize button state
-                var nsfwEnabled = localStorage.getItem('nsfw_enabled') === 'true';
-                if (nsfwEnabled) {{
-                    document.body.classList.remove('nsfw-hidden');
-                    nsfwToggle.classList.add('active');
-                }} else {{
-                    document.body.classList.add('nsfw-hidden');
-                    nsfwToggle.classList.remove('active');
-                }}
+                var getNsfwEnabled = function() {{
+                    return localStorage.getItem('nsfw_enabled') === 'true';
+                }};
 
-                nsfwToggle.addEventListener('click', function() {{
-                    var isEnabled = localStorage.getItem('nsfw_enabled') === 'true';
+                var countNsfwItems = function() {{
+                    return document.querySelectorAll('article[data-nsfw="true"]').length;
+                }};
+
+                var updateNsfwTooltip = function(isEnabled) {{
+                    var count = countNsfwItems();
+                    var countText = count === 0
+                        ? 'no NSFW items on this page'
+                        : (count === 1
+                            ? '1 NSFW item on this page'
+                            : count + ' NSFW items on this page');
+                    var actionText = isEnabled ? 'Hide NSFW items' : 'Show NSFW items';
+                    var label = actionText + ' (' + countText + ')';
+                    nsfwToggle.title = label;
+                    nsfwToggle.setAttribute('aria-label', label);
+                }};
+
+                var applyNsfwState = function(isEnabled) {{
                     if (isEnabled) {{
-                        // Disable NSFW content
-                        localStorage.setItem('nsfw_enabled', 'false');
-                        document.body.classList.add('nsfw-hidden');
-                        nsfwToggle.classList.remove('active');
-                    }} else {{
-                        // Enable NSFW content
-                        localStorage.setItem('nsfw_enabled', 'true');
                         document.body.classList.remove('nsfw-hidden');
                         nsfwToggle.classList.add('active');
+                    }} else {{
+                        document.body.classList.add('nsfw-hidden');
+                        nsfwToggle.classList.remove('active');
                     }}
+
+                    updateNsfwTooltip(isEnabled);
+                }};
+
+                // Initialize button state and tooltip
+                applyNsfwState(getNsfwEnabled());
+
+                nsfwToggle.addEventListener('click', function() {{
+                    var nextEnabled = !getNsfwEnabled();
+                    localStorage.setItem('nsfw_enabled', nextEnabled ? 'true' : 'false');
+                    applyNsfwState(nextEnabled);
+                }});
+
+                // Option A: update tooltip dynamically when page content changes
+                var tooltipUpdateScheduled = false;
+                var scheduleTooltipUpdate = function() {{
+                    if (tooltipUpdateScheduled) {{
+                        return;
+                    }}
+                    tooltipUpdateScheduled = true;
+                    var scheduleFn = window.requestAnimationFrame || function(cb) {{ return window.setTimeout(cb, 0); }};
+                    scheduleFn(function() {{
+                        tooltipUpdateScheduled = false;
+                        updateNsfwTooltip(getNsfwEnabled());
+                    }});
+                }};
+
+                var nsfwObserver = new MutationObserver(function(mutationsList) {{
+                    for (var i = 0; i < mutationsList.length; i++) {{
+                        var mutation = mutationsList[i];
+                        if (mutation.type === 'childList' || mutation.type === 'attributes') {{
+                            scheduleTooltipUpdate();
+                            break;
+                        }}
+                    }}
+                }});
+
+                nsfwObserver.observe(document.body, {{
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['data-nsfw']
                 }});
             }}
         }})();

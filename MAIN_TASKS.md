@@ -526,3 +526,4 @@ Database-backed video deduplication system to store each video once and referenc
 - [x] NSFW detection for Reddit posts/comments (metadata-based, not just subreddit)
 - [x] Handle direct Reddit media URLs (i.redd.it images, v.redd.it videos)
 - [x] More specific NSFW HTML detection (avoid false positives from user comments)
+- [x] Add 18+ toggle tooltip with live NSFW count (updates via mutation observer)
