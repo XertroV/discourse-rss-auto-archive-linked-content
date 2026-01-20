@@ -1392,38 +1392,59 @@ pre {
 
 .archives-table td {
     padding: var(--spacing-sm) var(--spacing-md);
-    vertical-align: middle;
+    vertical-align: top;
 }
 
 /* Column-specific styles */
-.archives-table td:nth-child(1) {
+.archives-table td:nth-child(1),
+.archives-table th:nth-child(1) {
     /* ID column */
     width: 80px;
+}
+
+.archives-table td:nth-child(1) {
     font-family: 'Courier New', monospace;
     color: var(--text-muted);
     font-size: var(--font-size-xs);
 }
 
-.archives-table td:nth-child(2) {
+.archives-table td:nth-child(2),
+.archives-table th:nth-child(2) {
     /* Type column */
     width: 100px;
 }
 
+.archives-table td:nth-child(3),
+.archives-table th:nth-child(3) {
+    /* Title column - wide with wrapping, no truncation */
+    min-width: 45vw;
+}
+
 .archives-table td:nth-child(3) {
-    /* Title column */
-    min-width: 200px;
-    max-width: 400px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.archives-table td:nth-child(4),
+.archives-table th:nth-child(4) {
+    /* URL column - narrower with truncation */
+    width: 250px;
 }
 
 .archives-table td:nth-child(4) {
-    /* URL column */
     font-family: 'Courier New', monospace;
     font-size: var(--font-size-xs);
     color: var(--text-muted);
-    max-width: 400px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* Wider container for All Archives page */
+.all-archives-container {
+    width: 100%;
+    max-width: 1600px;
+    margin: 0 auto;
 }
 
 /* Dark mode adjustments */

@@ -23,45 +23,47 @@ pub struct AllArchivesPageParams<'a> {
 #[must_use]
 pub fn render_all_archives_table_page(params: &AllArchivesPageParams) -> Markup {
     let content = html! {
-        h1 { "All Archives" }
+        div class="all-archives-container" {
+            h1 { "All Archives" }
 
-        p class="text-muted" {
-            "Browse all archives in a table format. Use Ctrl+F to search within the current page."
-        }
+            p class="text-muted" {
+                "Browse all archives in a table format. Use Ctrl+F to search within the current page."
+            }
 
-        // Pagination at top
-        @if params.total_pages > 1 {
-            (Pagination::new(params.page, params.total_pages, "/archives/all")
-                .with_content_type_filter(params.content_type_filter)
-                .with_source_filter(params.source_filter))
-        }
+            // Pagination at top
+            @if params.total_pages > 1 {
+                (Pagination::new(params.page, params.total_pages, "/archives/all")
+                    .with_content_type_filter(params.content_type_filter)
+                    .with_source_filter(params.source_filter))
+            }
 
-        // Table
-        @if params.archives.is_empty() {
-            p class="text-muted" { "No archives found." }
-        } @else {
-            table class="archives-table" {
-                thead {
-                    tr {
-                        th { "ID" }
-                        th { "Type" }
-                        th { "Title" }
-                        th { "URL" }
+            // Table
+            @if params.archives.is_empty() {
+                p class="text-muted" { "No archives found." }
+            } @else {
+                table class="archives-table" {
+                    thead {
+                        tr {
+                            th { "ID" }
+                            th { "Type" }
+                            th { "Title" }
+                            th { "URL" }
+                        }
                     }
-                }
-                tbody {
-                    @for archive in params.archives {
-                        (render_archive_table_row(archive))
+                    tbody {
+                        @for archive in params.archives {
+                            (render_archive_table_row(archive))
+                        }
                     }
                 }
             }
-        }
 
-        // Pagination at bottom
-        @if params.total_pages > 1 {
-            (Pagination::new(params.page, params.total_pages, "/archives/all")
-                .with_content_type_filter(params.content_type_filter)
-                .with_source_filter(params.source_filter))
+            // Pagination at bottom
+            @if params.total_pages > 1 {
+                (Pagination::new(params.page, params.total_pages, "/archives/all")
+                    .with_content_type_filter(params.content_type_filter)
+                    .with_source_filter(params.source_filter))
+            }
         }
     };
 
@@ -89,48 +91,15 @@ fn render_archive_table_row(archive: &ArchiveDisplay) -> Markup {
                 }
             }
             td class="url-cell" title=(archive.original_url) {
-                (truncate_url(&archive.original_url, 80))
+                (archive.original_url)
             }
         }
-    }
-}
-
-/// Truncate a URL to a maximum length, adding "..." if truncated.
-fn truncate_url(url: &str, max_len: usize) -> String {
-    if url.len() <= max_len {
-        url.to_string()
-    } else {
-        format!("{}...", &url[..max_len])
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_truncate_url_short() {
-        assert_eq!(
-            truncate_url("https://example.com", 80),
-            "https://example.com"
-        );
-    }
-
-    #[test]
-    fn test_truncate_url_long() {
-        let long_url =
-            "https://example.com/very/long/path/that/exceeds/eighty/characters/and/should/be/truncated/now";
-        let result = truncate_url(long_url, 80);
-        assert_eq!(result.len(), 83); // 80 + "..."
-        assert!(result.ends_with("..."));
-        assert!(result.starts_with("https://example.com"));
-    }
-
-    #[test]
-    fn test_truncate_url_exact() {
-        let url = "a".repeat(80);
-        assert_eq!(truncate_url(&url, 80), url);
-    }
 
     #[test]
     fn test_render_archive_table_row() {
