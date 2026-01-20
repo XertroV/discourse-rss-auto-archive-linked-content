@@ -1018,7 +1018,7 @@ impl Config {
             twitter_archive_quoted: true,
             twitter_html_snapshot: true,
             twitter_max_quote_depth: 10,
-            comments_enabled: false,
+            comments_enabled: true,
             comments_max_count: 1000,
             comments_include_replies: true,
             comments_platforms: vec![

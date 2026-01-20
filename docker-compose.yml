@@ -45,6 +45,15 @@ services:
       ARCHIVE_MODE: ${ARCHIVE_MODE:-deletable}
       ARCHIVE_QUOTE_ONLY_LINKS: ${ARCHIVE_QUOTE_ONLY_LINKS:-false}
 
+      # Comment Extraction (enabled by default)
+      # Extract and archive platform comments (YouTube, TikTok, Twitter, Instagram)
+      COMMENTS_ENABLED: ${COMMENTS_ENABLED:-true}
+      COMMENTS_MAX_COUNT: ${COMMENTS_MAX_COUNT:-1000}
+      COMMENTS_INCLUDE_REPLIES: ${COMMENTS_INCLUDE_REPLIES:-true}
+      # Comma-separated list: youtube,tiktok,twitter,instagram,reddit
+      COMMENTS_PLATFORMS: ${COMMENTS_PLATFORMS:-youtube,tiktok,twitter,instagram}
+      COMMENTS_MAX_DEPTH: ${COMMENTS_MAX_DEPTH:-3}
+
       # Web Server
       WEB_HOST: 0.0.0.0
       WEB_PORT: 8080
