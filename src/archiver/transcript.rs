@@ -195,10 +195,14 @@ fn parse_timestamp_line(line: &str) -> Option<(f64, f64)> {
 
 /// Parse a VTT timestamp like "00:00:10.500" to seconds.
 fn parse_vtt_timestamp(timestamp: &str) -> Option<f64> {
-    // VTT format: HH:MM:SS.mmm or MM:SS.mmm
+    // VTT format: HH:MM:SS.mmm or MM:SS.mmm or SS.mmm (for very short videos)
     let parts: Vec<&str> = timestamp.split(':').collect();
 
     match parts.len() {
+        1 => {
+            // SS.mmm (just seconds)
+            parts[0].parse().ok()
+        }
         2 => {
             // MM:SS.mmm
             let minutes: f64 = parts[0].parse().ok()?;
@@ -319,10 +323,16 @@ mod tests {
 
     #[test]
     fn test_parse_vtt_timestamp() {
+        // HH:MM:SS.mmm format
         assert_eq!(parse_vtt_timestamp("00:00:10.500"), Some(10.5));
         assert_eq!(parse_vtt_timestamp("00:01:30.250"), Some(90.25));
         assert_eq!(parse_vtt_timestamp("01:23:45.000"), Some(5025.0));
+        // MM:SS.mmm format (without hours)
+        assert_eq!(parse_vtt_timestamp("00:10.500"), Some(10.5));
+        assert_eq!(parse_vtt_timestamp("01:30.000"), Some(90.0));
+        // SS.mmm format (just seconds, for very short videos)
         assert_eq!(parse_vtt_timestamp("10.500"), Some(10.5));
+        assert_eq!(parse_vtt_timestamp("45.0"), Some(45.0));
     }
 
     #[test]
