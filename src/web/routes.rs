@@ -1432,11 +1432,12 @@ async fn submit_thread(
         return Html(html).into_response();
     }
 
-    // Clean the URL: remove query string and fragment
+    // Clean the URL: remove query string, fragment, and post number
     let clean_url = {
         let mut clean = parsed_url.clone();
         clean.set_query(None);
         clean.set_fragment(None);
+        normalize_discourse_thread_url(&mut clean);
         clean.to_string().trim_end_matches('/').to_string()
     };
 
@@ -1529,6 +1530,27 @@ fn domains_match_for_thread(domain1: &str, domain2: &str) -> bool {
     let d1 = d1.strip_prefix("www.").unwrap_or(&d1);
     let d2 = d2.strip_prefix("www.").unwrap_or(&d2);
     d1 == d2
+}
+
+/// Normalize a Discourse thread URL by removing post numbers from the path.
+///
+/// Discourse URLs can include a post number: `/t/{slug}/{thread_id}/{post_number}`
+/// We want to normalize to: `/t/{slug}/{thread_id}`
+fn normalize_discourse_thread_url(url: &mut url::Url) {
+    let path = url.path();
+    let segments: Vec<&str> = path.split('/').collect();
+
+    // If we have 5+ segments (empty, "t", slug, thread_id, post_number, ...)
+    // and the last segment is numeric, remove it
+    if segments.len() >= 5 && segments[1] == "t" {
+        if let Some(last_segment) = segments.last() {
+            if last_segment.parse::<u32>().is_ok() {
+                // Remove the last segment (post number)
+                let new_path = segments[..segments.len() - 1].join("/");
+                url.set_path(&new_path);
+            }
+        }
+    }
 }
 
 /// Show thread archive job status page.
@@ -2284,5 +2306,107 @@ async fn comment_history_handler(
             )
                 .into_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_discourse_thread_url_with_post_number() {
+        let mut url = url::Url::parse("https://discuss.example.com/t/topic-name/1491/16").unwrap();
+        normalize_discourse_thread_url(&mut url);
+        assert_eq!(
+            url.as_str(),
+            "https://discuss.example.com/t/topic-name/1491"
+        );
+    }
+
+    #[test]
+    fn test_normalize_discourse_thread_url_without_post_number() {
+        let mut url = url::Url::parse("https://discuss.example.com/t/topic-name/1491").unwrap();
+        normalize_discourse_thread_url(&mut url);
+        assert_eq!(
+            url.as_str(),
+            "https://discuss.example.com/t/topic-name/1491"
+        );
+    }
+
+    #[test]
+    fn test_normalize_discourse_thread_url_with_query_and_fragment() {
+        let mut url =
+            url::Url::parse("https://discuss.example.com/t/topic-name/1491/16?foo=bar#reply")
+                .unwrap();
+        normalize_discourse_thread_url(&mut url);
+        // The function only removes post number, not query/fragment
+        assert_eq!(
+            url.as_str(),
+            "https://discuss.example.com/t/topic-name/1491?foo=bar#reply"
+        );
+    }
+
+    #[test]
+    fn test_normalize_discourse_thread_url_non_discourse_url() {
+        let mut url = url::Url::parse("https://example.com/some/path/123").unwrap();
+        normalize_discourse_thread_url(&mut url);
+        // Should not modify non-Discourse URLs
+        assert_eq!(url.as_str(), "https://example.com/some/path/123");
+    }
+
+    #[test]
+    fn test_normalize_discourse_thread_url_with_large_post_number() {
+        let mut url =
+            url::Url::parse("https://discuss.example.com/t/topic-name/1491/999999").unwrap();
+        normalize_discourse_thread_url(&mut url);
+        assert_eq!(
+            url.as_str(),
+            "https://discuss.example.com/t/topic-name/1491"
+        );
+    }
+
+    #[test]
+    fn test_normalize_discourse_thread_url_with_trailing_slash() {
+        let mut url = url::Url::parse("https://discuss.example.com/t/topic-name/1491/16/").unwrap();
+        normalize_discourse_thread_url(&mut url);
+        assert_eq!(
+            url.as_str(),
+            "https://discuss.example.com/t/topic-name/1491/"
+        );
+    }
+
+    #[test]
+    fn test_normalize_discourse_thread_url_slug_with_numeric_ending() {
+        // Slug ends with number - shouldn't be removed
+        let mut url = url::Url::parse("https://discuss.example.com/t/topic-name-123/1491").unwrap();
+        normalize_discourse_thread_url(&mut url);
+        assert_eq!(
+            url.as_str(),
+            "https://discuss.example.com/t/topic-name-123/1491"
+        );
+    }
+
+    #[test]
+    fn test_domains_match_for_thread() {
+        assert!(domains_match_for_thread(
+            "discuss.example.com",
+            "discuss.example.com"
+        ));
+        assert!(domains_match_for_thread(
+            "www.discuss.example.com",
+            "discuss.example.com"
+        ));
+        assert!(domains_match_for_thread(
+            "discuss.example.com",
+            "www.discuss.example.com"
+        ));
+        assert!(domains_match_for_thread(
+            "Discuss.Example.COM",
+            "discuss.example.com"
+        ));
+        assert!(!domains_match_for_thread(
+            "discuss.example.com",
+            "other.example.com"
+        ));
     }
 }

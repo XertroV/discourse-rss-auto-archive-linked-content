@@ -81,7 +81,7 @@ pub use media::{
 pub use pagination::Pagination;
 
 // Re-export tab components
-pub use tabs::{archive_list_tabs, ArchiveTab, Tab, TabGroup};
+pub use tabs::{archive_list_tabs, ArchiveTab, ContentTab, ContentTabs, Tab, TabGroup};
 
 /// Re-export maud for convenience
 pub use maud::{html, Markup, PreEscaped, DOCTYPE};

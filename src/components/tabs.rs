@@ -1,9 +1,11 @@
 //! Tab components for navigation between related views.
 //!
 //! This module provides reusable tab components for creating
-//! tabbed navigation interfaces.
+//! tabbed navigation interfaces. Includes both link-based tabs for
+//! navigation between pages and content tabs for showing/hiding
+//! panels on the same page.
 
-use maud::{html, Markup, Render};
+use maud::{html, Markup, PreEscaped, Render};
 
 /// A single tab in a tab group.
 #[derive(Debug, Clone)]
@@ -303,5 +305,214 @@ mod tests {
 
         // No count badge when count is 0
         assert!(!html.contains("archive-tab-count"));
+    }
+}
+
+// ==================== Content Tabs ====================
+// These are JavaScript-powered tabs that show/hide content panels
+// on the same page without navigation.
+
+/// JavaScript for content tab switching functionality.
+/// This is shared across all content tab instances.
+const CONTENT_TAB_SCRIPT: &str = r#"
+function showTab(tabId, btn) {
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-nav button').forEach(b => b.classList.remove('active'));
+    document.getElementById(tabId).classList.add('active');
+    btn.classList.add('active');
+}
+"#;
+
+/// A content tab panel with associated button.
+#[derive(Debug, Clone)]
+pub struct ContentTab {
+    /// Unique ID for this tab's content panel.
+    pub id: String,
+    /// Display label for the tab button.
+    pub label: String,
+    /// Whether this tab is initially active.
+    pub active: bool,
+    /// The content to display in this tab panel.
+    pub content: Markup,
+}
+
+impl ContentTab {
+    /// Create a new content tab.
+    #[must_use]
+    pub fn new(id: &str, label: &str, content: Markup) -> Self {
+        Self {
+            id: id.to_string(),
+            label: label.to_string(),
+            active: false,
+            content,
+        }
+    }
+
+    /// Mark this tab as active.
+    #[must_use]
+    pub fn active(mut self) -> Self {
+        self.active = true;
+        self
+    }
+}
+
+/// A group of content tabs with navigation and panels.
+///
+/// # Example
+///
+/// ```ignore
+/// use crate::components::ContentTabs;
+///
+/// let tabs = ContentTabs::new()
+///     .tab("profile-tab", "Profile", html! { p { "Profile content" } }, true)
+///     .tab("settings-tab", "Settings", html! { p { "Settings content" } }, false);
+///
+/// html! {
+///     (tabs)
+/// }
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct ContentTabs {
+    tabs: Vec<ContentTab>,
+}
+
+impl ContentTabs {
+    /// Create a new empty content tabs component.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { tabs: Vec::new() }
+    }
+
+    /// Add a tab with its content.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Unique ID for this tab (used in HTML id attribute)
+    /// * `label` - Display text for the tab button
+    /// * `content` - The markup to display when this tab is active
+    /// * `active` - Whether this tab should be initially active
+    #[must_use]
+    pub fn tab(mut self, id: &str, label: &str, content: Markup, active: bool) -> Self {
+        let tab = if active {
+            ContentTab::new(id, label, content).active()
+        } else {
+            ContentTab::new(id, label, content)
+        };
+        self.tabs.push(tab);
+        self
+    }
+
+    /// Add a pre-configured content tab.
+    #[must_use]
+    pub fn push_tab(mut self, tab: ContentTab) -> Self {
+        self.tabs.push(tab);
+        self
+    }
+}
+
+impl Render for ContentTabs {
+    fn render(&self) -> Markup {
+        html! {
+            // Tab navigation
+            nav class="tab-nav" {
+                @for tab in &self.tabs {
+                    @let class_attr = if tab.active { "active" } else { "" };
+                    @let onclick_attr = format!("showTab('{}', this)", tab.id);
+                    button type="button" class=(class_attr) onclick=(onclick_attr) {
+                        (tab.label)
+                    }
+                }
+            }
+
+            // Tab switching script (only included once)
+            script { (PreEscaped(CONTENT_TAB_SCRIPT)) }
+
+            // Tab content panels
+            @for tab in &self.tabs {
+                @let content_class = if tab.active { "tab-content active" } else { "tab-content" };
+                div id=(tab.id.as_str()) class=(content_class) {
+                    (tab.content)
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod content_tabs_tests {
+    use super::*;
+
+    #[test]
+    fn test_content_tab_new() {
+        let tab = ContentTab::new("test-id", "Test Label", html! { p { "Content" } });
+        assert_eq!(tab.id, "test-id");
+        assert_eq!(tab.label, "Test Label");
+        assert!(!tab.active);
+    }
+
+    #[test]
+    fn test_content_tab_active() {
+        let tab = ContentTab::new("test", "Test", html! {}).active();
+        assert!(tab.active);
+    }
+
+    #[test]
+    fn test_content_tabs_empty() {
+        let tabs = ContentTabs::new();
+        assert!(tabs.tabs.is_empty());
+    }
+
+    #[test]
+    fn test_content_tabs_single_tab() {
+        let tabs = ContentTabs::new().tab("tab1", "First Tab", html! { p { "Content 1" } }, true);
+
+        let html_output = tabs.render().into_string();
+        assert!(html_output.contains("tab-nav"));
+        assert!(html_output.contains("First Tab"));
+        assert!(html_output.contains("id=\"tab1\""));
+        assert!(html_output.contains("tab-content active"));
+        assert!(html_output.contains("Content 1"));
+    }
+
+    #[test]
+    fn test_content_tabs_multiple_tabs() {
+        let tabs = ContentTabs::new()
+            .tab("tab1", "First", html! { p { "Content 1" } }, true)
+            .tab("tab2", "Second", html! { p { "Content 2" } }, false);
+
+        let html_output = tabs.render().into_string();
+
+        // Check both tab buttons exist
+        assert!(html_output.contains("First"));
+        assert!(html_output.contains("Second"));
+
+        // Check first tab is active
+        assert!(html_output.contains("class=\"active\""));
+
+        // Check both content panels exist
+        assert!(html_output.contains("id=\"tab1\""));
+        assert!(html_output.contains("id=\"tab2\""));
+        assert!(html_output.contains("Content 1"));
+        assert!(html_output.contains("Content 2"));
+    }
+
+    #[test]
+    fn test_content_tabs_script_included() {
+        let tabs = ContentTabs::new().tab("tab1", "Tab", html! { p { "Test" } }, true);
+
+        let html_output = tabs.render().into_string();
+        assert!(html_output.contains("function showTab"));
+        assert!(html_output.contains("classList.remove('active')"));
+    }
+
+    #[test]
+    fn test_content_tabs_onclick_handlers() {
+        let tabs = ContentTabs::new()
+            .tab("url-tab", "URL", html! {}, true)
+            .tab("thread-tab", "Thread", html! {}, false);
+
+        let html_output = tabs.render().into_string();
+        assert!(html_output.contains("onclick=\"showTab('url-tab', this)\""));
+        assert!(html_output.contains("onclick=\"showTab('thread-tab', this)\""));
     }
 }

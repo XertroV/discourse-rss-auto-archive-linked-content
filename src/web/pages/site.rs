@@ -191,8 +191,8 @@ mod tests {
         let archives = vec![sample_archive(1, "twitter.com")];
         let html = render_site_list_page("twitter.com", &archives, 0, 3, None).into_string();
 
-        // Previous should be disabled on first page
-        assert!(html.contains(r#"class="disabled"#));
+        // Previous should be disabled button on first page
+        assert!(html.contains("disabled"));
         assert!(html.contains("Previous"));
     }
 

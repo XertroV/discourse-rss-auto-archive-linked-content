@@ -5,55 +5,10 @@
 //! - Success message after submission
 //! - Error message for failed submissions
 
-use maud::{html, Markup, PreEscaped, Render};
+use maud::{html, Markup, Render};
 
-use crate::components::{Alert, BaseLayout, Button, Form, FormHelp, Input, Label};
+use crate::components::{Alert, BaseLayout, Button, ContentTabs, Form, FormHelp, Input, Label};
 use crate::db::User;
-
-/// CSS styles for the tab navigation.
-///
-/// These styles are embedded inline to ensure they work even if the main
-/// stylesheet hasn't loaded yet.
-const TAB_STYLES: &str = r#"
-.tab-nav {
-    display: flex;
-    gap: var(--spacing-xs, 0.25rem);
-    margin-bottom: var(--spacing-md, 1rem);
-    border-bottom: 1px solid var(--border, #e4e4e7);
-}
-.tab-nav button {
-    padding: var(--spacing-sm, 0.5rem) var(--spacing-md, 1rem);
-    border: none;
-    background: none;
-    cursor: pointer;
-    color: var(--foreground-muted, #71717a);
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-}
-.tab-nav button.active {
-    color: var(--primary, #ec4899);
-    border-bottom-color: var(--primary, #ec4899);
-}
-.tab-nav button:hover:not(.active) {
-    color: var(--foreground, #18181b);
-}
-.tab-content {
-    display: none;
-}
-.tab-content.active {
-    display: block;
-}
-"#;
-
-/// JavaScript for tab switching functionality.
-const TAB_SCRIPT: &str = r#"
-function showTab(tabId, btn) {
-    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-nav button').forEach(b => b.classList.remove('active'));
-    document.getElementById(tabId).classList.add('active');
-    btn.classList.add('active');
-}
-"#;
 
 /// Parameters for rendering the submit form page.
 #[derive(Debug, Clone, Default)]
@@ -144,22 +99,6 @@ pub fn render_submit_form_page(params: &SubmitFormParams<'_>) -> Markup {
     let content = html! {
         h1 { "Submit for Archiving" }
 
-        // Inline styles for tabs
-        style { (PreEscaped(TAB_STYLES)) }
-
-        // Tab navigation
-        div class="tab-nav" {
-            button type="button" class="active" onclick="showTab('url-tab', this)" {
-                "Single URL"
-            }
-            button type="button" onclick="showTab('thread-tab', this)" {
-                "Archive Thread"
-            }
-        }
-
-        // Tab switching script
-        script { (PreEscaped(TAB_SCRIPT)) }
-
         // Auth warning (if any)
         @if let Some(warning) = params.auth_warning {
             (AuthWarning::new(warning))
@@ -175,15 +114,20 @@ pub fn render_submit_form_page(params: &SubmitFormParams<'_>) -> Markup {
             (Alert::success(msg).with_title("Success"))
         }
 
-        // Single URL submission tab
-        div id="url-tab" class="tab-content active" {
-            (UrlSubmissionTab { can_submit: params.can_submit })
-        }
-
-        // Thread archive tab
-        div id="thread-tab" class="tab-content" {
-            (ThreadArchiveTab { can_submit: params.can_submit })
-        }
+        // Tabs component with URL and Thread archive options
+        (ContentTabs::new()
+            .tab(
+                "url-tab",
+                "Single URL",
+                html! { (UrlSubmissionTab { can_submit: params.can_submit }) },
+                true
+            )
+            .tab(
+                "thread-tab",
+                "Archive Thread",
+                html! { (ThreadArchiveTab { can_submit: params.can_submit }) },
+                false
+            ))
     };
 
     BaseLayout::new("Submit for Archiving")
@@ -570,14 +514,16 @@ mod tests {
     }
 
     #[test]
-    fn test_tab_styles_included() {
+    fn test_tab_structure_rendered() {
         let params = SubmitFormParams::new();
         let html = render_submit_form_page(&params).into_string();
 
-        // Check that tab styles are embedded
-        assert!(html.contains(".tab-nav"));
-        assert!(html.contains(".tab-content"));
-        assert!(html.contains(".tab-content.active"));
+        // Check that tab navigation structure is rendered
+        // Note: CSS styles are now in static/css/style.css, not inline
+        assert!(html.contains("class=\"tab-nav\""));
+        assert!(html.contains("class=\"tab-content active\""));
+        assert!(html.contains("id=\"url-tab\""));
+        assert!(html.contains("id=\"thread-tab\""));
     }
 
     #[test]
