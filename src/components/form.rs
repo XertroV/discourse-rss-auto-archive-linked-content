@@ -630,8 +630,9 @@ impl<'a> FormHelp<'a> {
 
 impl Render for FormHelp<'_> {
     fn render(&self) -> Markup {
+        let class_attr = self.class.unwrap_or("form-help");
         html! {
-            small class=[self.class] {
+            small class=(class_attr) {
                 (self.text)
             }
         }

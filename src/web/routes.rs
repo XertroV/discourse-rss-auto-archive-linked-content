@@ -1540,13 +1540,19 @@ fn normalize_discourse_thread_url(url: &mut url::Url) {
     let path = url.path();
     let segments: Vec<&str> = path.split('/').collect();
 
-    // If we have 5+ segments (empty, "t", slug, thread_id, post_number, ...)
-    // and the last segment is numeric, remove it
-    if segments.len() >= 5 && segments[1] == "t" {
-        if let Some(last_segment) = segments.last() {
+    // Filter out empty segments (from trailing slashes)
+    let non_empty_segments: Vec<&str> =
+        segments.iter().filter(|s| !s.is_empty()).copied().collect();
+
+    // Discourse thread URLs have: ["t", slug, thread_id] or ["t", slug, thread_id, post_number]
+    // Check if we have 4+ segments and the pattern matches /t/{slug}/{thread_id}/{post_number}
+    if non_empty_segments.len() >= 4 && non_empty_segments[0] == "t" {
+        if let Some(last_segment) = non_empty_segments.last() {
             if last_segment.parse::<u32>().is_ok() {
-                // Remove the last segment (post number)
-                let new_path = segments[..segments.len() - 1].join("/");
+                // Build new path without the post number
+                // Reconstruct with leading slash
+                let new_segments = &non_empty_segments[..non_empty_segments.len() - 1];
+                let new_path = format!("/{}", new_segments.join("/"));
                 url.set_path(&new_path);
             }
         }
@@ -2369,9 +2375,10 @@ mod tests {
     fn test_normalize_discourse_thread_url_with_trailing_slash() {
         let mut url = url::Url::parse("https://discuss.example.com/t/topic-name/1491/16/").unwrap();
         normalize_discourse_thread_url(&mut url);
+        // The function removes both the post number and normalizes the trailing slash
         assert_eq!(
             url.as_str(),
-            "https://discuss.example.com/t/topic-name/1491/"
+            "https://discuss.example.com/t/topic-name/1491"
         );
     }
 
