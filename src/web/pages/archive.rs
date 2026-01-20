@@ -100,6 +100,9 @@ pub fn render_archive_detail_page(params: &ArchiveDetailParams<'_>) -> Markup {
             // Page captures (screenshot, PDF, MHTML)
             (render_captures_section(archive, link, params.artifacts))
 
+            // Platform comments section (if available)
+            (render_platform_comments_section(archive, params.artifacts))
+
             // Artifacts table
             (render_artifacts_section(archive, link, params.artifacts))
 
@@ -1147,6 +1150,7 @@ fn render_job_row(job: &ArchiveJob) -> Markup {
         "wayback" => "Wayback Machine",
         "archive_today" => "Archive.today",
         "ipfs" => "IPFS",
+        "supplementary_artifacts" => "Supplementary Artifacts",
         other => other,
     };
 
@@ -1427,6 +1431,49 @@ fn html_escape(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#x27;")
+}
+
+/// Render platform comments section (collapsed by default).
+fn render_platform_comments_section(archive: &Archive, artifacts: &[ArchiveArtifact]) -> Markup {
+    // Find comments artifact
+    let comments_artifact = match artifacts.iter().find(|a| a.kind == "comments") {
+        Some(a) => a,
+        None => return html! {}, // No comments artifact, render nothing
+    };
+
+    // Extract comment count from metadata if available
+    let comment_count = comments_artifact
+        .metadata
+        .as_ref()
+        .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
+        .and_then(|json| {
+            json.get("stats")
+                .and_then(|s| s.get("extracted_comments"))
+                .and_then(|c| c.as_i64())
+        })
+        .unwrap_or(0);
+
+    html! {
+        section class="platform-comments-section" id="platform-comments" {
+            details {
+                summary {
+                    h2 style="display: inline;" { "Comments" }
+                    " "
+                    span class="comments-count-badge" {
+                        (comment_count) " comments"
+                    }
+                }
+
+                div class="comments-loading-container"
+                    data-comments-url=(format!("/api/archive/{}/comments", archive.id))
+                    data-archive-id=(archive.id) {
+                    p class="loading-message" { "Loading comments..." }
+                }
+            }
+
+            script src="/static/js/comments.js" {}
+        }
+    }
 }
 
 // =============================================================================

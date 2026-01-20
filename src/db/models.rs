@@ -171,6 +171,7 @@ pub enum ArtifactKind {
     Image,
     Subtitles,
     Transcript,
+    Comments,
 }
 
 impl ArtifactKind {
@@ -189,6 +190,7 @@ impl ArtifactKind {
             Self::Image => "image",
             Self::Subtitles => "subtitles",
             Self::Transcript => "transcript",
+            Self::Comments => "comments",
         }
     }
 }
@@ -398,6 +400,8 @@ pub enum ArchiveJobType {
     ArchiveToday,
     /// Pin to IPFS
     Ipfs,
+    /// Fetch supplementary artifacts (subtitles, transcripts) for existing archive
+    SupplementaryArtifacts,
 }
 
 impl ArchiveJobType {
@@ -415,6 +419,7 @@ impl ArchiveJobType {
             Self::Wayback => "wayback",
             Self::ArchiveToday => "archive_today",
             Self::Ipfs => "ipfs",
+            Self::SupplementaryArtifacts => "supplementary_artifacts",
         }
     }
 
@@ -432,6 +437,7 @@ impl ArchiveJobType {
             "wayback" => Some(Self::Wayback),
             "archive_today" => Some(Self::ArchiveToday),
             "ipfs" => Some(Self::Ipfs),
+            "supplementary_artifacts" => Some(Self::SupplementaryArtifacts),
             _ => None,
         }
     }
@@ -450,6 +456,7 @@ impl ArchiveJobType {
             Self::Wayback => "Wayback Machine",
             Self::ArchiveToday => "Archive.today",
             Self::Ipfs => "IPFS",
+            Self::SupplementaryArtifacts => "Supplementary Artifacts",
         }
     }
 }

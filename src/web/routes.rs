@@ -142,6 +142,7 @@ pub fn router() -> Router<AppState> {
         .route("/export/:site", get(export::export_site))
         .route("/api/archives", get(api_archives))
         .route("/api/archive/:id/progress", get(api_archive_progress))
+        .route("/api/archive/:id/comments", get(api_archive_comments))
         .route("/api/search", get(api_search))
         .route("/s3/*path", get(serve_s3_file))
         // Debug routes
@@ -497,19 +498,21 @@ async fn rearchive(
 
 /// Handler for fetching missing artifacts (POST /archive/:id/get-missing-artifacts).
 ///
-/// This downloads only missing supplementary artifacts (e.g., subtitles, transcripts)
-/// without re-archiving the entire content.
+/// This creates a background job to download missing supplementary artifacts
+/// (e.g., subtitles, transcripts, comments) without re-archiving the entire content.
+/// Returns immediately and allows monitoring progress through the jobs table.
 async fn get_missing_artifacts(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     RequireAdmin(_admin): RequireAdmin,
 ) -> Response {
-    use crate::archiver::ytdlp;
-    use crate::archiver::CookieOptions;
+    use crate::archiver::{ytdlp, CookieOptions};
     use crate::db::{has_artifact_kind, ArtifactKind};
 
+    let archive_id = id;
+
     tracing::debug!(
-        archive_id = id,
+        archive_id,
         "HTTP API: POST /archive/:id/get-missing-artifacts"
     );
 
@@ -547,18 +550,6 @@ async fn get_missing_artifacts(
         return (StatusCode::BAD_REQUEST, "Archive is not video content").into_response();
     }
 
-    // Get the link
-    let link = match get_link(state.db.pool(), archive.link_id).await {
-        Ok(Some(l)) => l,
-        Ok(None) => {
-            return (StatusCode::NOT_FOUND, "Link not found").into_response();
-        }
-        Err(e) => {
-            tracing::error!("Failed to fetch link: {e}");
-            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
-        }
-    };
-
     // Check what artifacts are missing
     let needs_subtitles = !has_artifact_kind(state.db.pool(), id, ArtifactKind::Subtitles.as_str())
         .await
@@ -567,28 +558,105 @@ async fn get_missing_artifacts(
         !has_artifact_kind(state.db.pool(), id, ArtifactKind::Transcript.as_str())
             .await
             .unwrap_or(true);
+    let needs_comments = !has_artifact_kind(state.db.pool(), id, ArtifactKind::Comments.as_str())
+        .await
+        .unwrap_or(true);
 
-    if !needs_subtitles && !needs_transcript {
+    if !needs_subtitles && !needs_transcript && !needs_comments {
         tracing::info!(archive_id = id, "No missing artifacts to fetch");
         return axum::response::Redirect::to(&format!("/archive/{id}")).into_response();
     }
 
+    // Create a job for fetching supplementary artifacts
+    let job_id = match crate::db::create_archive_job(
+        state.db.pool(),
+        id,
+        ArchiveJobType::SupplementaryArtifacts,
+    )
+    .await
+    {
+        Ok(job_id) => job_id,
+        Err(e) => {
+            tracing::error!(error = ?e, "Failed to create supplementary artifacts job");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to create background job",
+            )
+                .into_response();
+        }
+    };
+
     tracing::info!(
         archive_id = id,
+        job_id,
         needs_subtitles,
         needs_transcript,
-        "Downloading missing supplementary artifacts"
+        needs_comments,
+        "Created job to fetch missing supplementary artifacts"
     );
 
+    // Spawn background task to fetch artifacts
+    let state_clone = state.clone();
+    tokio::spawn(async move {
+        process_supplementary_artifacts_job(state_clone, id, job_id).await;
+    });
+
+    // Redirect back to archive detail page immediately
+    axum::response::Redirect::to(&format!("/archive/{id}")).into_response()
+}
+
+/// Background task to fetch supplementary artifacts for a video archive.
+async fn process_supplementary_artifacts_job(state: AppState, archive_id: i64, job_id: i64) {
+    use crate::archiver::ytdlp;
+    use crate::archiver::CookieOptions;
+    use crate::db::{set_job_completed, set_job_failed, set_job_running, ArtifactKind};
+
+    // Mark job as running
+    if let Err(e) = set_job_running(state.db.pool(), job_id).await {
+        tracing::error!(archive_id, job_id, error = ?e, "Failed to mark job as running");
+        return;
+    }
+
+    // Get the link
+    let link = match get_link(
+        state.db.pool(),
+        match get_archive(state.db.pool(), archive_id).await {
+            Ok(Some(a)) => a.link_id,
+            Ok(None) => {
+                let _ = set_job_failed(state.db.pool(), job_id, "Archive not found").await;
+                return;
+            }
+            Err(e) => {
+                let _ =
+                    set_job_failed(state.db.pool(), job_id, &format!("Database error: {e}")).await;
+                return;
+            }
+        },
+    )
+    .await
+    {
+        Ok(Some(l)) => l,
+        Ok(None) => {
+            let _ = set_job_failed(state.db.pool(), job_id, "Link not found").await;
+            return;
+        }
+        Err(e) => {
+            let _ = set_job_failed(state.db.pool(), job_id, &format!("Database error: {e}")).await;
+            return;
+        }
+    };
+
     // Create a temporary work directory
-    let work_dir = std::env::temp_dir().join(format!("archive-{}", id));
+    let work_dir = std::env::temp_dir().join(format!("archive-supplementary-{}", archive_id));
     if let Err(e) = std::fs::create_dir_all(&work_dir) {
-        tracing::error!(error = %e, "Failed to create temp directory");
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to create temp directory",
+        tracing::error!(archive_id, error = %e, "Failed to create temp directory");
+        let _ = set_job_failed(
+            state.db.pool(),
+            job_id,
+            &format!("Failed to create temp directory: {e}"),
         )
-            .into_response();
+        .await;
+        return;
     }
 
     // Set up cookies
@@ -601,31 +669,31 @@ async fn get_missing_artifacts(
         browser_profile: state.config.yt_dlp_cookies_from_browser.as_deref(),
     };
 
-    // Download supplementary artifacts (subtitles, transcripts)
+    // Download supplementary artifacts (subtitles, transcripts, comments)
+    let should_download_comments =
+        state.config.comments_enabled && link.domain.contains("tiktok.com");
+
     let result = match ytdlp::download_supplementary_artifacts(
         &link.normalized_url,
         &work_dir,
         &cookies,
         &state.config,
-        needs_subtitles,
-        false, // don't download comments for now
+        true, // download subtitles
+        should_download_comments,
     )
     .await
     {
         Ok(r) => r,
         Err(e) => {
-            tracing::error!(error = ?e, "Failed to download supplementary artifacts");
-            // Clean up temp directory
+            tracing::error!(archive_id, error = ?e, "Failed to download supplementary artifacts");
             let _ = std::fs::remove_dir_all(&work_dir);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to download artifacts: {e}"),
-            )
-                .into_response();
+            let _ = set_job_failed(state.db.pool(), job_id, &format!("Download failed: {e}")).await;
+            return;
         }
     };
 
-    // Process subtitle files if any were downloaded
+    // Process subtitle files and comments if any were downloaded
+    let mut artifacts_count = 0;
     if !result.extra_files.is_empty() {
         let subtitle_files: Vec<String> = result
             .extra_files
@@ -635,17 +703,16 @@ async fn get_missing_artifacts(
             .collect();
 
         if !subtitle_files.is_empty() {
-            // Process and upload subtitles inline (similar to worker logic)
             use crate::archiver::transcript::build_transcript_from_file;
             use crate::archiver::ytdlp::parse_subtitle_info;
 
-            let s3_prefix = format!("archives/{}/", id);
+            let s3_prefix = format!("archives/{}/", archive_id);
 
             // Upload each subtitle file with metadata
             for subtitle_file in &subtitle_files {
                 let local_path = work_dir.join(subtitle_file);
                 if !local_path.exists() {
-                    tracing::warn!(archive_id = id, file = %subtitle_file, "Subtitle file not found");
+                    tracing::warn!(archive_id, file = %subtitle_file, "Subtitle file not found");
                     continue;
                 }
 
@@ -663,8 +730,12 @@ async fn get_missing_artifacts(
                 };
 
                 // Upload subtitle file
-                if let Err(e) = state.s3.upload_file(&local_path, &key, Some(id)).await {
-                    tracing::warn!(archive_id = id, file = %subtitle_file, error = %e, "Failed to upload subtitle file");
+                if let Err(e) = state
+                    .s3
+                    .upload_file(&local_path, &key, Some(archive_id))
+                    .await
+                {
+                    tracing::warn!(archive_id, file = %subtitle_file, error = %e, "Failed to upload subtitle file");
                     continue;
                 }
 
@@ -678,7 +749,7 @@ async fn get_missing_artifacts(
                 // Insert subtitle artifact with metadata
                 if let Err(e) = crate::db::insert_artifact_with_metadata(
                     state.db.pool(),
-                    id,
+                    archive_id,
                     ArtifactKind::Subtitles.as_str(),
                     &key,
                     Some(content_type),
@@ -688,7 +759,9 @@ async fn get_missing_artifacts(
                 )
                 .await
                 {
-                    tracing::warn!(archive_id = id, file = %subtitle_file, error = %e, "Failed to insert subtitle artifact");
+                    tracing::warn!(archive_id, file = %subtitle_file, error = %e, "Failed to insert subtitle artifact");
+                } else {
+                    artifacts_count += 1;
                 }
             }
 
@@ -706,12 +779,12 @@ async fn get_missing_artifacts(
                             .upload_bytes(transcript.as_bytes(), &transcript_key, "text/plain")
                             .await
                         {
-                            tracing::warn!(archive_id = id, error = %e, "Failed to upload transcript");
+                            tracing::warn!(archive_id, error = %e, "Failed to upload transcript");
                         } else {
                             // Insert transcript artifact
                             if let Err(e) = crate::db::insert_artifact(
                                 state.db.pool(),
-                                id,
+                                archive_id,
                                 ArtifactKind::Transcript.as_str(),
                                 &transcript_key,
                                 Some("text/plain"),
@@ -720,23 +793,90 @@ async fn get_missing_artifacts(
                             )
                             .await
                             {
-                                tracing::warn!(archive_id = id, error = %e, "Failed to insert transcript artifact");
+                                tracing::warn!(archive_id, error = %e, "Failed to insert transcript artifact");
+                            } else {
+                                artifacts_count += 1;
                             }
                         }
                     }
                 }
             }
-
-            tracing::info!(
-                archive_id = id,
-                count = subtitle_files.len(),
-                "Successfully fetched missing artifacts"
-            );
         }
-    } else {
-        tracing::warn!(
-            archive_id = id,
-            "No supplementary artifacts were downloaded (might not be available)"
+
+        // Process comments.json if present
+        let comments_file = result
+            .extra_files
+            .iter()
+            .find(|f| f.ends_with("comments.json"));
+
+        if let Some(comments_filename) = comments_file {
+            let comments_path = work_dir.join(comments_filename);
+            if comments_path.exists() {
+                let s3_prefix = format!("archives/{}/", archive_id);
+                let s3_key = format!("{}comments.json", s3_prefix);
+
+                // Read comment stats from JSON for metadata
+                let comment_stats = tokio::fs::read_to_string(&comments_path)
+                    .await
+                    .ok()
+                    .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
+                    .and_then(|json| json.get("stats").cloned());
+
+                // Upload to S3
+                match state
+                    .s3
+                    .upload_file(&comments_path, &s3_key, Some(archive_id))
+                    .await
+                {
+                    Ok(_) => {
+                        let size = comments_path.metadata().ok().map(|m| m.len() as i64);
+
+                        // Prepare metadata JSON
+                        let metadata_json = comment_stats.map(|stats| {
+                            serde_json::json!({
+                                "stats": stats,
+                                "platform": "tiktok"
+                            })
+                            .to_string()
+                        });
+
+                        // Insert artifact with Comments kind
+                        if let Err(e) = crate::db::insert_artifact_with_metadata(
+                            state.db.pool(),
+                            archive_id,
+                            ArtifactKind::Comments.as_str(),
+                            &s3_key,
+                            Some("application/json"),
+                            size,
+                            None, // sha256
+                            metadata_json.as_deref(),
+                        )
+                        .await
+                        {
+                            tracing::warn!(
+                                archive_id,
+                                error = %e,
+                                "Failed to insert comments artifact"
+                            );
+                        } else {
+                            artifacts_count += 1;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            archive_id,
+                            error = %e,
+                            "Failed to upload comments.json to S3"
+                        );
+                    }
+                }
+            }
+        }
+        tracing::info!(
+            archive_id,
+            job_id,
+            count = artifacts_count,
+            "Successfully fetched missing artifacts"
         );
     }
 
@@ -745,8 +885,11 @@ async fn get_missing_artifacts(
         tracing::warn!(error = %e, "Failed to clean up temp directory");
     }
 
-    // Redirect back to archive detail page
-    axum::response::Redirect::to(&format!("/archive/{id}")).into_response()
+    // Mark job as completed
+    let metadata = Some(format!("Fetched {} artifact(s)", artifacts_count));
+    if let Err(e) = set_job_completed(state.db.pool(), job_id, metadata.as_deref()).await {
+        tracing::error!(archive_id, job_id, error = ?e, "Failed to mark job as completed");
+    }
 }
 
 /// Handler for toggling NSFW status (POST /archive/:id/toggle-nsfw).
@@ -1785,6 +1928,64 @@ async fn api_archive_progress(State(state): State<AppState>, Path(id): Path<i64>
             (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response()
         }
     }
+}
+
+/// API route to fetch comments.json from S3 for an archive
+async fn api_archive_comments(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
+    use axum::http::header;
+
+    // Get archive
+    let archive = match get_archive(state.db.pool(), id).await {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, "Archive not found").into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch archive: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    // Get artifacts
+    let artifacts = match get_artifacts_for_archive(state.db.pool(), id).await {
+        Ok(arts) => arts,
+        Err(e) => {
+            tracing::error!("Failed to fetch artifacts: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    // Find comments artifact
+    let comments_artifact = match artifacts.iter().find(|a| a.kind == "comments") {
+        Some(a) => a,
+        None => {
+            return (StatusCode::NOT_FOUND, "Comments not found").into_response();
+        }
+    };
+
+    // Fetch from S3
+    let comments_data = match state.s3.get_object(&comments_artifact.s3_key).await {
+        Ok(Some((bytes, _content_type))) => bytes,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, "Comments file not found in S3").into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch comments from S3: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to fetch comments",
+            )
+                .into_response();
+        }
+    };
+
+    // Return JSON directly
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json")],
+        comments_data,
+    )
+        .into_response()
 }
 
 #[derive(Debug, Deserialize)]
