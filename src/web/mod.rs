@@ -13,9 +13,11 @@ use anyhow::{Context, Result};
 use axum::extract::ConnectInfo;
 use axum::extract::{FromRef, Host};
 use axum::handler::HandlerWithoutStateExt;
+use axum::http::header::HeaderValue;
 use axum::http::Request;
 use axum::http::Uri;
-use axum::response::Redirect;
+use axum::middleware::Next;
+use axum::response::{Redirect, Response};
 use axum::Router;
 use futures_util::StreamExt;
 use rustls_acme::AcmeState;
@@ -191,6 +193,15 @@ where
     }
 }
 
+/// Add X-No-Archive header to all responses to signal archiving prevention.
+async fn add_no_archive_header(req: Request<axum::body::Body>, next: Next) -> Response {
+    let mut response = next.run(req).await;
+    response
+        .headers_mut()
+        .insert("X-No-Archive", HeaderValue::from_static("1"));
+    response
+}
+
 /// Create the main application router.
 fn create_app(state: AppState) -> Router {
     // Determine static files directory
@@ -200,6 +211,7 @@ fn create_app(state: AppState) -> Router {
     Router::new()
         .merge(routes::router())
         .nest_service("/static", ServeDir::new(&static_dir))
+        .layer(axum::middleware::from_fn(add_no_archive_header))
         .layer(CompressionLayer::new())
         .layer(
             TraceLayer::new_for_http().make_span_with(|req: &Request<_>| {

@@ -4,9 +4,8 @@ use discourse_link_archiver::auth::hash_password;
 use discourse_link_archiver::db::{
     add_comment_reaction, can_user_edit_comment, create_comment, create_comment_reply,
     create_pending_archive, create_user, get_comment_edit_history, get_comment_reaction_count,
-    get_comment_with_author, get_comments_for_archive, has_user_reacted, insert_link,
-    pin_comment, remove_comment_reaction, soft_delete_comment, unpin_comment, update_comment,
-    Database, NewLink,
+    get_comment_with_author, get_comments_for_archive, has_user_reacted, insert_link, pin_comment,
+    remove_comment_reaction, soft_delete_comment, unpin_comment, update_comment, Database, NewLink,
 };
 use tempfile::TempDir;
 
@@ -84,9 +83,10 @@ async fn test_create_comment_reply() {
         .unwrap();
 
     // Create reply
-    let reply_id = create_comment_reply(db.pool(), archive_id, user_id2, parent_id, "Reply comment")
-        .await
-        .expect("Failed to create reply");
+    let reply_id =
+        create_comment_reply(db.pool(), archive_id, user_id2, parent_id, "Reply comment")
+            .await
+            .expect("Failed to create reply");
 
     assert!(reply_id > 0);
 
@@ -319,9 +319,7 @@ async fn test_pinned_comments_appear_first() {
         .unwrap();
 
     // Pin the second comment
-    pin_comment(db.pool(), comment2_id, admin_id)
-        .await
-        .unwrap();
+    pin_comment(db.pool(), comment2_id, admin_id).await.unwrap();
 
     // Retrieve comments
     let comments = get_comments_for_archive(db.pool(), archive_id)
@@ -525,26 +523,15 @@ async fn test_nested_comment_threads() {
         .unwrap();
 
     // Create a reply
-    let reply1_id = create_comment_reply(
-        db.pool(),
-        archive_id,
-        user_id,
-        top_level_id,
-        "First reply",
-    )
-    .await
-    .unwrap();
+    let reply1_id =
+        create_comment_reply(db.pool(), archive_id, user_id, top_level_id, "First reply")
+            .await
+            .unwrap();
 
     // Create a nested reply
-    let reply2_id = create_comment_reply(
-        db.pool(),
-        archive_id,
-        user_id,
-        reply1_id,
-        "Nested reply",
-    )
-    .await
-    .unwrap();
+    let reply2_id = create_comment_reply(db.pool(), archive_id, user_id, reply1_id, "Nested reply")
+        .await
+        .unwrap();
 
     // Verify structure
     let top_comment = get_comment_with_author(db.pool(), top_level_id)

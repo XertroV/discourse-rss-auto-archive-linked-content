@@ -3132,3 +3132,95 @@ pub async fn has_user_reacted(pool: &SqlitePool, comment_id: i64, user_id: i64) 
 
     Ok(result.is_some())
 }
+
+// ============================================================================
+// Excluded Domains queries
+// ============================================================================
+
+/// Add an excluded domain.
+pub async fn add_excluded_domain(
+    pool: &SqlitePool,
+    domain: &str,
+    reason: &str,
+    created_by_user_id: Option<i64>,
+) -> Result<i64> {
+    let result = sqlx::query(
+        "INSERT INTO excluded_domains (domain, reason, created_by_user_id) VALUES (?, ?, ?)",
+    )
+    .bind(domain)
+    .bind(reason)
+    .bind(created_by_user_id)
+    .execute(pool)
+    .await
+    .context("Failed to add excluded domain")?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Check if a domain is excluded from archiving.
+pub async fn is_domain_excluded(pool: &SqlitePool, domain: &str) -> Result<bool> {
+    let result: Option<(i64,)> = sqlx::query_as(
+        "SELECT id FROM excluded_domains WHERE domain = ? AND is_active = 1 LIMIT 1",
+    )
+    .bind(domain)
+    .fetch_optional(pool)
+    .await
+    .context("Failed to check excluded domain")?;
+
+    Ok(result.is_some())
+}
+
+/// Get all active excluded domains.
+pub async fn get_active_excluded_domains(
+    pool: &SqlitePool,
+) -> Result<Vec<crate::db::ExcludedDomain>> {
+    let domains = sqlx::query_as::<_, crate::db::ExcludedDomain>(
+        "SELECT id, domain, reason, is_active, created_at, created_by_user_id, updated_at FROM excluded_domains WHERE is_active = 1 ORDER BY domain",
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to get active excluded domains")?;
+
+    Ok(domains)
+}
+
+/// Get all excluded domains (including inactive).
+pub async fn get_all_excluded_domains(pool: &SqlitePool) -> Result<Vec<crate::db::ExcludedDomain>> {
+    let domains = sqlx::query_as::<_, crate::db::ExcludedDomain>(
+        "SELECT id, domain, reason, is_active, created_at, created_by_user_id, updated_at FROM excluded_domains ORDER BY is_active DESC, domain",
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to get all excluded domains")?;
+
+    Ok(domains)
+}
+
+/// Update an excluded domain's active status.
+pub async fn update_excluded_domain_status(
+    pool: &SqlitePool,
+    domain: &str,
+    is_active: bool,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE excluded_domains SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE domain = ?",
+    )
+    .bind(is_active as i32)
+    .bind(domain)
+    .execute(pool)
+    .await
+    .context("Failed to update excluded domain status")?;
+
+    Ok(())
+}
+
+/// Delete an excluded domain.
+pub async fn delete_excluded_domain(pool: &SqlitePool, domain: &str) -> Result<()> {
+    sqlx::query("DELETE FROM excluded_domains WHERE domain = ?")
+        .bind(domain)
+        .execute(pool)
+        .await
+        .context("Failed to delete excluded domain")?;
+
+    Ok(())
+}

@@ -854,3 +854,214 @@ pub async fn admin_reset_password(
     ))
     .into_response()
 }
+
+// ============================================================================
+// Excluded Domains Admin Functions
+// ============================================================================
+
+/// GET /admin/excluded-domains - Show excluded domains management page.
+pub async fn admin_excluded_domains_page(
+    State(state): State<AppState>,
+    RequireAdmin(_admin): RequireAdmin,
+) -> Response {
+    match queries::get_all_excluded_domains(state.db.pool()).await {
+        Ok(domains) => Html(templates::admin_excluded_domains_page(&domains)).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to fetch excluded domains: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to load excluded domains",
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExcludedDomainForm {
+    domain: String,
+    reason: Option<String>,
+}
+
+/// POST /admin/excluded-domains/add - Add a new excluded domain.
+pub async fn admin_add_excluded_domain(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
+    RequireAdmin(admin): RequireAdmin,
+    Form(form): Form<ExcludedDomainForm>,
+) -> Response {
+    let direct_ip = addr.ip().to_string();
+    let forwarded_for = headers
+        .get("x-forwarded-for")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+
+    // Normalize the domain
+    let domain = form.domain.trim().to_lowercase();
+    if domain.is_empty() {
+        return (StatusCode::BAD_REQUEST, "Domain cannot be empty").into_response();
+    }
+
+    let reason = form
+        .reason
+        .unwrap_or_else(|| "User-added exclusion".to_string());
+
+    match queries::add_excluded_domain(state.db.pool(), &domain, &reason, Some(admin.id)).await {
+        Ok(_) => {
+            tracing::info!(admin_id = admin.id, domain = %domain, "Admin added excluded domain");
+
+            // Log audit event
+            let _ = queries::create_audit_event(
+                state.db.pool(),
+                Some(admin.id),
+                "admin_add_excluded_domain",
+                Some("excluded_domain"),
+                None,
+                Some(&domain),
+                Some(&direct_ip),
+                forwarded_for.as_deref(),
+                None,
+            )
+            .await;
+
+            // Redirect back to the excluded domains page
+            Redirect::to("/admin/excluded-domains").into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to add excluded domain: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to add excluded domain",
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExcludedDomainActionForm {
+    domain: String,
+}
+
+/// POST /admin/excluded-domains/toggle - Toggle excluded domain active status.
+pub async fn admin_toggle_excluded_domain(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
+    RequireAdmin(admin): RequireAdmin,
+    Form(form): Form<ExcludedDomainActionForm>,
+) -> Response {
+    let direct_ip = addr.ip().to_string();
+    let forwarded_for = headers
+        .get("x-forwarded-for")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+
+    let domain = form.domain.trim().to_lowercase();
+
+    // First get current status
+    match queries::get_all_excluded_domains(state.db.pool()).await {
+        Ok(domains) => {
+            if let Some(d) = domains
+                .iter()
+                .find(|x: &&queries::ExcludedDomain| x.domain == domain)
+            {
+                match queries::update_excluded_domain_status(state.db.pool(), &domain, !d.is_active)
+                    .await
+                {
+                    Ok(_) => {
+                        let action = if d.is_active { "disabled" } else { "enabled" };
+                        tracing::info!(
+                            admin_id = admin.id,
+                            domain = %domain,
+                            action = %action,
+                            "Admin toggled excluded domain"
+                        );
+
+                        // Log audit event
+                        let _ = queries::create_audit_event(
+                            state.db.pool(),
+                            Some(admin.id),
+                            "admin_toggle_excluded_domain",
+                            Some("excluded_domain"),
+                            None,
+                            Some(&format!("{domain} -> {action}")),
+                            Some(&direct_ip),
+                            forwarded_for.as_deref(),
+                            None,
+                        )
+                        .await;
+
+                        Redirect::to("/admin/excluded-domains").into_response()
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to update excluded domain: {e}");
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "Failed to update excluded domain",
+                        )
+                            .into_response()
+                    }
+                }
+            } else {
+                (StatusCode::NOT_FOUND, "Domain not found").into_response()
+            }
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch excluded domains: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to fetch excluded domains",
+            )
+                .into_response()
+        }
+    }
+}
+
+/// POST /admin/excluded-domains/delete - Delete an excluded domain.
+pub async fn admin_delete_excluded_domain(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
+    RequireAdmin(admin): RequireAdmin,
+    Form(form): Form<ExcludedDomainActionForm>,
+) -> Response {
+    let direct_ip = addr.ip().to_string();
+    let forwarded_for = headers
+        .get("x-forwarded-for")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+
+    let domain = form.domain.trim().to_lowercase();
+
+    match queries::delete_excluded_domain(state.db.pool(), &domain).await {
+        Ok(_) => {
+            tracing::info!(admin_id = admin.id, domain = %domain, "Admin deleted excluded domain");
+
+            // Log audit event
+            let _ = queries::create_audit_event(
+                state.db.pool(),
+                Some(admin.id),
+                "admin_delete_excluded_domain",
+                Some("excluded_domain"),
+                None,
+                Some(&domain),
+                Some(&direct_ip),
+                forwarded_for.as_deref(),
+                None,
+            )
+            .await;
+
+            Redirect::to("/admin/excluded-domains").into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to delete excluded domain: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to delete excluded domain",
+            )
+                .into_response()
+        }
+    }
+}

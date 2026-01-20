@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use discourse_link_archiver::archiver::ArchiveWorker;
@@ -100,6 +100,12 @@ async fn run() -> Result<()> {
         .context("Failed to initialize database")?;
 
     info!("Database initialized");
+
+    // Add app's own domain(s) to excluded domains on startup
+    if let Err(e) = initialize_self_excluded_domains(&config, &db).await {
+        warn!("Failed to initialize self-excluded domains: {e:#}");
+        // Don't fail startup over this
+    }
 
     // Initialize S3 client
     let s3_client = S3Client::new(&config)
@@ -256,4 +262,72 @@ async fn shutdown_signal() {
         () = ctrl_c => {},
         () = terminate => {},
     }
+}
+
+/// Initialize the app's own domain(s) in the excluded domains list on startup.
+/// This prevents the webapp from archiving itself or other instances of the webapp.
+async fn initialize_self_excluded_domains(config: &Config, db: &Database) -> Result<()> {
+    use discourse_link_archiver::db;
+
+    // Collect all domains that should be self-excluded
+    let mut self_domains = std::collections::HashSet::new();
+
+    // Extract domain from web_host if it looks like a domain/hostname
+    let web_host = config.web_host.to_lowercase();
+    // Skip localhost/127.0.0.1 since those are only for testing
+    if !web_host.contains("localhost")
+        && !web_host.starts_with("127.")
+        && web_host != "0.0.0.0"
+        && web_host != "[::1]"
+        && !web_host.is_empty()
+    {
+        self_domains.insert(web_host.clone());
+    }
+
+    // Add any TLS domains from configuration
+    for tls_domain in &config.tls_domains {
+        self_domains.insert(tls_domain.to_lowercase());
+    }
+
+    // Also try to extract domain from RSS URL (forum domain)
+    if let Ok(url) = url::Url::parse(&config.rss_url) {
+        if let Some(domain) = url.domain() {
+            self_domains.insert(domain.to_lowercase());
+        }
+    }
+
+    // Add each self domain to excluded list if not already present
+    for domain in self_domains {
+        // Check if domain is already excluded
+        match db::is_domain_excluded(db.pool(), &domain).await {
+            Ok(true) => {
+                // Already excluded
+                debug!(domain = %domain, "Domain already in excluded list");
+            }
+            Ok(false) => {
+                // Not excluded, add it
+                match db::add_excluded_domain(
+                    db.pool(),
+                    &domain,
+                    "Self-hosted instance - prevent self-archiving",
+                    None,
+                )
+                .await
+                {
+                    Ok(_) => {
+                        info!(domain = %domain, "Added self-hosted domain to excluded list");
+                    }
+                    Err(e) => {
+                        // Domain might already exist (unique constraint), which is fine
+                        debug!(domain = %domain, error = %e, "Could not add self-hosted domain");
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(domain = %domain, error = %e, "Failed to check if domain is excluded");
+            }
+        }
+    }
+
+    Ok(())
 }
