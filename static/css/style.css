@@ -1378,6 +1378,7 @@ pre {
     border-collapse: collapse;
     margin-bottom: var(--spacing-lg);
     font-size: var(--font-size-sm);
+    table-layout: fixed;
 }
 
 .archives-table thead {
@@ -1412,7 +1413,7 @@ pre {
 .archives-table td:nth-child(1),
 .archives-table th:nth-child(1) {
     /* ID column */
-    width: 80px;
+    width: 5%;
 }
 
 .archives-table td:nth-child(1) {
@@ -1424,13 +1425,13 @@ pre {
 .archives-table td:nth-child(2),
 .archives-table th:nth-child(2) {
     /* Type column */
-    width: 100px;
+    width: 8%;
 }
 
 .archives-table td:nth-child(3),
 .archives-table th:nth-child(3) {
     /* Title column - wide with wrapping, no truncation */
-    min-width: 45vw;
+    width: 60%;
 }
 
 .archives-table td:nth-child(3) {
@@ -1441,7 +1442,7 @@ pre {
 .archives-table td:nth-child(4),
 .archives-table th:nth-child(4) {
     /* URL column - narrower with truncation */
-    width: 250px;
+    width: 27%;
 }
 
 .archives-table td:nth-child(4) {
