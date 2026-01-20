@@ -390,19 +390,20 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 - [x] Add auth database tables (users, sessions, audit_events) with indexes and timestamps
 - [x] Hash passwords with Argon2, enforce minimum length/entropy, and store password updated_at
 - [x] Create auth core module (password hashing, session tokens, CSRF, username generation)
-- [ ] Auth middleware and extractors for current user/session
-- [ ] GET/POST /login route (login action + register action with generated credentials)
-- [ ] Logout route with session cleanup
-- [ ] Profile page: shows approval status, allows password change, email, display name
-- [ ] Admin panel: list users, approve users, promote/demote admins, deactivate users, view audit log
-- [ ] Lock down privileged routes: submissions (approved only), NSFW toggle (approved only), delete/rearchive/debug (admin only)
-- [ ] Header updates: Login button (logged out), Profile + Admin buttons (logged in admin), Profile only (logged in user)
-- [ ] Registration rate limiting: 1 per 5 minutes per IP, generic error message
-- [ ] Login brute-force protection: lockout/backoff after repeated failures, audit log for auth events
-- [ ] Approval warnings: profile page shows pending status, submission page shows approval requirement
-- [ ] UI templates using shadcn-inspired styles from static/css/style.css
+- [x] Auth middleware and extractors for current user/session
+- [x] GET/POST /login route (login action + register action with generated credentials)
+- [x] Logout route with session cleanup
+- [x] Profile page: shows approval status, allows password change, email, display name
+- [x] Admin panel: list users, approve users, promote/demote admins, deactivate users, view audit log
+- [x] Lock down privileged routes: submissions (approved only), NSFW toggle (approved only), delete/rearchive/debug (admin only)
+- [x] Header updates: Login button (logged out), Profile + Admin buttons (logged in admin), Profile only (logged in user)
+- [x] Registration rate limiting: 1 per 5 minutes per IP, generic error message
+- [x] Login brute-force protection: lockout/backoff after repeated failures, audit log for auth events
+- [x] Approval warnings: profile page shows pending status, submission page shows approval requirement
+- [x] UI templates using shadcn-inspired styles from static/css/style.css
 - [ ] Tests: unit and integration coverage for registration, approval, login, session handling, role checks, password changes
-- [ ] Approved users can toggle NSFW status on archived posts (should show in audit log)
+- [x] Approved users can toggle NSFW status on archived posts (audit logged)
+- [ ] Optional: Thread user context through all public route handlers to show auth state in header everywhere
 
 ## Discovered Tasks
 
