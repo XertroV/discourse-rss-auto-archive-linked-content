@@ -125,6 +125,9 @@ html {
 }
 
 body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
     margin: 0;
     padding: 0;
     font-family: var(--font-family);
@@ -248,9 +251,9 @@ header nav li a strong {
 
 /* Main content */
 main.container {
+    flex: 1;
     padding-top: var(--spacing-xl);
     padding-bottom: var(--spacing-xl);
-    min-height: calc(100vh - 160px);
 }
 
 /* Footer */
@@ -885,6 +888,45 @@ article.error,
 .pagination .btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+/* Content Tabs (JavaScript-powered show/hide tabs) */
+.tab-nav {
+    display: flex;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.tab-nav button {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    font-family: inherit;
+    font-size: inherit;
+    transition: all 0.2s ease;
+}
+
+.tab-nav button.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+}
+
+.tab-nav button:hover:not(.active) {
+    color: var(--text-primary);
+    background-color: var(--bg-tertiary);
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
 }
 
 /* Stats table */
