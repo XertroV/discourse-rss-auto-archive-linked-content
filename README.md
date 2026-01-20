@@ -67,6 +67,10 @@ services:
 
 Then remove or comment out the `minio` and `minio-init` services.
 
+**Production with Cloudflare R2 or AWS S3:**
+
+See [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md) for complete setup guide with external S3/R2 storage.
+
 **Mounting a cookies file:**
 
 For authenticated downloads (e.g., age-restricted content), uncomment the cookies volume mount in `docker-compose.yml`:
@@ -75,6 +79,49 @@ For authenticated downloads (e.g., age-restricted content), uncomment the cookie
 volumes:
   - archiver-data:/app/data
   - ./cookies.txt:/app/cookies.txt:ro  # Uncomment this line
+```
+
+### Common Docker Commands
+
+Convenience scripts for managing the Docker deployment:
+
+**Basic Operations:**
+```bash
+./dc-start.sh         # Start services
+./dc-stop.sh          # Stop services
+./dc-restart.sh       # Restart services (recreate containers)
+./dc-logs.sh          # View logs (all services)
+./dc-logs.sh archiver # View logs (archiver only)
+./dc-ps.sh            # Check service status
+```
+
+**Build & Update:**
+```bash
+./dc-rebuild.sh                              # Rebuild Docker image
+./dc-update-low-downtime.sh                  # Git pull + rebuild + restart (minimal downtime)
+./dc-rebuild.sh && ./dc-restart.sh           # Full rebuild and restart
+```
+
+**Database Operations:**
+```bash
+./dc-reset-db.sh                             # Delete database, restart fresh
+./dc-rebuild.sh && ./dc-reset-db.sh          # Rebuild + fresh database + logs
+```
+
+**Common Sequences:**
+
+```bash
+# Fresh start after git pull (rebuild, reset DB, watch logs)
+./dc-rebuild.sh && ./dc-reset-db.sh && ./dc-logs.sh
+
+# Quick update without database reset
+./dc-update-low-downtime.sh
+
+# Full clean restart (preserves data)
+./dc-down-up.sh
+
+# Rebuild after code changes and restart
+./dc-rebuild.sh && ./dc-restart.sh
 ```
 
 ### Manual Installation (Native Linux)
