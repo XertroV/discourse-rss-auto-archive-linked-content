@@ -77,6 +77,11 @@ pub fn render_archive_detail_page(params: &ArchiveDetailParams<'_>) -> Markup {
                 (render_archive_header(archive, link))
             }
 
+            // Auto-refresh notification for pending/processing archives
+            @if archive.status == "pending" || archive.status == "processing" {
+                (render_auto_refresh_status_box())
+            }
+
             // Error details for failed/skipped archives
             @if archive.status == "failed" || archive.status == "skipped" {
                 (render_error_section(archive))
@@ -128,64 +133,16 @@ pub fn render_archive_detail_page(params: &ArchiveDetailParams<'_>) -> Markup {
         // Comparison form
         (render_comparison_form(archive))
 
-        // Progress polling script for active downloads
-        @if archive.status == "processing" {
+        // Auto-refresh page every 5 seconds for pending/processing archives
+        @if archive.status == "pending" || archive.status == "processing" {
             script {
-                (PreEscaped(format!(r#"
-                (function() {{
-                    var archiveId = {};
-                    var progressDiv = document.getElementById('download-progress');
-                    if (!progressDiv) return;
-
-                    function updateProgress() {{
-                        fetch('/api/archive/' + archiveId + '/progress')
-                            .then(function(response) {{ return response.json(); }})
-                            .then(function(data) {{
-                                if (data.status !== 'processing') {{
-                                    // Download complete or failed - reload page to show final status
-                                    setTimeout(function() {{ window.location.reload(); }}, 1000);
-                                    return;
-                                }}
-
-                                if (data.progress_percent !== null && data.progress_percent !== undefined) {{
-                                    var percent = Math.round(data.progress_percent * 10) / 10;
-                                    var fill = progressDiv.querySelector('.progress-fill');
-                                    var text = progressDiv.querySelector('.progress-text');
-
-                                    if (fill && text) {{
-                                        fill.style.width = percent + '%';
-                                        text.textContent = percent + '%';
-                                    }}
-
-                                    if (data.progress_details) {{
-                                        var details = progressDiv.querySelector('.progress-details');
-                                        if (details) {{
-                                            var html = '';
-                                            if (data.progress_details.speed) {{
-                                                html += '<span class="progress-speed">' + data.progress_details.speed + '</span>';
-                                            }}
-                                            if (data.progress_details.eta) {{
-                                                html += ' • ETA: <span class="progress-eta">' + data.progress_details.eta + '</span>';
-                                            }}
-                                            details.innerHTML = html;
-                                        }}
-                                    }}
-                                }}
-                            }})
-                            .catch(function(err) {{
-                                console.error('Failed to fetch progress:', err);
-                            }});
-                    }}
-
-                    // Poll every 2 seconds
-                    var pollInterval = setInterval(updateProgress, 2000);
-
-                    // Stop polling after 2 hours (same as download timeout)
-                    setTimeout(function() {{
-                        clearInterval(pollInterval);
-                    }}, 7200000);
-                }})();
-                "#, archive.id)))
+                (PreEscaped(r#"
+                (function() {
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 5000);
+                })();
+                "#))
             }
         }
     };
@@ -1478,6 +1435,18 @@ fn render_platform_comments_section(archive: &Archive, artifacts: &[ArchiveArtif
             }
 
             script src="/static/js/comments.js" {}
+        }
+    }
+}
+
+/// Render status box for auto-refresh notification
+fn render_auto_refresh_status_box() -> Markup {
+    html! {
+        div class="alert alert-info" role="alert" style="margin-bottom: 1rem;" {
+            span class="alert-icon" { "🔄" }
+            span class="alert-message" {
+                "This page will automatically refresh every 5 seconds while the archive is processing."
+            }
         }
     }
 }

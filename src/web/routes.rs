@@ -1,6 +1,6 @@
 use axum::extract::{ConnectInfo, Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post, put};
 use axum::Form;
 use axum::Json;
@@ -1538,24 +1538,21 @@ async fn submit_url(
         }
     };
 
-    // Check if archive already exists
-    match get_archive_by_link_id(state.db.pool(), link_id).await {
-        Ok(Some(_)) => {
-            // Archive already exists, show success with note
-            let html = pages::render_submit_form(
-                None,
-                Some("This URL has already been archived. Check the search for results."),
-                None,
-                true,
-            );
-            return Html(html).into_response();
+    // Check if archive already exists or create new one
+    let archive_id = match get_archive_by_link_id(state.db.pool(), link_id).await {
+        Ok(Some(archive)) => {
+            // Archive already exists, redirect to it
+            archive.id
         }
         Ok(None) => {
             // Create pending archive (no post_date for manual submissions)
-            if let Err(e) = create_pending_archive(state.db.pool(), link_id, None).await {
-                tracing::error!("Failed to create pending archive: {e}");
-                let html = pages::render_submit_error("Failed to queue for archiving");
-                return Html(html).into_response();
+            match create_pending_archive(state.db.pool(), link_id, None).await {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::error!("Failed to create pending archive: {e}");
+                    let html = pages::render_submit_error("Failed to queue for archiving");
+                    return Html(html).into_response();
+                }
             }
         }
         Err(e) => {
@@ -1563,16 +1560,17 @@ async fn submit_url(
             let html = pages::render_submit_error("Internal error");
             return Html(html).into_response();
         }
-    }
+    };
 
     tracing::info!(
         submission_id = submission_id,
+        archive_id = archive_id,
         url = %normalized,
-        "New URL submitted for archiving"
+        "URL submitted for archiving, redirecting to archive detail page"
     );
 
-    let html = pages::render_submit_success(submission_id);
-    Html(html).into_response()
+    // Redirect to archive detail page
+    Redirect::to(&format!("/archive/{}", archive_id)).into_response()
 }
 
 // ========== Thread Archive Routes ==========
