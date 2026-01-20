@@ -14,7 +14,7 @@ use crate::auth::{
     SessionDuration,
 };
 use crate::db as queries;
-use crate::web::{templates, AppState};
+use crate::web::{pages, AppState};
 
 /// Login form data.
 #[derive(Debug, Deserialize)]
@@ -34,7 +34,7 @@ pub async fn login_page(MaybeUser(user): MaybeUser) -> Response {
         return Redirect::to("/").into_response();
     }
 
-    Html(templates::login_page(None, None, None)).into_response()
+    Html(pages::login_page(None, None).into_string()).into_response()
 }
 
 /// POST /login - Handle login or registration.
@@ -75,11 +75,10 @@ async fn handle_registration(
 
     if let Ok(count) = count_result {
         if count > 0 {
-            return Html(templates::login_page(
-                Some("Rate limit exceeded. Please try again later."),
-                None,
-                None,
-            ))
+            return Html(
+                pages::login_page(Some("Rate limit exceeded. Please try again later."), None)
+                    .into_string(),
+            )
             .into_response();
         }
     }
@@ -114,11 +113,10 @@ async fn handle_registration(
             Ok(id) => id,
             Err(e) => {
                 tracing::error!("Failed to create user: {e}");
-                return Html(templates::login_page(
-                    Some("Registration failed. Please try again."),
-                    None,
-                    None,
-                ))
+                return Html(
+                    pages::login_page(Some("Registration failed. Please try again."), None)
+                        .into_string(),
+                )
                 .into_response();
             }
         };
@@ -138,12 +136,7 @@ async fn handle_registration(
     .await;
 
     // Show credentials to user
-    Html(templates::login_page(
-        None,
-        Some(&username),
-        Some(&password),
-    ))
-    .into_response()
+    Html(pages::login_page(None, Some((&username, &password))).into_string()).into_response()
 }
 
 /// Handle user login.
@@ -156,24 +149,16 @@ async fn handle_login(
     let username = match form.username {
         Some(u) if !u.is_empty() => u,
         _ => {
-            return Html(templates::login_page(
-                Some("Username is required"),
-                None,
-                None,
-            ))
-            .into_response();
+            return Html(pages::login_page(Some("Username is required"), None).into_string())
+                .into_response();
         }
     };
 
     let password = match form.password {
         Some(p) if !p.is_empty() => p,
         _ => {
-            return Html(templates::login_page(
-                Some("Password is required"),
-                None,
-                None,
-            ))
-            .into_response();
+            return Html(pages::login_page(Some("Password is required"), None).into_string())
+                .into_response();
         }
     };
 
@@ -182,11 +167,9 @@ async fn handle_login(
     {
         Ok(Some(u)) => u,
         Ok(None) => {
-            return Html(templates::login_page(
-                Some("Invalid username or password"),
-                None,
-                None,
-            ))
+            return Html(
+                pages::login_page(Some("Invalid username or password"), None).into_string(),
+            )
             .into_response();
         }
         Err(e) => {
@@ -197,12 +180,8 @@ async fn handle_login(
 
     // Check if user is active
     if !user.is_active {
-        return Html(templates::login_page(
-            Some("Account has been deactivated"),
-            None,
-            None,
-        ))
-        .into_response();
+        return Html(pages::login_page(Some("Account has been deactivated"), None).into_string())
+            .into_response();
     }
 
     // Check if user is locked
@@ -210,11 +189,13 @@ async fn handle_login(
         let locked_time: Result<DateTime<Utc>, _> = locked_until.parse();
         if let Ok(locked_time) = locked_time {
             if locked_time > Utc::now() {
-                return Html(templates::login_page(
-                    Some("Account is temporarily locked due to failed login attempts"),
-                    None,
-                    None,
-                ))
+                return Html(
+                    pages::login_page(
+                        Some("Account is temporarily locked due to failed login attempts"),
+                        None,
+                    )
+                    .into_string(),
+                )
                 .into_response();
             }
         }
@@ -259,12 +240,8 @@ async fn handle_login(
         )
         .await;
 
-        return Html(templates::login_page(
-            Some("Invalid username or password"),
-            None,
-            None,
-        ))
-        .into_response();
+        return Html(pages::login_page(Some("Invalid username or password"), None).into_string())
+            .into_response();
     }
 
     // Reset failed login attempts
@@ -381,12 +358,8 @@ pub async fn profile_page(
         }
     };
 
-    Html(templates::profile_page_with_link_status(
-        &user,
-        None,
-        has_forum_link,
-    ))
-    .into_response()
+    Html(pages::profile_page_with_link_status(&user, None, has_forum_link).into_string())
+        .into_response()
 }
 
 /// POST /profile - Update user profile.
@@ -574,11 +547,10 @@ pub async fn profile_post(
         }
     }
 
-    Html(templates::profile_page_with_link_status(
-        &updated_user,
-        error.as_deref(),
-        has_forum_link,
-    ))
+    Html(
+        pages::profile_page_with_link_status(&updated_user, error.as_deref(), has_forum_link)
+            .into_string(),
+    )
     .into_response()
 }
 
@@ -605,7 +577,7 @@ pub async fn admin_panel(
         }
     };
 
-    Html(templates::admin_panel(&users, &audit_events, &admin)).into_response()
+    Html(pages::render_admin_panel(&users, &audit_events, &admin).into_string()).into_response()
 }
 
 /// POST /admin/user/:id/approve - Approve a user.
@@ -913,10 +885,10 @@ pub async fn admin_reset_password(
     );
 
     // Show the new password (one-time display)
-    Html(templates::admin_password_reset_result(
-        &target_user.username,
-        &new_password,
-    ))
+    Html(
+        pages::render_admin_password_reset_result(&target_user.username, &new_password)
+            .into_string(),
+    )
     .into_response()
 }
 
@@ -930,7 +902,10 @@ pub async fn admin_excluded_domains_page(
     RequireAdmin(_admin): RequireAdmin,
 ) -> Response {
     match queries::get_all_excluded_domains(state.db.pool()).await {
-        Ok(domains) => Html(templates::admin_excluded_domains_page(&domains)).into_response(),
+        Ok(domains) => {
+            Html(pages::render_admin_excluded_domains_page(&domains, None).into_string())
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("Failed to fetch excluded domains: {e}");
             (

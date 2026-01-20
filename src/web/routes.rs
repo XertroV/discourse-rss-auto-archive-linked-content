@@ -12,7 +12,7 @@ use super::auth;
 use super::diff;
 use super::export;
 use super::feeds;
-use super::templates;
+use super::pages;
 use super::AppState;
 use crate::auth::{MaybeUser, RequireAdmin, RequireApproved, RequireUser};
 use crate::db::{
@@ -178,7 +178,7 @@ async fn home(
     let end = ((page + 1) * ITEMS_PER_PAGE as usize).min(total_items);
     archives = archives.into_iter().skip(start).take(end - start).collect();
 
-    let html = templates::render_home_paginated(
+    let markup = pages::render_home_paginated(
         &archives,
         recent_failed_count,
         page,
@@ -187,7 +187,7 @@ async fn home(
         params.source.as_deref(),
         user.as_ref(),
     );
-    Html(html).into_response()
+    Html(markup.into_string()).into_response()
 }
 
 async fn recent_failed_archives(
@@ -226,7 +226,7 @@ async fn recent_failed_archives(
     let end = ((page + 1) * ITEMS_PER_PAGE as usize).min(total_items);
     failed = failed.into_iter().skip(start).take(end - start).collect();
 
-    let html = templates::render_recent_failed_archives_paginated(
+    let markup = pages::render_recent_failed_archives_paginated(
         &failed,
         recent_failed_count,
         page,
@@ -235,7 +235,7 @@ async fn recent_failed_archives(
         params.source.as_deref(),
         user.as_ref(),
     );
-    Html(html).into_response()
+    Html(markup.into_string()).into_response()
 }
 
 async fn recent_all_archives(
@@ -273,7 +273,7 @@ async fn recent_all_archives(
         .take(end - start)
         .collect::<Vec<_>>();
 
-    let html = templates::render_recent_all_archives_paginated(
+    let markup = pages::render_recent_all_archives_paginated(
         &archives,
         recent_failed_count,
         page,
@@ -282,7 +282,7 @@ async fn recent_all_archives(
         params.source.as_deref(),
         user.as_ref(),
     );
-    Html(html).into_response()
+    Html(markup.into_string()).into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -342,8 +342,14 @@ async fn search(
         }
     };
 
-    let html = templates::render_search(&query, &archives, page, user.as_ref());
-    Html(html).into_response()
+    let markup = pages::render_search_page(
+        if query.is_empty() { None } else { Some(&query) },
+        &archives,
+        page as i32,
+        1, // total_pages not calculated in old code
+        user.as_ref(),
+    );
+    Html(markup.into_string()).into_response()
 }
 
 async fn archive_detail(
@@ -412,16 +418,17 @@ async fn archive_detail(
             Vec::new()
         };
 
-    let html = templates::render_archive_detail(
-        &archive,
-        &link,
-        &artifacts,
-        &occurrences,
-        &jobs,
-        &quote_reply_chain,
-        user.as_ref(),
-    );
-    Html(html).into_response()
+    let params = pages::ArchiveDetailParams {
+        archive: &archive,
+        link: &link,
+        artifacts: &artifacts,
+        occurrences: &occurrences,
+        jobs: &jobs,
+        quote_reply_chain: &quote_reply_chain,
+        user: user.as_ref(),
+    };
+    let markup = pages::render_archive_detail_page(&params);
+    Html(markup.into_string()).into_response()
 }
 
 /// Handler for re-archiving an archive (POST /archive/:id/rearchive).
@@ -609,8 +616,9 @@ async fn debug_queue(
         }
     };
 
-    let html = templates::render_debug_queue(&stats, &recent_failures);
-    Html(html).into_response()
+    let params = pages::DebugQueueParams::new(&stats, &recent_failures);
+    let markup = pages::render_debug_queue_page(&params);
+    Html(markup.into_string()).into_response()
 }
 
 /// Handler for resetting all skipped archives (POST /debug/reset-skipped).
@@ -704,8 +712,8 @@ async fn compare_archives(
     let text2 = archive2.content_text.as_deref().unwrap_or("");
     let diff_result = diff::compute_diff(text1, text2);
 
-    let html = templates::render_comparison(&archive1, &link1, &archive2, &link2, &diff_result);
-    Html(html).into_response()
+    let markup = pages::render_comparison_page(&archive1, &link1, &archive2, &link2, &diff_result);
+    Html(markup.into_string()).into_response()
 }
 
 async fn post_detail(State(state): State<AppState>, Path(guid): Path<String>) -> Response {
@@ -728,8 +736,13 @@ async fn post_detail(State(state): State<AppState>, Path(guid): Path<String>) ->
         }
     };
 
-    let html = templates::render_post_detail(&post, &archives);
-    Html(html).into_response()
+    let params = pages::PostDetailParams {
+        post: &post,
+        archives: &archives,
+        user: None,
+    };
+    let markup = pages::render_post_detail_page(&params);
+    Html(markup.into_string()).into_response()
 }
 
 async fn thread_detail(State(state): State<AppState>, Path(thread_key): Path<String>) -> Response {
@@ -755,8 +768,14 @@ async fn thread_detail(State(state): State<AppState>, Path(thread_key): Path<Str
         }
     };
 
-    let html = templates::render_thread_detail(&thread_key, &posts, &archives);
-    Html(html).into_response()
+    let params = pages::ThreadDetailParams {
+        thread_key: &thread_key,
+        posts: &posts,
+        archives: &archives,
+        user: None,
+    };
+    let markup = pages::render_thread_detail_page(&params);
+    Html(markup.into_string()).into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -782,8 +801,14 @@ async fn threads_list(
         }
     };
 
-    let html = templates::render_threads_list(&threads, sort_by, page);
-    Html(html).into_response()
+    let params = pages::ThreadsListParams {
+        threads: &threads,
+        sort_by: pages::ThreadSortBy::from_str(sort_by),
+        page,
+        user: None,
+    };
+    let markup = pages::render_threads_list_page(&params);
+    Html(markup.into_string()).into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -809,8 +834,15 @@ async fn site_list(
             }
         };
 
-    let html = templates::render_site_list(&site, &archives, page);
-    Html(html).into_response()
+    // Calculate total pages (approximation based on current page having data)
+    let total_pages = if archives.len() < per_page as usize {
+        page as i32
+    } else {
+        (page as i32) + 1
+    };
+    let markup =
+        pages::render_site_list_page(&site, &archives, (page - 1) as i32, total_pages, None);
+    Html(markup.into_string()).into_response()
 }
 
 async fn stats(State(state): State<AppState>, MaybeUser(user): MaybeUser) -> Response {
@@ -825,8 +857,9 @@ async fn stats(State(state): State<AppState>, MaybeUser(user): MaybeUser) -> Res
     let link_count = count_links(state.db.pool()).await.unwrap_or(0);
     let post_count = count_posts(state.db.pool()).await.unwrap_or(0);
 
-    let html = templates::render_stats(&status_counts, link_count, post_count, user.as_ref());
-    Html(html).into_response()
+    let stats_data = pages::StatsData::new(post_count, link_count, status_counts);
+    let markup = pages::render_stats_page(&stats_data, user.as_ref());
+    Html(markup.into_string()).into_response()
 }
 
 async fn health() -> &'static str {
@@ -849,7 +882,7 @@ async fn favicon() -> Response {
 async fn submit_form(State(state): State<AppState>, MaybeUser(user): MaybeUser) -> Response {
     // Check if submissions are enabled
     if !state.config.submission_enabled {
-        let html = templates::render_submit_error("URL submissions are currently disabled.");
+        let html = pages::render_submit_error("URL submissions are currently disabled.");
         return Html(html).into_response();
     }
 
@@ -866,7 +899,7 @@ async fn submit_form(State(state): State<AppState>, MaybeUser(user): MaybeUser) 
         Some(_) => (None, true),
     };
 
-    let html = templates::render_submit_form(None, None, auth_warning, can_submit);
+    let html = pages::render_submit_form(None, None, auth_warning, can_submit);
     Html(html).into_response()
 }
 
@@ -884,7 +917,7 @@ async fn submit_url(
     tracing::debug!(user_id = user.id, "HTTP API: POST /submit");
     // Check if submissions are enabled
     if !state.config.submission_enabled {
-        let html = templates::render_submit_error("URL submissions are currently disabled.");
+        let html = pages::render_submit_error("URL submissions are currently disabled.");
         return Html(html).into_response();
     }
 
@@ -895,7 +928,7 @@ async fn submit_url(
     match count_submissions_from_ip_last_hour(state.db.pool(), &client_ip).await {
         Ok(count) => {
             if count >= i64::from(rate_limit) {
-                let html = templates::render_submit_form(
+                let html = pages::render_submit_form(
                     Some(&format!(
                         "Rate limit exceeded. Maximum {rate_limit} submissions per hour."
                     )),
@@ -908,7 +941,7 @@ async fn submit_url(
         }
         Err(e) => {
             tracing::error!("Failed to check rate limit: {e}");
-            let html = templates::render_submit_form(Some("Internal error"), None, None, true);
+            let html = pages::render_submit_form(Some("Internal error"), None, None, true);
             return Html(html).into_response();
         }
     }
@@ -916,7 +949,7 @@ async fn submit_url(
     // Validate URL
     let url = form.url.trim();
     if url.is_empty() {
-        let html = templates::render_submit_form(Some("URL is required"), None, None, true);
+        let html = pages::render_submit_form(Some("URL is required"), None, None, true);
         return Html(html).into_response();
     }
 
@@ -924,18 +957,14 @@ async fn submit_url(
     let parsed_url = if let Ok(u) = url::Url::parse(url) {
         u
     } else {
-        let html = templates::render_submit_form(Some("Invalid URL format"), None, None, true);
+        let html = pages::render_submit_form(Some("Invalid URL format"), None, None, true);
         return Html(html).into_response();
     };
 
     // Only allow http/https
     if parsed_url.scheme() != "http" && parsed_url.scheme() != "https" {
-        let html = templates::render_submit_form(
-            Some("Only HTTP/HTTPS URLs are allowed"),
-            None,
-            None,
-            true,
-        );
+        let html =
+            pages::render_submit_form(Some("Only HTTP/HTTPS URLs are allowed"), None, None, true);
         return Html(html).into_response();
     }
 
@@ -957,7 +986,7 @@ async fn submit_url(
     // Check if this URL was submitted recently
     match submission_exists_for_url(state.db.pool(), &normalized).await {
         Ok(true) => {
-            let html = templates::render_submit_form(
+            let html = pages::render_submit_form(
                 Some("This URL was already submitted recently"),
                 None,
                 None,
@@ -968,7 +997,7 @@ async fn submit_url(
         Ok(false) => {}
         Err(e) => {
             tracing::error!("Failed to check existing submission: {e}");
-            let html = templates::render_submit_form(Some("Internal error"), None, None, true);
+            let html = pages::render_submit_form(Some("Internal error"), None, None, true);
             return Html(html).into_response();
         }
     }
@@ -986,7 +1015,7 @@ async fn submit_url(
         Err(e) => {
             tracing::error!("Failed to insert submission: {e}");
             let html =
-                templates::render_submit_form(Some("Failed to save submission"), None, None, true);
+                pages::render_submit_form(Some("Failed to save submission"), None, None, true);
             return Html(html).into_response();
         }
     };
@@ -1006,14 +1035,14 @@ async fn submit_url(
                 Ok(id) => id,
                 Err(e) => {
                     tracing::error!("Failed to insert link: {e}");
-                    let html = templates::render_submit_error("Failed to process URL");
+                    let html = pages::render_submit_error("Failed to process URL");
                     return Html(html).into_response();
                 }
             }
         }
         Err(e) => {
             tracing::error!("Failed to check existing link: {e}");
-            let html = templates::render_submit_error("Internal error");
+            let html = pages::render_submit_error("Internal error");
             return Html(html).into_response();
         }
     };
@@ -1022,7 +1051,7 @@ async fn submit_url(
     match get_archive_by_link_id(state.db.pool(), link_id).await {
         Ok(Some(_)) => {
             // Archive already exists, show success with note
-            let html = templates::render_submit_form(
+            let html = pages::render_submit_form(
                 None,
                 Some("This URL has already been archived. Check the search for results."),
                 None,
@@ -1034,13 +1063,13 @@ async fn submit_url(
             // Create pending archive (no post_date for manual submissions)
             if let Err(e) = create_pending_archive(state.db.pool(), link_id, None).await {
                 tracing::error!("Failed to create pending archive: {e}");
-                let html = templates::render_submit_error("Failed to queue for archiving");
+                let html = pages::render_submit_error("Failed to queue for archiving");
                 return Html(html).into_response();
             }
         }
         Err(e) => {
             tracing::error!("Failed to check existing archive: {e}");
-            let html = templates::render_submit_error("Internal error");
+            let html = pages::render_submit_error("Internal error");
             return Html(html).into_response();
         }
     }
@@ -1051,7 +1080,7 @@ async fn submit_url(
         "New URL submitted for archiving"
     );
 
-    let html = templates::render_submit_success(submission_id);
+    let html = pages::render_submit_success(submission_id);
     Html(html).into_response()
 }
 
@@ -1072,7 +1101,7 @@ async fn submit_thread(
 
     let thread_url = form.thread_url.trim();
     if thread_url.is_empty() {
-        let html = templates::render_submit_form(Some("Thread URL is required"), None, None, true);
+        let html = pages::render_submit_form(Some("Thread URL is required"), None, None, true);
         return Html(html).into_response();
     }
 
@@ -1080,19 +1109,15 @@ async fn submit_thread(
     let parsed_url = match url::Url::parse(thread_url) {
         Ok(u) => u,
         Err(_) => {
-            let html = templates::render_submit_form(Some("Invalid URL format"), None, None, true);
+            let html = pages::render_submit_form(Some("Invalid URL format"), None, None, true);
             return Html(html).into_response();
         }
     };
 
     // Only allow http/https
     if parsed_url.scheme() != "http" && parsed_url.scheme() != "https" {
-        let html = templates::render_submit_form(
-            Some("Only HTTP/HTTPS URLs are allowed"),
-            None,
-            None,
-            true,
-        );
+        let html =
+            pages::render_submit_form(Some("Only HTTP/HTTPS URLs are allowed"), None, None, true);
         return Html(html).into_response();
     }
 
@@ -1105,8 +1130,7 @@ async fn submit_thread(
 
     // Validate domain matches the configured forum
     if config_forum_domain.is_none() || submitted_domain.is_none() {
-        let html =
-            templates::render_submit_form(Some("Could not validate domain"), None, None, true);
+        let html = pages::render_submit_form(Some("Could not validate domain"), None, None, true);
         return Html(html).into_response();
     }
 
@@ -1114,7 +1138,7 @@ async fn submit_thread(
     let thread_domain = submitted_domain.unwrap();
 
     if !domains_match_for_thread(&thread_domain, &config_domain) {
-        let html = templates::render_submit_form(
+        let html = pages::render_submit_form(
             Some(&format!("Only threads from {} are allowed", config_domain)),
             None,
             None,
@@ -1139,7 +1163,7 @@ async fn submit_thread(
     match count_user_thread_archive_jobs_last_hour(state.db.pool(), user.id).await {
         Ok(count) => {
             if count >= THREAD_RATE_LIMIT {
-                let html = templates::render_submit_form(
+                let html = pages::render_submit_form(
                     Some(&format!(
                         "Rate limit exceeded. Maximum {} thread archives per hour.",
                         THREAD_RATE_LIMIT
@@ -1153,7 +1177,7 @@ async fn submit_thread(
         }
         Err(e) => {
             tracing::error!("Failed to check thread rate limit: {e}");
-            let html = templates::render_submit_form(Some("Internal error"), None, None, true);
+            let html = pages::render_submit_form(Some("Internal error"), None, None, true);
             return Html(html).into_response();
         }
     }
@@ -1161,7 +1185,7 @@ async fn submit_thread(
     // Check if this thread was recently submitted
     match thread_archive_job_exists_recent(state.db.pool(), &clean_url).await {
         Ok(true) => {
-            let html = templates::render_submit_form(
+            let html = pages::render_submit_form(
                 Some("This thread was already submitted recently. Check the status page."),
                 None,
                 None,
@@ -1172,7 +1196,7 @@ async fn submit_thread(
         Ok(false) => {}
         Err(e) => {
             tracing::error!("Failed to check existing thread job: {e}");
-            let html = templates::render_submit_form(Some("Internal error"), None, None, true);
+            let html = pages::render_submit_form(Some("Internal error"), None, None, true);
             return Html(html).into_response();
         }
     }
@@ -1188,7 +1212,7 @@ async fn submit_thread(
         Ok(id) => id,
         Err(e) => {
             tracing::error!("Failed to create thread archive job: {e}");
-            let html = templates::render_submit_form(
+            let html = pages::render_submit_form(
                 Some("Failed to create thread archive job"),
                 None,
                 None,
@@ -1239,8 +1263,12 @@ async fn thread_job_status(
         }
     };
 
-    let html = templates::render_thread_job_status(&job, user.as_ref());
-    Html(html).into_response()
+    let params = pages::ThreadJobStatusParams {
+        job: &job,
+        user: user.as_ref(),
+    };
+    let markup = pages::render_thread_job_status_page(&params);
+    Html(markup.into_string()).into_response()
 }
 
 // ========== Feed Routes ==========
@@ -1960,8 +1988,8 @@ async fn comment_history_handler(
 ) -> Response {
     match get_comment_edit_history(state.db.pool(), comment_id).await {
         Ok(edits) => {
-            let html = templates::render_comment_edit_history(&edits);
-            Html(html).into_response()
+            let markup = pages::render_comment_edit_history_page(&edits);
+            Html(markup.into_string()).into_response()
         }
         Err(e) => {
             tracing::error!("Failed to get edit history: {e}");

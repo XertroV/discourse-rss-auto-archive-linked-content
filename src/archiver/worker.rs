@@ -417,7 +417,7 @@ async fn create_view_html(
         .context("Failed to read raw.html")?;
 
     // Inject archive banner
-    let banner_html = crate::web::templates::render_archive_banner(&archive, &link);
+    let banner_html = crate::web::pages::render_archive_banner(&archive, &link);
     let view_html = inject_archive_banner(&raw_html, &banner_html);
 
     // Save view.html locally

@@ -33,6 +33,7 @@ pub mod archiver;
 pub mod auth;
 pub mod backup;
 pub mod chromium_profile;
+pub mod components;
 pub mod config;
 pub mod constants;
 pub mod db;
