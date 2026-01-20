@@ -6,6 +6,9 @@ pub mod pages;
 mod routes;
 mod stats_cache;
 
+// Re-export StatsCache for tests
+pub use stats_cache::StatsCache;
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;

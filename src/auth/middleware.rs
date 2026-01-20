@@ -121,7 +121,8 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let RequireUser(user) = RequireUser::from_request_parts(parts, state).await?;
 
-        if !user.is_approved {
+        // Admins are always considered approved
+        if !user.is_admin && !user.is_approved {
             return Err((
                 StatusCode::FORBIDDEN,
                 "Your account is pending admin approval",

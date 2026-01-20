@@ -2,6 +2,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -26,6 +27,9 @@ async fn create_test_app(db: Database, s3: Arc<S3Client>) -> Router {
         db: db.clone(),
         s3,
         config: Arc::new(config),
+        stats_cache: Arc::new(discourse_link_archiver::web::StatsCache::new(
+            Duration::from_secs(60),
+        )),
     };
 
     // Build the router with export route
@@ -139,6 +143,9 @@ async fn test_export_rate_limiting() {
             db: db.clone(),
             s3: s3.clone(),
             config: Arc::new(Config::from_env().unwrap()),
+            stats_cache: Arc::new(discourse_link_archiver::web::StatsCache::new(
+                Duration::from_secs(60),
+            )),
         });
 
     // Try to export again from the same IP
