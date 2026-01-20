@@ -575,3 +575,82 @@ Database-backed video deduplication system to store each video once and referenc
 - [ ] Comment analytics (top commenters, sentiment analysis, reaction stats)
 - [ ] Periodic comment refresh for active threads (re-fetch updated comment counts)
 - [ ] Comment deduplication across archives (hash-based duplicate detection)
+
+---
+
+## Phase 16: Maud Template Migration
+
+Migration from manual `format!()` HTML strings to maud macro-based templates with typed components.
+See `tmp_impl_maud.md` for detailed implementation plan.
+
+- [ ] After Phase 16 (maud migration) is 100% complete, remove tmp_impl_maud.md.
+
+### Pre-Migration Setup
+- [ ] Add `maud = { version = "0.26", features = ["axum"] }` to Cargo.toml
+- [ ] Remove unused `askama`, `askama_axum` dependencies
+- [ ] Add `insta` dev dependency for snapshot testing
+- [ ] Move inline CSS from templates.rs to static/css/style.css
+- [ ] Extract inline JS to static/js/ files (theme.js, nsfw.js)
+- [ ] Create snapshot tests for existing key templates
+
+### Phase 1: Component Foundation
+Build reusable component library in `src/components/`:
+
+#### Core Components
+- [ ] Create `src/components/mod.rs` module structure
+- [ ] `layout.rs` - BaseLayout (header, footer, HTML document)
+- [ ] `button.rs` - Button with typed variants (Primary, Outline, Danger, Ghost)
+- [ ] `badge.rs` - StatusBadge, DomainBadge, MediaTypeBadge, NsfwBadge
+
+#### UI Components
+- [ ] `alert.rs` - Alert with variants (Success, Error, Warning, Info)
+- [ ] `card.rs` - Card, ArchiveCard (most used component)
+- [ ] `form.rs` - Form, Input, TextArea, Select, Label
+- [ ] `table.rs` - Table, TableHead, TableRow
+- [ ] `pagination.rs` - Pagination component
+- [ ] `tabs.rs` - TabGroup, Tab (for archive tabs)
+- [ ] `media.rs` - VideoPlayer, AudioPlayer, ImageViewer, MediaContainer
+
+#### Testing
+- [ ] Unit tests for all components (correct CSS classes, escaping, variants)
+- [ ] Verify component HTML output matches expectations
+
+### Phase 2: Page Migration
+Migrate pages in order of complexity/dependency:
+
+#### Primary Pages
+- [ ] Home page (`render_home_paginated`)
+- [ ] Archive detail page (`render_archive_detail`) - most complex
+- [ ] Search page (`render_search`)
+- [ ] Stats page (`render_stats`)
+
+#### List Pages
+- [ ] Threads list (`render_threads_list`)
+- [ ] Thread detail (`render_thread_detail`)
+- [ ] Post detail (`render_post_detail`)
+- [ ] Site list (`render_site_list`)
+
+#### Form Pages
+- [ ] Submit form (`render_submit_form`, `render_submit_success`, `render_submit_error`)
+- [ ] Login page (`login_page`)
+- [ ] Profile page (`profile_page_with_message`)
+
+#### Admin Pages
+- [ ] Admin panel (`admin_panel`) - complex
+- [ ] Admin excluded domains (`admin_excluded_domains_page`)
+- [ ] Password reset result (`admin_password_reset_result`)
+
+#### Special Cases
+- [ ] Debug queue (`render_debug_queue`)
+- [ ] Comparison view (`render_comparison`)
+- [ ] Archive banner (`render_archive_banner`) - inline CSS intentional
+- [ ] Comment edit history (`render_comment_edit_history`)
+
+### Post-Migration Cleanup
+- [ ] Delete old `templates.rs` file
+- [ ] Update all route handlers to return `Markup` directly
+- [ ] Remove `html_escape()` function (maud handles escaping)
+- [ ] Run full test suite
+- [ ] Visual regression testing (light/dark mode, mobile)
+- [ ] Performance benchmarking (`cargo build --timings`)
+- [ ] Delete `tmp_impl_maud.md` after migration complete
