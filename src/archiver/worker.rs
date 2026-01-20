@@ -634,7 +634,7 @@ async fn fetch_url_for_signals(url: &str) -> Result<ArchivePreventionSignals> {
                 if let Ok(selector) = scraper::Selector::parse("head") {
                     if let Some(head) = document.select(&selector).next() {
                         let head_html = head.inner_html().to_lowercase();
-                        if head_html.contains("x-no-archive") || head_html.contains("noarchive") {
+                        if head_html.contains("x-no-archive") {
                             signals.has_no_archive_meta = true;
                         }
                     }
