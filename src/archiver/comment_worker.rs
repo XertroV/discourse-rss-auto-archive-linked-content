@@ -8,7 +8,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use tracing::{error, info, trace, warn};
 
-use crate::archiver::{ytdlp, CookieOptions};
+use crate::archiver::{tiktok_comments, ytdlp, CookieOptions};
 use crate::config::Config;
 use crate::db::{
     get_archive, get_pending_comment_extraction_jobs, set_job_completed, set_job_failed,
@@ -104,6 +104,15 @@ pub async fn run(config: Config, db: Database, s3: S3Client) {
     }
 }
 
+/// Check if URL is a TikTok URL.
+fn is_tiktok_url(url: &str) -> bool {
+    url.contains("://tiktok.com/")
+        || url.contains("://www.tiktok.com/")
+        || url.contains("://m.tiktok.com/")
+        || url.contains("://vm.tiktok.com/")
+        || url.contains("://vt.tiktok.com/")
+}
+
 /// Extract comments for a single archive.
 async fn extract_comments_for_archive(
     config: &Config,
@@ -127,26 +136,64 @@ async fn extract_comments_for_archive(
         .await
         .with_context(|| format!("Failed to create work directory: {}", work_dir.display()))?;
 
-    // Prepare cookies
-    let cookies = CookieOptions {
-        browser_profile: config.yt_dlp_cookies_from_browser.as_deref(),
-        cookies_file: config.cookies_file_path.as_deref(),
-    };
+    let comments_json_path = work_dir.join("comments.json");
+    let comment_count: usize;
 
-    // Extract comments using yt-dlp
-    let comment_count = ytdlp::extract_comments_only(
-        url,
-        &work_dir,
-        &cookies,
-        config,
-        Some(archive.id),
-        Some(db.pool()),
-    )
-    .await
-    .context("Failed to extract comments with yt-dlp")?;
+    // Extract comments based on platform
+    if is_tiktok_url(url) {
+        // TikTok: Use direct API extraction
+        info!(
+            archive_id = archive.id,
+            "Using TikTok API for comment extraction"
+        );
+
+        let comments_json = tiktok_comments::fetch_tiktok_comments(
+            url,
+            config.comments_max_count,
+            Some(archive.id),
+            Some(db.pool()),
+        )
+        .await
+        .context("Failed to extract comments from TikTok")?;
+
+        // Get comment count from the JSON
+        comment_count = comments_json
+            .get("stats")
+            .and_then(|s| s.get("extracted_comments"))
+            .and_then(|c| c.as_u64())
+            .unwrap_or(0) as usize;
+
+        // Write comments.json to work directory
+        let json_str = serde_json::to_string_pretty(&comments_json)
+            .context("Failed to serialize comments JSON")?;
+        tokio::fs::write(&comments_json_path, json_str)
+            .await
+            .context("Failed to write comments.json")?;
+    } else {
+        // YouTube and other platforms: Use yt-dlp
+        info!(
+            archive_id = archive.id,
+            "Using yt-dlp for comment extraction"
+        );
+
+        let cookies = CookieOptions {
+            browser_profile: config.yt_dlp_cookies_from_browser.as_deref(),
+            cookies_file: config.cookies_file_path.as_deref(),
+        };
+
+        comment_count = ytdlp::extract_comments_only(
+            url,
+            &work_dir,
+            &cookies,
+            config,
+            Some(archive.id),
+            Some(db.pool()),
+        )
+        .await
+        .context("Failed to extract comments with yt-dlp")?;
+    }
 
     // Upload comments.json to S3 if it exists
-    let comments_json_path = work_dir.join("comments.json");
     if comments_json_path.exists() {
         let s3_key = format!("{}comments.json", archive.id);
         s3.upload_file(&comments_json_path, &s3_key, Some(archive.id))

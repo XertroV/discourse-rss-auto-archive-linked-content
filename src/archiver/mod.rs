@@ -7,6 +7,7 @@ pub mod monolith;
 pub mod playlist;
 pub mod rate_limiter;
 pub mod screenshot;
+pub mod tiktok_comments;
 pub mod transcript;
 pub mod worker;
 pub mod ytdlp;
