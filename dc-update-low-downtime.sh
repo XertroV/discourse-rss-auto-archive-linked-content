@@ -16,9 +16,9 @@ export DOCKER_BUILDKIT=1
 git pull --ff-only
 
 # Build new image without touching running containers
-docker compose build --pull archiver
+docker compose -f docker-compose.yml -f docker-compose.prod.yml build --pull archiver
 
 # Swap in the new container without restarting dependencies
-docker compose up -d --no-deps --force-recreate archiver
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --force-recreate archiver
 
-docker compose ps
+docker compose -f docker-compose.yml -f docker-compose.prod.yml ps

@@ -3,6 +3,6 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-docker compose stop
+docker compose -f docker-compose.yml -f docker-compose.prod.yml stop
 
-docker compose ps
+docker compose -f docker-compose.yml -f docker-compose.prod.yml ps

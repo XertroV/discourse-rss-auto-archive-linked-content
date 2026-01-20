@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 service_name="${1:-}"
 
 if [[ -n "$service_name" ]]; then
-  docker compose logs -f --tail=200 "$service_name"
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f --tail=200 "$service_name"
 else
-  docker compose logs -f --tail=200
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f --tail=200
 fi

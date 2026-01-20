@@ -10,4 +10,4 @@ export DOCKER_BUILDKIT=1
 #   CARGO_PROFILE=dev ./dc-rebuild.sh           # Fastest builds (no optimization)
 #   CARGO_PROFILE=release-fast ./dc-rebuild.sh  # Faster builds (less optimization)
 
-docker compose build --pull archiver
+docker compose -f docker-compose.yml -f docker-compose.prod.yml build --pull archiver

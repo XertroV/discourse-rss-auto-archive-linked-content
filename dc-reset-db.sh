@@ -14,7 +14,7 @@ cd "$(dirname "$0")"
 #   everything else in the volume
 
 # Stop only the archiver to avoid any open SQLite handles.
-docker compose stop archiver >/dev/null || true
+docker compose -f docker-compose.yml -f docker-compose.prod.yml stop archiver >/dev/null || true
 
 # Find the archiver data volume name created by docker compose.
 # Typically looks like: <project>_archiver-data
@@ -47,6 +47,6 @@ docker run --rm -v "${data_volume}:/data" alpine:3.20 \
   sh -lc 'rm -f /data/archive.sqlite /data/archive.sqlite-*; echo "Deleted /data/archive.sqlite and /data/archive.sqlite-*"; ls -la /data; ls -la /data/acme_cache || true'
 
 # Start archiver back up.
-docker compose up -d --no-deps archiver
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps archiver
 
-docker compose ps
+docker compose -f docker-compose.yml -f docker-compose.prod.yml ps

@@ -3,5 +3,5 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-docker compose up -d --remove-orphans
-docker compose ps
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+docker compose -f docker-compose.yml -f docker-compose.prod.yml ps

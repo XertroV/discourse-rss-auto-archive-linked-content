@@ -1,0 +1,29 @@
+# Production override for docker-compose.yml
+# Use with: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# This configuration:
+# - Disables MinIO (uses external S3/R2 instead)
+# - Uses environment variables from .env for S3 configuration
+
+services:
+  archiver:
+    environment:
+      # S3 Storage - Override with production R2/S3 credentials from .env
+      S3_BUCKET: ${S3_BUCKET}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_PREFIX: ${S3_PREFIX:-archives/}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    depends_on:
+      # Remove MinIO dependency for production
+      {}
+
+  # Disable MinIO services in production
+  minio:
+    profiles:
+      - local-dev
+
+  minio-init:
+    profiles:
+      - local-dev
