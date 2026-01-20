@@ -3301,3 +3301,205 @@ pub async fn delete_excluded_domain(pool: &SqlitePool, domain: &str) -> Result<(
 
     Ok(())
 }
+
+// ============================================================================
+// Thread Archive Jobs queries
+// ============================================================================
+
+use super::models::{NewThreadArchiveJob, ThreadArchiveJob};
+
+/// Insert a new thread archive job.
+pub async fn insert_thread_archive_job(
+    pool: &SqlitePool,
+    job: &NewThreadArchiveJob,
+) -> Result<i64> {
+    let result = sqlx::query(
+        r"
+        INSERT INTO thread_archive_jobs (thread_url, rss_url, user_id)
+        VALUES (?, ?, ?)
+        ",
+    )
+    .bind(&job.thread_url)
+    .bind(&job.rss_url)
+    .bind(job.user_id)
+    .execute(pool)
+    .await
+    .context("Failed to insert thread archive job")?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Get a thread archive job by ID.
+pub async fn get_thread_archive_job(
+    pool: &SqlitePool,
+    id: i64,
+) -> Result<Option<ThreadArchiveJob>> {
+    sqlx::query_as("SELECT * FROM thread_archive_jobs WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to fetch thread archive job")
+}
+
+/// Get pending thread archive jobs for processing.
+pub async fn get_pending_thread_archive_jobs(
+    pool: &SqlitePool,
+    limit: i64,
+) -> Result<Vec<ThreadArchiveJob>> {
+    sqlx::query_as(
+        r"
+        SELECT * FROM thread_archive_jobs
+        WHERE status = 'pending'
+        ORDER BY created_at ASC
+        LIMIT ?
+        ",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch pending thread archive jobs")
+}
+
+/// Set thread archive job to processing status.
+pub async fn set_thread_archive_job_processing(
+    pool: &SqlitePool,
+    id: i64,
+    total_posts: Option<i64>,
+) -> Result<()> {
+    sqlx::query(
+        r"
+        UPDATE thread_archive_jobs
+        SET status = 'processing', started_at = datetime('now'), total_posts = ?
+        WHERE id = ?
+        ",
+    )
+    .bind(total_posts)
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Failed to set thread archive job processing")?;
+
+    Ok(())
+}
+
+/// Update thread archive job progress.
+pub async fn update_thread_archive_job_progress(
+    pool: &SqlitePool,
+    id: i64,
+    processed_posts: i64,
+    new_links_found: i64,
+    archives_created: i64,
+    skipped_links: i64,
+) -> Result<()> {
+    sqlx::query(
+        r"
+        UPDATE thread_archive_jobs
+        SET processed_posts = ?, new_links_found = ?, archives_created = ?, skipped_links = ?
+        WHERE id = ?
+        ",
+    )
+    .bind(processed_posts)
+    .bind(new_links_found)
+    .bind(archives_created)
+    .bind(skipped_links)
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Failed to update thread archive job progress")?;
+
+    Ok(())
+}
+
+/// Set thread archive job as complete.
+pub async fn set_thread_archive_job_complete(pool: &SqlitePool, id: i64) -> Result<()> {
+    sqlx::query(
+        r"
+        UPDATE thread_archive_jobs
+        SET status = 'complete', completed_at = datetime('now')
+        WHERE id = ?
+        ",
+    )
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Failed to set thread archive job complete")?;
+
+    Ok(())
+}
+
+/// Set thread archive job as failed.
+pub async fn set_thread_archive_job_failed(pool: &SqlitePool, id: i64, error: &str) -> Result<()> {
+    sqlx::query(
+        r"
+        UPDATE thread_archive_jobs
+        SET status = 'failed', error_message = ?, completed_at = datetime('now')
+        WHERE id = ?
+        ",
+    )
+    .bind(error)
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Failed to set thread archive job failed")?;
+
+    Ok(())
+}
+
+/// Check if a thread archive job exists for this URL recently (within last hour).
+pub async fn thread_archive_job_exists_recent(pool: &SqlitePool, thread_url: &str) -> Result<bool> {
+    let result: Option<(i64,)> = sqlx::query_as(
+        r"
+        SELECT id FROM thread_archive_jobs
+        WHERE thread_url = ?
+        AND created_at > datetime('now', '-1 hour')
+        LIMIT 1
+        ",
+    )
+    .bind(thread_url)
+    .fetch_optional(pool)
+    .await
+    .context("Failed to check recent thread archive job")?;
+
+    Ok(result.is_some())
+}
+
+/// Count thread archive jobs from a user in the last hour (for rate limiting).
+pub async fn count_user_thread_archive_jobs_last_hour(
+    pool: &SqlitePool,
+    user_id: i64,
+) -> Result<i64> {
+    let result: (i64,) = sqlx::query_as(
+        r"
+        SELECT COUNT(*) FROM thread_archive_jobs
+        WHERE user_id = ?
+        AND created_at > datetime('now', '-1 hour')
+        ",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+    .context("Failed to count user thread archive jobs")?;
+
+    Ok(result.0)
+}
+
+/// Get recent thread archive jobs for a user.
+pub async fn get_user_thread_archive_jobs(
+    pool: &SqlitePool,
+    user_id: i64,
+    limit: i64,
+) -> Result<Vec<ThreadArchiveJob>> {
+    sqlx::query_as(
+        r"
+        SELECT * FROM thread_archive_jobs
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        ",
+    )
+    .bind(user_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch user thread archive jobs")
+}

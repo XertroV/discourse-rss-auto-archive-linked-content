@@ -109,6 +109,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 17).await?;
     }
 
+    if current_version < 18 {
+        debug!("Running migration v18");
+        run_migration_v18(pool).await?;
+        set_schema_version(pool, 18).await?;
+    }
+
     Ok(())
 }
 
@@ -1010,6 +1016,61 @@ async fn run_migration_v17(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to create reply_to_archive_id index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v18(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v18: adding thread_archive_jobs table for bulk thread archiving");
+
+    // Create thread_archive_jobs table for tracking bulk thread archive requests
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS thread_archive_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            thread_url TEXT NOT NULL,
+            rss_url TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            total_posts INTEGER,
+            processed_posts INTEGER NOT NULL DEFAULT 0,
+            new_links_found INTEGER NOT NULL DEFAULT 0,
+            archives_created INTEGER NOT NULL DEFAULT 0,
+            skipped_links INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            started_at TEXT,
+            completed_at TEXT
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create thread_archive_jobs table")?;
+
+    // Index for querying pending jobs
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_thread_archive_jobs_status ON thread_archive_jobs(status)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create thread_archive_jobs status index")?;
+
+    // Index for user's job history
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_thread_archive_jobs_user_id ON thread_archive_jobs(user_id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create thread_archive_jobs user_id index")?;
+
+    // Index for rate limiting and deduplication
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_thread_archive_jobs_created_at ON thread_archive_jobs(created_at DESC)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create thread_archive_jobs created_at index")?;
 
     Ok(())
 }

@@ -1,6 +1,6 @@
 use crate::db::{
     thread_key_from_url, Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, AuditEvent, Link,
-    LinkOccurrenceWithPost, Post, QueueStats, ThreadDisplay, User,
+    LinkOccurrenceWithPost, Post, QueueStats, ThreadArchiveJob, ThreadDisplay, User,
 };
 use crate::web::diff::DiffResult;
 use urlencoding::encode;
@@ -2239,14 +2239,53 @@ pub fn render_submit_form(
     auth_warning: Option<&str>,
     can_submit: bool,
 ) -> String {
-    let mut content = String::from("<h1>Submit URL for Archiving</h1>");
+    let mut content = String::from("<h1>Submit for Archiving</h1>");
 
-    content.push_str(r"
-        <article>
-            <p>Submit a URL to be archived. Supported sites include Reddit, Twitter/X, TikTok, YouTube, Instagram, Imgur, and more.</p>
-            <p><strong>Rate limit:</strong> 60 submissions per hour per IP address.</p>
-        </article>
-    ");
+    // Tab navigation
+    content.push_str(r#"
+        <style>
+            .tab-nav {
+                display: flex;
+                gap: var(--spacing-xs, 0.25rem);
+                margin-bottom: var(--spacing-md, 1rem);
+                border-bottom: 1px solid var(--border, #e4e4e7);
+            }
+            .tab-nav button {
+                padding: var(--spacing-sm, 0.5rem) var(--spacing-md, 1rem);
+                border: none;
+                background: none;
+                cursor: pointer;
+                color: var(--foreground-muted, #71717a);
+                border-bottom: 2px solid transparent;
+                margin-bottom: -1px;
+            }
+            .tab-nav button.active {
+                color: var(--primary, #ec4899);
+                border-bottom-color: var(--primary, #ec4899);
+            }
+            .tab-nav button:hover:not(.active) {
+                color: var(--foreground, #18181b);
+            }
+            .tab-content {
+                display: none;
+            }
+            .tab-content.active {
+                display: block;
+            }
+        </style>
+        <div class="tab-nav">
+            <button type="button" class="active" onclick="showTab('url-tab', this)">Single URL</button>
+            <button type="button" onclick="showTab('thread-tab', this)">Archive Thread</button>
+        </div>
+        <script>
+            function showTab(tabId, btn) {
+                document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-nav button').forEach(b => b.classList.remove('active'));
+                document.getElementById(tabId).classList.add('active');
+                btn.classList.add('active');
+            }
+        </script>
+    "#);
 
     if let Some(warning) = auth_warning {
         content.push_str(&format!(
@@ -2278,20 +2317,47 @@ pub fn render_submit_form(
         r#" style="opacity: 0.5; cursor: not-allowed;""#
     };
 
+    // URL submission tab
     content.push_str(&format!(
         r#"
-        <form method="post" action="/submit">
-            <label for="url">URL to Archive</label>
-            <input type="url" id="url" name="url" required
-                   placeholder="https://reddit.com/r/..."
-                   pattern="https?://.*"{disabled_attr}>
-            <small>Enter the full URL including https://</small>
-            <button type="submit"{disabled_attr}{button_style}>Submit for Archiving</button>
-        </form>
+        <div id="url-tab" class="tab-content active">
+            <article>
+                <p>Submit a URL to be archived. Supported sites include Reddit, Twitter/X, TikTok, YouTube, Instagram, Imgur, and more.</p>
+                <p><strong>Rate limit:</strong> 60 submissions per hour per IP address.</p>
+            </article>
+            <form method="post" action="/submit">
+                <label for="url">URL to Archive</label>
+                <input type="url" id="url" name="url" required
+                       placeholder="https://reddit.com/r/..."
+                       pattern="https?://.*"{disabled_attr}>
+                <small>Enter the full URL including https://</small>
+                <button type="submit"{disabled_attr}{button_style}>Submit for Archiving</button>
+            </form>
+        </div>
     "#,
     ));
 
-    base_layout("Submit URL", &content)
+    // Thread archive tab
+    content.push_str(&format!(
+        r#"
+        <div id="thread-tab" class="tab-content">
+            <article>
+                <p>Archive all links from all posts in a Discourse thread. The system will fetch the thread's RSS feed and process each post.</p>
+                <p><strong>Rate limit:</strong> 5 thread archives per hour.</p>
+            </article>
+            <form method="post" action="/submit/thread">
+                <label for="thread_url">Thread URL</label>
+                <input type="url" id="thread_url" name="thread_url" required
+                       placeholder="https://discuss.example.com/t/topic-name/123"
+                       pattern="https?://.*"{disabled_attr}>
+                <small>Paste the URL of a Discourse thread</small>
+                <button type="submit"{disabled_attr}{button_style}>Archive Thread</button>
+            </form>
+        </div>
+    "#,
+    ));
+
+    base_layout("Submit for Archiving", &content)
 }
 
 /// Render submission success page.
@@ -2325,6 +2391,170 @@ pub fn render_submit_error(error: &str) -> String {
     );
 
     base_layout("Submission Failed", &content)
+}
+
+/// Render thread archive job status page.
+pub fn render_thread_job_status(job: &ThreadArchiveJob, user: Option<&User>) -> String {
+    let status_class = match job.status.as_str() {
+        "pending" => "warning",
+        "processing" => "info",
+        "complete" => "success",
+        "failed" => "error",
+        _ => "info",
+    };
+
+    let status_display = match job.status.as_str() {
+        "pending" => "Pending",
+        "processing" => "Processing",
+        "complete" => "Complete",
+        "failed" => "Failed",
+        _ => &job.status,
+    };
+
+    // Auto-refresh for pending/processing jobs
+    let auto_refresh = if job.status == "pending" || job.status == "processing" {
+        r#"<meta http-equiv="refresh" content="5">"#
+    } else {
+        ""
+    };
+
+    let mut content = format!(
+        r#"
+        {auto_refresh}
+        <h1>Thread Archive Job #{}</h1>
+
+        <article class="{status_class}">
+            <p><strong>Status:</strong> {status_display}</p>
+        </article>
+
+        <section>
+            <h2>Details</h2>
+            <table>
+                <tr>
+                    <th>Thread URL</th>
+                    <td><a href="{}" target="_blank">{}</a></td>
+                </tr>
+                <tr>
+                    <th>RSS URL</th>
+                    <td><a href="{}" target="_blank">{}</a></td>
+                </tr>
+                <tr>
+                    <th>Created</th>
+                    <td>{}</td>
+                </tr>
+        "#,
+        job.id,
+        html_escape(&job.thread_url),
+        html_escape(&job.thread_url),
+        html_escape(&job.rss_url),
+        html_escape(&job.rss_url),
+        html_escape(&job.created_at),
+    );
+
+    if let Some(started) = &job.started_at {
+        content.push_str(&format!(
+            r#"
+                <tr>
+                    <th>Started</th>
+                    <td>{}</td>
+                </tr>
+            "#,
+            html_escape(started)
+        ));
+    }
+
+    if let Some(completed) = &job.completed_at {
+        content.push_str(&format!(
+            r#"
+                <tr>
+                    <th>Completed</th>
+                    <td>{}</td>
+                </tr>
+            "#,
+            html_escape(completed)
+        ));
+    }
+
+    content.push_str("</table></section>");
+
+    // Progress section
+    if job.status == "processing" || job.status == "complete" {
+        let progress_percent = if let Some(total) = job.total_posts {
+            if total > 0 {
+                (job.processed_posts * 100 / total).min(100)
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        let total_display = job.total_posts.map_or("?".to_string(), |t| t.to_string());
+
+        content.push_str(&format!(
+            r#"
+            <section>
+                <h2>Progress</h2>
+                <div style="background: var(--muted, #f4f4f5); border-radius: var(--radius, 0.375rem); overflow: hidden; height: 1.5rem; margin-bottom: var(--spacing-md, 1rem);">
+                    <div style="background: var(--primary, #ec4899); height: 100%; width: {progress_percent}%; transition: width 0.3s;"></div>
+                </div>
+                <table>
+                    <tr>
+                        <th>Posts Processed</th>
+                        <td>{} / {}</td>
+                    </tr>
+                    <tr>
+                        <th>New Links Found</th>
+                        <td>{}</td>
+                    </tr>
+                    <tr>
+                        <th>Archives Created</th>
+                        <td>{}</td>
+                    </tr>
+                    <tr>
+                        <th>Skipped Links</th>
+                        <td>{}</td>
+                    </tr>
+                </table>
+            </section>
+            "#,
+            job.processed_posts,
+            total_display,
+            job.new_links_found,
+            job.archives_created,
+            job.skipped_links,
+        ));
+    }
+
+    // Error message for failed jobs
+    if let Some(error) = &job.error_message {
+        content.push_str(&format!(
+            r#"
+            <section>
+                <h2>Error</h2>
+                <article class="error">
+                    <p>{}</p>
+                </article>
+            </section>
+            "#,
+            html_escape(error)
+        ));
+    }
+
+    // Auto-refresh notice
+    if job.status == "pending" || job.status == "processing" {
+        content.push_str(
+            r#"
+            <p style="color: var(--foreground-muted, #71717a); font-size: 0.875rem;">
+                This page will automatically refresh every 5 seconds.
+            </p>
+            "#,
+        );
+    }
+
+    content.push_str(r#"<p><a href="/submit">Submit another</a></p>"#);
+
+    base_layout_with_user(&format!("Thread Archive Job #{}", job.id), &content, user)
 }
 
 /// Render a media player based on content type and file extension.

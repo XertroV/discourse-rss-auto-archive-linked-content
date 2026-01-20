@@ -632,3 +632,70 @@ pub struct ExcludedDomain {
     pub created_by_user_id: Option<i64>,
     pub updated_at: String,
 }
+
+/// Status of a thread archive job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThreadArchiveJobStatus {
+    Pending,
+    Processing,
+    Complete,
+    Failed,
+}
+
+impl ThreadArchiveJobStatus {
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Processing => "processing",
+            Self::Complete => "complete",
+            Self::Failed => "failed",
+        }
+    }
+
+    #[must_use]
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "pending" => Some(Self::Pending),
+            "processing" => Some(Self::Processing),
+            "complete" => Some(Self::Complete),
+            "failed" => Some(Self::Failed),
+            _ => None,
+        }
+    }
+}
+
+/// A request to archive all links in a Discourse thread.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ThreadArchiveJob {
+    pub id: i64,
+    pub thread_url: String,
+    pub rss_url: String,
+    pub status: String,
+    pub user_id: i64,
+    pub total_posts: Option<i64>,
+    pub processed_posts: i64,
+    pub new_links_found: i64,
+    pub archives_created: i64,
+    pub skipped_links: i64,
+    pub error_message: Option<String>,
+    pub created_at: String,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+}
+
+impl ThreadArchiveJob {
+    #[must_use]
+    pub fn status_enum(&self) -> Option<ThreadArchiveJobStatus> {
+        ThreadArchiveJobStatus::from_str(&self.status)
+    }
+}
+
+/// Data for creating a new thread archive job.
+#[derive(Debug, Clone)]
+pub struct NewThreadArchiveJob {
+    pub thread_url: String,
+    pub rss_url: String,
+    pub user_id: i64,
+}

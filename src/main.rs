@@ -185,6 +185,14 @@ async fn run() -> Result<()> {
     });
     info!("Cleanup worker started");
 
+    // Start thread archive worker
+    let thread_archive_config = config.clone();
+    let thread_archive_db = db.clone();
+    let thread_archive_handle = tokio::spawn(async move {
+        rss::thread_archive_worker::run(thread_archive_config, thread_archive_db).await;
+    });
+    info!("Thread archive worker started");
+
     // Start RSS polling loop
     let poll_handle = tokio::spawn(async move {
         rss::poll_loop(config, db).await;
@@ -202,6 +210,7 @@ async fn run() -> Result<()> {
     web_handle.abort();
     poll_handle.abort();
     worker_handle.abort();
+    thread_archive_handle.abort();
     cleanup_handle.abort();
     if let Some(handle) = backup_handle {
         handle.abort();

@@ -17,18 +17,21 @@ use super::AppState;
 use crate::auth::{MaybeUser, RequireAdmin, RequireApproved, RequireUser};
 use crate::db::{
     add_comment_reaction, can_user_edit_comment, count_archives_by_status, count_links,
-    count_posts, count_submissions_from_ip_last_hour, create_comment, create_comment_reply,
-    create_pending_archive, delete_archive, get_all_threads, get_archive, get_archive_by_link_id,
-    get_archives_by_domain_display, get_archives_for_post_display, get_archives_for_posts_display,
-    get_artifacts_for_archive, get_comment_edit_history, get_comment_with_author,
-    get_jobs_for_archive, get_link, get_link_by_normalized_url, get_link_occurrences_with_posts,
-    get_post_by_guid, get_posts_by_thread_key, get_queue_stats, get_quote_reply_chain,
+    count_posts, count_submissions_from_ip_last_hour, count_user_thread_archive_jobs_last_hour,
+    create_comment, create_comment_reply, create_pending_archive, delete_archive, get_all_threads,
+    get_archive, get_archive_by_link_id, get_archives_by_domain_display,
+    get_archives_for_post_display, get_archives_for_posts_display, get_artifacts_for_archive,
+    get_comment_edit_history, get_comment_with_author, get_jobs_for_archive, get_link,
+    get_link_by_normalized_url, get_link_occurrences_with_posts, get_post_by_guid,
+    get_posts_by_thread_key, get_queue_stats, get_quote_reply_chain,
     get_recent_archives_display_filtered, get_recent_archives_filtered_full,
-    get_recent_archives_with_filters, get_recent_failed_archives, insert_link, insert_submission,
-    pin_comment, remove_comment_reaction, reset_archive_for_rearchive,
-    reset_single_skipped_archive, reset_skipped_archives, search_archives_display_filtered,
-    search_archives_filtered_full, soft_delete_comment, submission_exists_for_url,
+    get_recent_archives_with_filters, get_recent_failed_archives, get_thread_archive_job,
+    insert_link, insert_submission, insert_thread_archive_job, pin_comment,
+    remove_comment_reaction, reset_archive_for_rearchive, reset_single_skipped_archive,
+    reset_skipped_archives, search_archives_display_filtered, search_archives_filtered_full,
+    soft_delete_comment, submission_exists_for_url, thread_archive_job_exists_recent,
     toggle_archive_nsfw, unpin_comment, update_comment, NewLink, NewSubmission,
+    NewThreadArchiveJob,
 };
 use crate::handlers::normalize_url;
 
@@ -84,6 +87,8 @@ pub fn router() -> Router<AppState> {
         .route("/archives/all", get(recent_all_archives))
         .route("/search", get(search))
         .route("/submit", get(submit_form).post(submit_url))
+        .route("/submit/thread", post(submit_thread))
+        .route("/submit/thread/:id", get(thread_job_status))
         .route("/archive/:id", get(archive_detail))
         .route("/archive/:id/rearchive", post(rearchive))
         .route("/archive/:id/toggle-nsfw", post(toggle_nsfw))
@@ -1046,6 +1051,194 @@ async fn submit_url(
     );
 
     let html = templates::render_submit_success(submission_id);
+    Html(html).into_response()
+}
+
+// ========== Thread Archive Routes ==========
+
+#[derive(Debug, Deserialize)]
+pub struct SubmitThreadForm {
+    thread_url: String,
+}
+
+/// Submit a thread for archiving all links.
+async fn submit_thread(
+    State(state): State<AppState>,
+    RequireApproved(user): RequireApproved,
+    Form(form): Form<SubmitThreadForm>,
+) -> Response {
+    tracing::debug!(user_id = user.id, "HTTP API: POST /submit/thread");
+
+    let thread_url = form.thread_url.trim();
+    if thread_url.is_empty() {
+        let html = templates::render_submit_form(Some("Thread URL is required"), None, None, true);
+        return Html(html).into_response();
+    }
+
+    // Parse and validate URL
+    let parsed_url = match url::Url::parse(thread_url) {
+        Ok(u) => u,
+        Err(_) => {
+            let html = templates::render_submit_form(Some("Invalid URL format"), None, None, true);
+            return Html(html).into_response();
+        }
+    };
+
+    // Only allow http/https
+    if parsed_url.scheme() != "http" && parsed_url.scheme() != "https" {
+        let html = templates::render_submit_form(
+            Some("Only HTTP/HTTPS URLs are allowed"),
+            None,
+            None,
+            true,
+        );
+        return Html(html).into_response();
+    }
+
+    // Extract forum domain from config.rss_url
+    let config_forum_domain = url::Url::parse(&state.config.rss_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|s| s.to_string()));
+
+    let submitted_domain = parsed_url.host_str().map(|s| s.to_string());
+
+    // Validate domain matches the configured forum
+    if config_forum_domain.is_none() || submitted_domain.is_none() {
+        let html =
+            templates::render_submit_form(Some("Could not validate domain"), None, None, true);
+        return Html(html).into_response();
+    }
+
+    let config_domain = config_forum_domain.unwrap();
+    let thread_domain = submitted_domain.unwrap();
+
+    if !domains_match_for_thread(&thread_domain, &config_domain) {
+        let html = templates::render_submit_form(
+            Some(&format!("Only threads from {} are allowed", config_domain)),
+            None,
+            None,
+            true,
+        );
+        return Html(html).into_response();
+    }
+
+    // Clean the URL: remove query string and fragment
+    let clean_url = {
+        let mut clean = parsed_url.clone();
+        clean.set_query(None);
+        clean.set_fragment(None);
+        clean.to_string().trim_end_matches('/').to_string()
+    };
+
+    // Build RSS URL by appending .rss
+    let rss_url = format!("{}.rss", clean_url);
+
+    // Rate limit check: 5 thread jobs per hour per user
+    const THREAD_RATE_LIMIT: i64 = 5;
+    match count_user_thread_archive_jobs_last_hour(state.db.pool(), user.id).await {
+        Ok(count) => {
+            if count >= THREAD_RATE_LIMIT {
+                let html = templates::render_submit_form(
+                    Some(&format!(
+                        "Rate limit exceeded. Maximum {} thread archives per hour.",
+                        THREAD_RATE_LIMIT
+                    )),
+                    None,
+                    None,
+                    true,
+                );
+                return Html(html).into_response();
+            }
+        }
+        Err(e) => {
+            tracing::error!("Failed to check thread rate limit: {e}");
+            let html = templates::render_submit_form(Some("Internal error"), None, None, true);
+            return Html(html).into_response();
+        }
+    }
+
+    // Check if this thread was recently submitted
+    match thread_archive_job_exists_recent(state.db.pool(), &clean_url).await {
+        Ok(true) => {
+            let html = templates::render_submit_form(
+                Some("This thread was already submitted recently. Check the status page."),
+                None,
+                None,
+                true,
+            );
+            return Html(html).into_response();
+        }
+        Ok(false) => {}
+        Err(e) => {
+            tracing::error!("Failed to check existing thread job: {e}");
+            let html = templates::render_submit_form(Some("Internal error"), None, None, true);
+            return Html(html).into_response();
+        }
+    }
+
+    // Create thread archive job
+    let job = NewThreadArchiveJob {
+        thread_url: clean_url,
+        rss_url,
+        user_id: user.id,
+    };
+
+    let job_id = match insert_thread_archive_job(state.db.pool(), &job).await {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!("Failed to create thread archive job: {e}");
+            let html = templates::render_submit_form(
+                Some("Failed to create thread archive job"),
+                None,
+                None,
+                true,
+            );
+            return Html(html).into_response();
+        }
+    };
+
+    tracing::info!(
+        job_id = job_id,
+        thread_url = %job.thread_url,
+        user_id = user.id,
+        "Thread archive job created"
+    );
+
+    // Redirect to status page
+    (
+        StatusCode::SEE_OTHER,
+        [(header::LOCATION, format!("/submit/thread/{}", job_id))],
+    )
+        .into_response()
+}
+
+/// Check if two domains match (ignoring www prefix and case).
+fn domains_match_for_thread(domain1: &str, domain2: &str) -> bool {
+    let d1 = domain1.to_ascii_lowercase();
+    let d2 = domain2.to_ascii_lowercase();
+    let d1 = d1.strip_prefix("www.").unwrap_or(&d1);
+    let d2 = d2.strip_prefix("www.").unwrap_or(&d2);
+    d1 == d2
+}
+
+/// Show thread archive job status page.
+async fn thread_job_status(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    MaybeUser(user): MaybeUser,
+) -> Response {
+    let job = match get_thread_archive_job(state.db.pool(), id).await {
+        Ok(Some(j)) => j,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, "Job not found").into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch thread archive job: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    let html = templates::render_thread_job_status(&job, user.as_ref());
     Html(html).into_response()
 }
 
