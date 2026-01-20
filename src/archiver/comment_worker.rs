@@ -206,6 +206,19 @@ async fn extract_comments_for_archive(
             .ok()
             .map(|m| m.len() as i64);
 
+        // Read comments.json to extract stats for metadata
+        let metadata = match tokio::fs::read_to_string(&comments_json_path).await {
+            Ok(content) => {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    // Extract stats for the artifact metadata
+                    json.get("stats").map(|stats| stats.to_string())
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        };
+
         // Insert artifact record
         crate::db::insert_artifact(
             db.pool(),
@@ -214,12 +227,17 @@ async fn extract_comments_for_archive(
             &s3_key,
             Some("application/json"),
             file_size,
-            None,
+            metadata.as_deref(),
         )
         .await
         .context("Failed to insert comments artifact")?;
 
-        info!(archive_id = archive.id, s3_key = %s3_key, "Comments uploaded to S3");
+        info!(
+            archive_id = archive.id,
+            s3_key = %s3_key,
+            comment_count = comment_count,
+            "Comments uploaded to S3"
+        );
     }
 
     // Clean up work directory
