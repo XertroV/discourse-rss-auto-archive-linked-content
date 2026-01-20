@@ -1,4 +1,5 @@
 use std::path::Path;
+use sha2::{Digest, Sha256};
 
 pub mod gallerydl;
 pub mod monolith;
@@ -44,10 +45,10 @@ pub fn sanitize_filename(filename: &str) -> String {
         .map(|c| match c {
             // Replace spaces with underscores
             ' ' => '_',
-            // Remove problematic URL characters
-            '#' | '?' | '&' | '%' | '"' | '\'' | '<' | '>' | '|' | '*' | ':' | '\\' | '/' => '_',
-            // Keep parentheses, brackets, hyphens, underscores, dots, and alphanumerics
-            '(' | ')' | '[' | ']' | '-' | '_' | '.' => c,
+            // Remove problematic URL characters and periods
+            '#' | '?' | '&' | '%' | '"' | '\'' | '<' | '>' | '|' | '*' | ':' | '\\' | '/' | '.' => '_',
+            // Keep parentheses, brackets, hyphens, underscores, and alphanumerics
+            '(' | ')' | '[' | ']' | '-' | '_' => c,
             // Keep alphanumerics
             c if c.is_alphanumeric() => c,
             // Replace everything else with underscore
@@ -62,16 +63,23 @@ pub fn sanitize_filename(filename: &str) -> String {
         .collect::<Vec<_>>()
         .join("_");
 
-    // Limit name length (leaving room for extension)
-    const MAX_NAME_LENGTH: usize = 200;
-    let truncated_name = if sanitized_name.len() > MAX_NAME_LENGTH {
-        &sanitized_name[..MAX_NAME_LENGTH]
+    // Limit name length (leaving room for hash and extension)
+    const MAX_NAME_LENGTH: usize = 20;
+    let final_name = if sanitized_name.len() > MAX_NAME_LENGTH {
+        // Create a hash of the full sanitized name
+        let mut hasher = Sha256::new();
+        hasher.update(sanitized_name.as_bytes());
+        let hash = hasher.finalize();
+        let hash_suffix = format!("{:x}", hash)[..7].to_string();
+
+        // Truncate to max length and append hash
+        format!("{}_{}", &sanitized_name[..MAX_NAME_LENGTH], hash_suffix)
     } else {
-        &sanitized_name
+        sanitized_name.to_string()
     };
 
     // Recombine with extension
-    format!("{truncated_name}{ext}")
+    format!("{final_name}{ext}")
 }
 
 #[cfg(test)]
@@ -86,10 +94,12 @@ mod tests {
     #[test]
     fn test_sanitize_filename_hash() {
         assert_eq!(sanitize_filename("Video #1.mp4"), "Video_1.mp4");
-        assert_eq!(
-            sanitize_filename("Let's talk #tallowskincare #tallow.mp4"),
-            "Let_s_talk_tallowskincare_tallow.mp4"
-        );
+        // Long name with hash symbols - gets truncated with hash suffix
+        let result = sanitize_filename("Let's talk #tallowskincare #tallow.mp4");
+        assert!(result.starts_with("Let_s_talk_tallowski"));
+        assert!(result.ends_with(".mp4"));
+        // Should have the hash suffix format: 20 chars + "_" + 7 hex + ".mp4"
+        assert_eq!(result.len(), 32);
     }
 
     #[test]
@@ -143,9 +153,28 @@ mod tests {
         let long_name = "a".repeat(250);
         let filename = format!("{long_name}.mp4");
         let sanitized = sanitize_filename(&filename);
-        // Should be truncated to 200 chars + ".mp4"
-        assert_eq!(sanitized.len(), 204);
+        // Should be truncated to 20 chars + "_" + 7 char hash + ".mp4" = 32 total
+        assert_eq!(sanitized.len(), 32);
+        assert!(sanitized.starts_with("aaaaaaaaaaaaaaaaaaaa_")); // 20 a's + underscore
         assert!(sanitized.ends_with(".mp4"));
+        // Verify that the hash portion exists (7 hex chars between last _ and .mp4)
+        let parts: Vec<&str> = sanitized.trim_end_matches(".mp4").split('_').collect();
+        assert_eq!(parts.last().unwrap().len(), 7);
+    }
+
+    #[test]
+    fn test_sanitize_filename_short_name_no_hash() {
+        // Names under 20 chars shouldn't get a hash
+        assert_eq!(sanitize_filename("short.mp4"), "short.mp4");
+        assert_eq!(sanitize_filename("My_Video_File.mp4"), "My_Video_File.mp4");
+    }
+
+    #[test]
+    fn test_sanitize_filename_strips_periods() {
+        // Periods in the name should be replaced with underscores
+        assert_eq!(sanitize_filename("file.name.test.mp4"), "file_name_test.mp4");
+        assert_eq!(sanitize_filename("video.1.2.3.mp4"), "video_1_2_3.mp4");
+        assert_eq!(sanitize_filename("Dr. Test.mp4"), "Dr_Test.mp4");
     }
 
     #[test]
