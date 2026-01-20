@@ -773,76 +773,146 @@ pub async fn get_recent_archives_display_filtered(
     pool: &SqlitePool,
     limit: i64,
     content_type: Option<&str>,
+    source: Option<&str>,
 ) -> Result<Vec<ArchiveDisplay>> {
+    // Build WHERE clause dynamically based on filters
+    let mut where_clauses = Vec::new();
+
+    if content_type.is_some() {
+        where_clauses.push("a.content_type = ?");
+    }
+
+    if source.is_some() {
+        where_clauses.push("l.domain LIKE ?");
+    }
+
+    if where_clauses.is_empty() {
+        return get_recent_archives_display(pool, limit).await;
+    }
+
+    let where_clause = where_clauses.join(" AND ");
+    let sql = format!(
+        r"
+        SELECT
+            a.id, a.link_id, a.status, a.archived_at,
+            a.content_title, a.content_author, a.content_type,
+            a.is_nsfw, a.error_message, a.retry_count,
+            l.original_url, l.domain,
+            COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
+        FROM archives a
+        JOIN links l ON a.link_id = l.id
+        LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
+        WHERE {}
+        GROUP BY a.id, a.link_id, a.status, a.archived_at,
+                 a.content_title, a.content_author, a.content_type,
+                 a.is_nsfw, a.error_message, a.retry_count,
+                 l.original_url, l.domain
+        ORDER BY COALESCE(a.archived_at, a.last_attempt_at, a.created_at) DESC
+        LIMIT ?
+        ",
+        where_clause
+    );
+
+    let mut query = sqlx::query_as(&sql);
+
+    // Bind parameters in order
     if let Some(ct) = content_type {
-        sqlx::query_as(
-            r"
-            SELECT
-                a.id, a.link_id, a.status, a.archived_at,
-                a.content_title, a.content_author, a.content_type,
-                a.is_nsfw, a.error_message, a.retry_count,
-                l.original_url, l.domain,
-                COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
-            FROM archives a
-            JOIN links l ON a.link_id = l.id
-            LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
-            WHERE a.content_type = ?
-            GROUP BY a.id, a.link_id, a.status, a.archived_at,
-                     a.content_title, a.content_author, a.content_type,
-                     a.is_nsfw, a.error_message, a.retry_count,
-                     l.original_url, l.domain
-            ORDER BY COALESCE(a.archived_at, a.last_attempt_at, a.created_at) DESC
-            LIMIT ?
-            ",
-        )
-        .bind(ct)
+        query = query.bind(ct);
+    }
+
+    if let Some(src) = source {
+        // Convert source name to domain pattern
+        let domain_pattern = match src {
+            "reddit" => "%reddit.com%",
+            "youtube" => "%youtube.com%",
+            "tiktok" => "%tiktok.com%",
+            "twitter" => "%twitter.com%",
+            _ => src,
+        };
+        query = query.bind(domain_pattern);
+    }
+
+    query
         .bind(limit)
         .fetch_all(pool)
         .await
-        .context("Failed to fetch recent archives with content_type filter")
-    } else {
-        get_recent_archives_display(pool, limit).await
-    }
+        .context("Failed to fetch recent archives with filters")
 }
 
-/// Search archives with link info for display, with optional content_type filter.
+/// Search archives with link info for display, with optional content_type and source filters.
 pub async fn search_archives_display_filtered(
     pool: &SqlitePool,
     query: &str,
     limit: i64,
     content_type: Option<&str>,
+    source: Option<&str>,
 ) -> Result<Vec<ArchiveDisplay>> {
+    // Build WHERE clause dynamically based on filters
+    let mut where_clauses = vec!["archives_fts MATCH ?"];
+
+    if content_type.is_some() {
+        where_clauses.push("a.content_type = ?");
+    }
+
+    if source.is_some() {
+        where_clauses.push("l.domain LIKE ?");
+    }
+
+    if where_clauses.len() == 1 {
+        // Only MATCH clause, no additional filters
+        return search_archives_display(pool, query, limit).await;
+    }
+
+    let where_clause = where_clauses.join(" AND ");
+    let sql = format!(
+        r"
+        SELECT
+            a.id, a.link_id, a.status, a.archived_at,
+            a.content_title, a.content_author, a.content_type,
+            a.is_nsfw, a.error_message, a.retry_count,
+            l.original_url, l.domain,
+            COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
+        FROM archives a
+        JOIN links l ON a.link_id = l.id
+        JOIN archives_fts ON a.id = archives_fts.rowid
+        LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
+        WHERE {}
+        GROUP BY a.id, a.link_id, a.status, a.archived_at,
+                 a.content_title, a.content_author, a.content_type,
+                 a.is_nsfw, a.error_message, a.retry_count,
+                 l.original_url, l.domain
+        ORDER BY rank
+        LIMIT ?
+        ",
+        where_clause
+    );
+
+    let mut sql_query = sqlx::query_as(&sql);
+
+    // Bind parameters in order
+    sql_query = sql_query.bind(query);
+
     if let Some(ct) = content_type {
-        sqlx::query_as(
-            r"
-            SELECT
-                a.id, a.link_id, a.status, a.archived_at,
-                a.content_title, a.content_author, a.content_type,
-                a.is_nsfw, a.error_message, a.retry_count,
-                l.original_url, l.domain,
-                COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
-            FROM archives a
-            JOIN links l ON a.link_id = l.id
-            JOIN archives_fts ON a.id = archives_fts.rowid
-            LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
-            WHERE archives_fts MATCH ? AND a.content_type = ?
-            GROUP BY a.id, a.link_id, a.status, a.archived_at,
-                     a.content_title, a.content_author, a.content_type,
-                     a.is_nsfw, a.error_message, a.retry_count,
-                     l.original_url, l.domain
-            ORDER BY rank
-            LIMIT ?
-            ",
-        )
-        .bind(query)
-        .bind(ct)
+        sql_query = sql_query.bind(ct);
+    }
+
+    if let Some(src) = source {
+        // Convert source name to domain pattern
+        let domain_pattern = match src {
+            "reddit" => "%reddit.com%",
+            "youtube" => "%youtube.com%",
+            "tiktok" => "%tiktok.com%",
+            "twitter" => "%twitter.com%",
+            _ => src,
+        };
+        sql_query = sql_query.bind(domain_pattern);
+    }
+
+    sql_query
         .bind(limit)
         .fetch_all(pool)
         .await
-        .context("Failed to search archives with content_type filter")
-    } else {
-        search_archives_display(pool, query, limit).await
-    }
+        .context("Failed to search archives with filters")
 }
 
 /// Get archives by domain with link info for display (all statuses).

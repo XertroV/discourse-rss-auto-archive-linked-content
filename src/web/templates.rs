@@ -23,29 +23,46 @@ fn base_layout(title: &str, content: &str) -> String {
         /* NSFW filtering styles */
         body.nsfw-hidden [data-nsfw="true"] {{ display: none !important; }}
 
-        /* Content type filter styles */
-        .content-type-filters {{
+        /* Filter section styles - shadcn inspired */
+        .filter-section {{
+            margin: var(--spacing-md, 1rem) 0;
+        }}
+        .filter-section h3 {{
+            font-size: var(--font-size-sm, 0.875rem);
+            font-weight: 600;
+            color: var(--text-secondary, #52525b);
+            margin-bottom: var(--spacing-sm, 0.5rem);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+        .filter-buttons {{
             display: flex;
-            gap: 0.5rem;
-            margin: 1rem 0;
+            align-items: center;
+            gap: var(--spacing-sm, 0.5rem);
             flex-wrap: wrap;
         }}
         .filter-btn {{
-            padding: 0.5rem 1rem;
-            border: 1px solid var(--muted-border-color, #dee2e6);
-            border-radius: 0.25rem;
+            display: inline-flex;
+            align-items: center;
+            gap: var(--spacing-xs, 0.25rem);
+            padding: var(--spacing-xs, 0.25rem) var(--spacing-sm, 0.5rem);
+            font-size: var(--font-size-sm, 0.875rem);
+            font-weight: 500;
+            color: var(--text-secondary, #52525b);
             text-decoration: none;
-            color: var(--color, #000);
-            background: var(--card-background-color, #fff);
-            transition: all 0.2s;
+            border: 1px solid var(--border-color, #e4e4e7);
+            background-color: var(--bg-secondary, #fafafa);
+            transition: all 0.2s ease;
+            cursor: pointer;
         }}
         .filter-btn:hover {{
-            background: var(--secondary-hover, #f8f9fa);
+            color: var(--text-primary, #18181b);
+            background-color: var(--bg-tertiary, #f4f4f5);
+            text-decoration: none;
         }}
         .filter-btn.active {{
-            background: var(--primary, #0066cc);
-            color: #fff;
-            border-color: var(--primary, #0066cc);
+            color: var(--text-primary, #18181b);
+            border-color: var(--primary, #ec4899);
         }}
     </style>
     <script>
@@ -165,6 +182,7 @@ pub fn render_home_paginated(
     page: usize,
     total_pages: usize,
     content_type_filter: Option<&str>,
+    source_filter: Option<&str>,
 ) -> String {
     render_recent_archives_page_paginated(
         "Recent Archives",
@@ -176,6 +194,7 @@ pub fn render_home_paginated(
         total_pages,
         "/",
         content_type_filter,
+        source_filter,
     )
 }
 
@@ -198,6 +217,7 @@ pub fn render_recent_failed_archives_paginated(
     page: usize,
     total_pages: usize,
     content_type_filter: Option<&str>,
+    source_filter: Option<&str>,
 ) -> String {
     render_recent_archives_page_paginated(
         "Recent Failed Archives",
@@ -209,6 +229,7 @@ pub fn render_recent_failed_archives_paginated(
         total_pages,
         "/archives/failed",
         content_type_filter,
+        source_filter,
     )
 }
 
@@ -231,6 +252,7 @@ pub fn render_recent_all_archives_paginated(
     page: usize,
     total_pages: usize,
     content_type_filter: Option<&str>,
+    source_filter: Option<&str>,
 ) -> String {
     render_recent_archives_page_paginated(
         "All Recent Archives",
@@ -242,6 +264,7 @@ pub fn render_recent_all_archives_paginated(
         total_pages,
         "/archives/all",
         content_type_filter,
+        source_filter,
     )
 }
 
@@ -323,6 +346,7 @@ fn render_recent_archives_page_paginated(
     total_pages: usize,
     base_url: &str,
     content_type_filter: Option<&str>,
+    source_filter: Option<&str>,
 ) -> String {
     let mut content = String::new();
     content.push_str(&format!("<h1>{}</h1>", html_escape(heading)));
@@ -332,7 +356,18 @@ fn render_recent_archives_page_paginated(
     ));
 
     // Add content type filter buttons
-    content.push_str(&render_content_type_filters(base_url, content_type_filter));
+    content.push_str(&render_content_type_filters(
+        base_url,
+        content_type_filter,
+        source_filter,
+    ));
+
+    // Add source filter buttons
+    content.push_str(&render_source_filters(
+        base_url,
+        source_filter,
+        content_type_filter,
+    ));
 
     if archives.is_empty() {
         content.push_str("<p>No archives yet.</p>");
@@ -350,6 +385,7 @@ fn render_recent_archives_page_paginated(
                 total_pages,
                 base_url,
                 content_type_filter,
+                source_filter,
             ));
         }
     }
@@ -358,8 +394,14 @@ fn render_recent_archives_page_paginated(
 }
 
 /// Render content type filter buttons.
-fn render_content_type_filters(base_url: &str, active_filter: Option<&str>) -> String {
-    let mut html = String::from(r#"<div class="content-type-filters">"#);
+fn render_content_type_filters(
+    base_url: &str,
+    active_filter: Option<&str>,
+    source_filter: Option<&str>,
+) -> String {
+    let mut html = String::from(
+        r#"<div class="filter-section"><h3>Content Type</h3><div class="filter-buttons">"#,
+    );
 
     // Define available content types
     let types = [
@@ -384,16 +426,66 @@ fn render_content_type_filters(base_url: &str, active_filter: Option<&str>) -> S
             "filter-btn"
         };
 
-        let url = if let Some(t) = type_value {
-            format!("{}?type={}", base_url, urlencoding::encode(t))
-        } else {
-            base_url.to_string()
+        // Build URL with current source filter preserved
+        let url = match (type_value, source_filter) {
+            (Some(t), Some(s)) => format!("{}?type={}&source={}", base_url, encode(t), encode(s)),
+            (Some(t), None) => format!("{}?type={}", base_url, encode(t)),
+            (None, Some(s)) => format!("{}?source={}", base_url, encode(s)),
+            (None, None) => base_url.to_string(),
         };
 
         html.push_str(&format!(r#"<a href="{url}" class="{class}">{label}</a>"#));
     }
 
-    html.push_str("</div>");
+    html.push_str("</div></div>");
+    html
+}
+
+/// Render source filter buttons.
+fn render_source_filters(
+    base_url: &str,
+    active_filter: Option<&str>,
+    content_type_filter: Option<&str>,
+) -> String {
+    let mut html =
+        String::from(r#"<div class="filter-section"><h3>Source</h3><div class="filter-buttons">"#);
+
+    // Define available sources
+    let sources = [
+        ("All", None),
+        ("Reddit", Some("reddit")),
+        ("YouTube", Some("youtube")),
+        ("TikTok", Some("tiktok")),
+        ("Twitter/X", Some("twitter")),
+    ];
+
+    for (label, source_value) in &sources {
+        let is_active = match (active_filter, source_value) {
+            (None, None) => true,
+            (Some(a), Some(s)) if a == *s => true,
+            _ => false,
+        };
+
+        let class = if is_active {
+            "filter-btn active"
+        } else {
+            "filter-btn"
+        };
+
+        // Build URL with current content type filter preserved
+        let url = match (source_value, content_type_filter) {
+            (Some(s), Some(ct)) => {
+                format!("{}?source={}&type={}", base_url, encode(s), encode(ct))
+            }
+            (Some(s), None) => format!("{}?source={}", base_url, encode(s)),
+            (None, Some(ct)) => format!("{}?type={}", base_url, encode(ct)),
+            (None, None) => base_url.to_string(),
+        };
+
+        html.push_str(&format!(r#"<a href="{url}" class="{class}">{label}</a>"#));
+    }
+
+    html.push_str("</div></div>");
     html
 }
 
@@ -403,6 +495,7 @@ fn render_pagination(
     total_pages: usize,
     base_url: &str,
     content_type_filter: Option<&str>,
+    source_filter: Option<&str>,
 ) -> String {
     let mut html = String::from(r#"<nav class="pagination">"#);
 
@@ -413,8 +506,12 @@ fn render_pagination(
             params.push(format!("page={page_num}"));
         }
         if let Some(ct) = content_type_filter {
-            let encoded = urlencoding::encode(ct);
+            let encoded = encode(ct);
             params.push(format!("type={encoded}"));
+        }
+        if let Some(src) = source_filter {
+            let encoded = encode(src);
+            params.push(format!("source={encoded}"));
         }
         if params.is_empty() {
             base_url.to_string()
