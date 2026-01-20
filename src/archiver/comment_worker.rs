@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::archiver::{ytdlp, CookieOptions};
 use crate::config::Config;
@@ -92,7 +92,7 @@ pub async fn run(config: Config, db: Database, s3: S3Client) {
             }
             Ok(_) => {
                 // No pending jobs, just wait
-                debug!("No pending comment extraction jobs");
+                trace!("No pending comment extraction jobs");
             }
             Err(e) => {
                 error!("Failed to fetch pending comment extraction jobs: {e}");
