@@ -158,6 +158,7 @@ pub enum ArtifactKind {
     Metadata,
     Image,
     Subtitles,
+    Transcript,
 }
 
 impl ArtifactKind {
@@ -175,6 +176,7 @@ impl ArtifactKind {
             Self::Metadata => "metadata",
             Self::Image => "image",
             Self::Subtitles => "subtitles",
+            Self::Transcript => "transcript",
         }
     }
 }
@@ -196,6 +198,8 @@ pub struct ArchiveArtifact {
     pub duplicate_of_artifact_id: Option<i64>,
     /// Reference to the canonical video file (for video aliasing)
     pub video_file_id: Option<i64>,
+    /// Structured metadata (JSON) for artifact-specific data (e.g., subtitle language, transcript source)
+    pub metadata: Option<String>,
 }
 
 /// A canonical video file stored on S3.

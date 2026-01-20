@@ -1139,6 +1139,41 @@ pub async fn insert_artifact(
     Ok(result.last_insert_rowid())
 }
 
+/// Insert a new archive artifact with metadata.
+///
+/// # Errors
+///
+/// Returns an error if the database insert fails.
+pub async fn insert_artifact_with_metadata(
+    pool: &SqlitePool,
+    archive_id: i64,
+    kind: &str,
+    s3_key: &str,
+    content_type: Option<&str>,
+    size_bytes: Option<i64>,
+    sha256: Option<&str>,
+    metadata: Option<&str>,
+) -> Result<i64> {
+    let result = sqlx::query(
+        r"
+        INSERT INTO archive_artifacts (archive_id, kind, s3_key, content_type, size_bytes, sha256, metadata)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ",
+    )
+    .bind(archive_id)
+    .bind(kind)
+    .bind(s3_key)
+    .bind(content_type)
+    .bind(size_bytes)
+    .bind(sha256)
+    .bind(metadata)
+    .execute(pool)
+    .await
+    .context("Failed to insert artifact with metadata")?;
+
+    Ok(result.last_insert_rowid())
+}
+
 /// Get artifacts for an archive.
 pub async fn get_artifacts_for_archive(
     pool: &SqlitePool,

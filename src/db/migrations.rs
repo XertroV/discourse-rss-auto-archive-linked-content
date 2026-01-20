@@ -85,6 +85,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 13).await?;
     }
 
+    if current_version < 14 {
+        debug!("Running migration v14");
+        run_migration_v14(pool).await?;
+        set_schema_version(pool, 14).await?;
+    }
+
     Ok(())
 }
 
@@ -805,6 +811,19 @@ async fn run_migration_v13(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to create users display_name unique index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v14(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v14: adding metadata column to archive_artifacts for subtitle/transcript metadata");
+
+    // Add metadata column to archive_artifacts for storing structured data (JSON)
+    // This is useful for subtitles (language, is_auto, format) and transcripts (source info)
+    sqlx::query("ALTER TABLE archive_artifacts ADD COLUMN metadata TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add metadata column to archive_artifacts")?;
 
     Ok(())
 }
