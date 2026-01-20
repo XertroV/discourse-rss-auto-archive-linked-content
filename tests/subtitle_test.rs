@@ -377,9 +377,7 @@ async fn test_vtt_with_tags() {
         .await
         .expect("Failed to write VTT");
 
-    let cues = parse_vtt(&vtt_path)
-        .await
-        .expect("Failed to parse VTT");
+    let cues = parse_vtt(&vtt_path).await.expect("Failed to parse VTT");
 
     assert_eq!(cues.len(), 2);
     // Tags should be removed
