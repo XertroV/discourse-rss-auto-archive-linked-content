@@ -821,6 +821,13 @@ pub fn render_archive_detail(
         })
         .unwrap_or_default();
 
+    // Format author if present
+    let author_display = archive
+        .content_author
+        .as_ref()
+        .map(|author| format!(r#"<br><strong>Author:</strong> {}"#, html_escape(author)))
+        .unwrap_or_default();
+
     content.push_str(&format!(
         r#"<h1>{}{nsfw_badge}</h1>
         <article{nsfw_attr}>
@@ -828,7 +835,7 @@ pub fn render_archive_detail(
                 <p class="meta">
                     <strong>Status:</strong> {}<br>
                     <strong>Original URL:</strong> <a href="{}" target="_blank" rel="noopener">{}</a><br>
-                    <strong>Domain:</strong> {}{}<br>
+                    <strong>Domain:</strong> {}{}{}<br>
                     <strong>Archived:</strong> {}
                 </p>
             </header>"#,
@@ -838,6 +845,7 @@ pub fn render_archive_detail(
         html_escape(&link.normalized_url),
         html_escape(&link.domain),
         http_status_display,
+        author_display,
         archive.archived_at.as_deref().unwrap_or("pending"),
         nsfw_attr = nsfw_attr
     ));
@@ -877,7 +885,7 @@ pub fn render_archive_detail(
         content.push_str(
             r#"<section class="debug-actions">
                 <details>
-                    <summary><h3>Archive Actions</h3></summary>
+                    <summary><h2 style="display: inline;">Archive Actions</h2></summary>
                     <div class="debug-buttons">"#,
         );
 
@@ -940,13 +948,6 @@ pub fn render_archive_detail(
                 </details>
             </section>"#,
         );
-    }
-
-    if let Some(ref author) = archive.content_author {
-        content.push_str(&format!(
-            "<p><strong>Author:</strong> {}</p>",
-            html_escape(author)
-        ));
     }
 
     // Quote/Reply chain section for Twitter/X archives
@@ -1541,7 +1542,7 @@ pub fn render_archive_detail(
 
     // Collapsible archive metadata section
     content.push_str(
-        r#"<section class="debug-info"><details><summary><h2>Archive Metadata</h2></summary>"#,
+        r#"<section class="debug-info"><details><summary><h2 style="display: inline;">Archive Metadata</h2></summary>"#,
     );
     content.push_str(r#"<table class="debug-table"><tbody>"#);
 

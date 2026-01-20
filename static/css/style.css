@@ -1721,7 +1721,7 @@ pre {
 }
 
 .debug-info summary h2,
-.debug-actions summary h3 {
+.debug-actions summary h2 {
     margin: 0;
     display: inline;
     font-size: inherit;
