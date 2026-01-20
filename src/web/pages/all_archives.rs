@@ -5,6 +5,7 @@
 
 use maud::{html, Markup};
 
+use crate::components::badge::StatusVariant;
 use crate::components::{BaseLayout, MediaTypeBadge, Pagination};
 use crate::db::{ArchiveDisplay, User};
 
@@ -44,6 +45,7 @@ pub fn render_all_archives_table_page(params: &AllArchivesPageParams) -> Markup 
                 table class="archives-table" {
                     thead {
                         tr {
+                            th { "Status" }
                             th { "ID" }
                             th { "Type" }
                             th { "Title" }
@@ -81,8 +83,26 @@ fn render_archive_table_row(archive: &ArchiveDisplay) -> Markup {
         .to_string();
     let content_type = archive.content_type.as_deref().unwrap_or("text");
 
+    // Get status variant for icon
+    let status_variant = StatusVariant::from_str(&archive.status).unwrap_or(StatusVariant::Pending);
+    let status_icon = status_variant.icon();
+    let status_class = status_variant.css_class();
+    let status_title = if status_variant == StatusVariant::Failed {
+        archive
+            .error_message
+            .as_deref()
+            .unwrap_or(status_variant.title())
+    } else {
+        status_variant.title()
+    };
+
     html! {
         tr {
+            td class="status-cell" {
+                span class=(status_class) title=(status_title) {
+                    (status_icon)
+                }
+            }
             td { (archive.id) }
             td { (MediaTypeBadge::from_content_type(content_type)) }
             td {
@@ -122,6 +142,9 @@ mod tests {
         let html = render_archive_table_row(&archive).into_string();
 
         assert!(html.contains("<tr>"));
+        assert!(html.contains("status-cell")); // Status cell
+        assert!(html.contains("status-complete")); // Status class
+        assert!(html.contains("\u{2713}")); // ✓ icon
         assert!(html.contains("<td>1</td>")); // ID
         assert!(html.contains("href=\"/archive/1\"")); // Link
         assert!(html.contains("Test Archive")); // Title
@@ -174,6 +197,7 @@ mod tests {
         let html = render_all_archives_table_page(&params).into_string();
 
         assert!(html.contains("<table class=\"archives-table\">"));
+        assert!(html.contains("<th>Status</th>"));
         assert!(html.contains("<th>ID</th>"));
         assert!(html.contains("<th>Type</th>"));
         assert!(html.contains("<th>Title</th>"));

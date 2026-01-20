@@ -1412,40 +1412,53 @@ pre {
 /* Column-specific styles */
 .archives-table td:nth-child(1),
 .archives-table th:nth-child(1) {
+    /* Status column */
+    width: 3%;
+    text-align: center;
+}
+
+.archives-table td.status-cell {
+    text-align: center;
+    vertical-align: middle;
+    font-size: var(--font-size-lg);
+}
+
+.archives-table td:nth-child(2),
+.archives-table th:nth-child(2) {
     /* ID column */
     width: 5%;
 }
 
-.archives-table td:nth-child(1) {
+.archives-table td:nth-child(2) {
     font-family: 'Courier New', monospace;
     color: var(--text-muted);
     font-size: var(--font-size-xs);
 }
 
-.archives-table td:nth-child(2),
-.archives-table th:nth-child(2) {
+.archives-table td:nth-child(3),
+.archives-table th:nth-child(3) {
     /* Type column */
     width: 8%;
 }
 
-.archives-table td:nth-child(3),
-.archives-table th:nth-child(3) {
+.archives-table td:nth-child(4),
+.archives-table th:nth-child(4) {
     /* Title column - wide with wrapping, no truncation */
-    width: 60%;
+    width: 57%;
 }
 
-.archives-table td:nth-child(3) {
+.archives-table td:nth-child(4) {
     word-wrap: break-word;
     overflow-wrap: break-word;
 }
 
-.archives-table td:nth-child(4),
-.archives-table th:nth-child(4) {
+.archives-table td:nth-child(5),
+.archives-table th:nth-child(5) {
     /* URL column - narrower with truncation */
     width: 27%;
 }
 
-.archives-table td:nth-child(4) {
+.archives-table td:nth-child(5) {
     font-family: 'Courier New', monospace;
     font-size: var(--font-size-xs);
     color: var(--text-muted);
@@ -1810,16 +1823,17 @@ pre {
     }
 
     /* Hide less critical table columns on mobile for better readability */
-    .archives-table td:nth-child(1),
-    .archives-table th:nth-child(1),
-    .archives-table td:nth-child(4),
-    .archives-table th:nth-child(4) {
+    /* Hide ID and URL columns on mobile, keep Status and Type */
+    .archives-table td:nth-child(2),
+    .archives-table th:nth-child(2),
+    .archives-table td:nth-child(5),
+    .archives-table th:nth-child(5) {
         display: none;
     }
 
     /* Make title column full width on mobile */
-    .archives-table td:nth-child(3),
-    .archives-table th:nth-child(3) {
+    .archives-table td:nth-child(4),
+    .archives-table th:nth-child(4) {
         min-width: auto;
         max-width: none;
     }
