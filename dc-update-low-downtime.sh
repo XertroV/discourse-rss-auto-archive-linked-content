@@ -22,3 +22,5 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml build --pull arc
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --force-recreate archiver
 
 docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+
+./dc-prune-safe.sh
