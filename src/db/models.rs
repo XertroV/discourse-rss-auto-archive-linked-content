@@ -502,8 +502,8 @@ pub struct ArchiveJob {
     pub error_message: Option<String>,
     pub metadata: Option<String>,
     pub created_at: String,
-    /// Duration of job execution in seconds (calculated from started_at to completed_at).
-    pub duration_seconds: Option<i64>,
+    /// Duration of job execution in seconds with subsecond accuracy (calculated from started_at to completed_at).
+    pub duration_seconds: Option<f64>,
 }
 
 impl ArchiveJob {

@@ -361,6 +361,9 @@ mod tests {
             quoted_archive_id: None,
             reply_to_archive_id: None,
             submitted_by_user_id: None,
+            progress_percent: None,
+            progress_details: None,
+            last_progress_update: None,
         }
     }
 

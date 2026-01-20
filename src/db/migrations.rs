@@ -1205,9 +1205,9 @@ async fn run_migration_v21(pool: &SqlitePool) -> Result<()> {
 async fn run_migration_v22(pool: &SqlitePool) -> Result<()> {
     debug!("Running migration v22: adding duration tracking for archive jobs");
 
-    // Add duration_seconds column to track job execution time
+    // Add duration_seconds column to track job execution time with subsecond accuracy
     // This is calculated as the difference between started_at and completed_at
-    sqlx::query("ALTER TABLE archive_jobs ADD COLUMN duration_seconds INTEGER")
+    sqlx::query("ALTER TABLE archive_jobs ADD COLUMN duration_seconds REAL")
         .execute(pool)
         .await
         .context("Failed to add duration_seconds column")?;

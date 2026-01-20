@@ -1126,7 +1126,7 @@ fn render_jobs_section(jobs: &[ArchiveJob]) -> Markup {
                 summary {
                     h2 style="display: inline;" { "Archive Jobs (" (jobs.len()) ")" }
                 }
-                (Table::new(vec!["Job", "Status", "Started", "Completed", "Details"])
+                (Table::new(vec!["Job", "Status", "Started", "Completed", "Duration", "Details"])
                     .variant(TableVariant::Jobs)
                     .rows(rows))
             }
@@ -1163,6 +1163,8 @@ fn render_job_row(job: &ArchiveJob) -> Markup {
     let started = job.started_at.as_deref().unwrap_or("\u{2014}");
     let completed = job.completed_at.as_deref().unwrap_or("\u{2014}");
 
+    let duration = format_duration(job.duration_seconds);
+
     let details_markup = if let Some(ref error) = job.error_message {
         let truncated: String = error.chars().take(50).collect();
         html! {
@@ -1181,8 +1183,30 @@ fn render_job_row(job: &ArchiveJob) -> Markup {
         .cell_markup_with_class(html! { (status_icon) " " (job.status) }, status_class)
         .cell(started)
         .cell(completed)
+        .cell(&duration)
         .cell_markup(details_markup)
         .render()
+}
+
+/// Format duration in seconds to a human-readable string.
+fn format_duration(duration_seconds: Option<f64>) -> String {
+    match duration_seconds {
+        None => "\u{2014}".to_string(), // —
+        Some(secs) if secs < 0.0 => "\u{2014}".to_string(),
+        Some(secs) if secs < 1.0 => format!("{:.3}s", secs),
+        Some(secs) if secs < 60.0 => format!("{:.1}s", secs),
+        Some(secs) if secs < 3600.0 => {
+            let mins = (secs / 60.0).floor() as u64;
+            let remaining_secs = secs % 60.0;
+            format!("{}m {:.1}s", mins, remaining_secs)
+        }
+        Some(secs) => {
+            let hours = (secs / 3600.0).floor() as u64;
+            let mins = ((secs % 3600.0) / 60.0).floor() as u64;
+            let remaining_secs = secs % 60.0;
+            format!("{}h {}m {:.1}s", hours, mins, remaining_secs)
+        }
+    }
 }
 
 /// Render archive metadata section (collapsible).
@@ -1442,6 +1466,9 @@ mod tests {
             quoted_archive_id: None,
             reply_to_archive_id: None,
             submitted_by_user_id: None,
+            progress_percent: None,
+            progress_details: None,
+            last_progress_update: None,
         }
     }
 
@@ -1486,6 +1513,7 @@ mod tests {
             error_message: None,
             metadata: None,
             created_at: "2024-01-15 11:00:00".to_string(),
+            duration_seconds: Some(1800.0),
         }
     }
 

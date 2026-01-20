@@ -2224,7 +2224,7 @@ pub async fn set_job_completed(
         SET status = 'completed',
             completed_at = datetime('now'),
             metadata = ?,
-            duration_seconds = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER)
+            duration_seconds = (julianday(datetime('now')) - julianday(started_at)) * 86400
         WHERE id = ?
         ",
     )
@@ -2240,7 +2240,14 @@ pub async fn set_job_completed(
 /// Set job status to failed with error message.
 pub async fn set_job_failed(pool: &SqlitePool, job_id: i64, error: &str) -> Result<()> {
     sqlx::query(
-        "UPDATE archive_jobs SET status = 'failed', completed_at = datetime('now'), error_message = ? WHERE id = ?",
+        r"
+        UPDATE archive_jobs
+        SET status = 'failed',
+            completed_at = datetime('now'),
+            error_message = ?,
+            duration_seconds = (julianday(datetime('now')) - julianday(started_at)) * 86400
+        WHERE id = ?
+        ",
     )
     .bind(error)
     .bind(job_id)
@@ -2254,7 +2261,14 @@ pub async fn set_job_failed(pool: &SqlitePool, job_id: i64, error: &str) -> Resu
 /// Set job status to skipped with optional reason.
 pub async fn set_job_skipped(pool: &SqlitePool, job_id: i64, reason: Option<&str>) -> Result<()> {
     sqlx::query(
-        "UPDATE archive_jobs SET status = 'skipped', completed_at = datetime('now'), error_message = ? WHERE id = ?",
+        r"
+        UPDATE archive_jobs
+        SET status = 'skipped',
+            completed_at = datetime('now'),
+            error_message = ?,
+            duration_seconds = (julianday(datetime('now')) - julianday(started_at)) * 86400
+        WHERE id = ?
+        ",
     )
     .bind(reason)
     .bind(job_id)
