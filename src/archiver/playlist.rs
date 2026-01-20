@@ -52,7 +52,7 @@ pub struct PlaylistInfo {
 async fn get_playlist_metadata(url: &str, cookies: &CookieOptions<'_>) -> Result<PlaylistInfo> {
     let mut args = vec![
         "--dump-json".to_string(),
-        "--extract-flat=always".to_string(),
+        "--flat-playlist".to_string(),
         "--no-warnings".to_string(),
         "--quiet".to_string(),
     ];

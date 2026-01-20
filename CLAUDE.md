@@ -9,8 +9,8 @@ Rust service that monitors a Discourse forum RSS feed, archives linked content (
 ## Build Commands
 
 ```bash
-cargo build              # Debug build
-cargo build --release    # Release build
+cargo build              # Debug build (use this during development)
+cargo build --release    # Release build (very slow, only for production)
 cargo test               # Run all tests
 cargo test --lib         # Unit tests only
 cargo test --test '*'    # Integration tests only
@@ -18,6 +18,8 @@ cargo clippy             # Lint check
 cargo fmt --check        # Format check
 cargo fmt                # Auto-format code
 ```
+
+**IMPORTANT:** Always use `cargo build` (debug) during development. Release builds take significantly longer and are only needed for production deployment.
 
 ## New Session
 
