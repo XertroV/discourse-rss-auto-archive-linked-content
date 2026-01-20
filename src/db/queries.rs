@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use sqlx::SqlitePool;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::models::{
     Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, ArchiveJobType, AuditEvent, Link,
@@ -143,6 +143,30 @@ pub async fn get_all_threads(
     } else {
         threads[start..end].to_vec()
     })
+}
+
+/// Count total number of unique threads.
+/// This performs the same aggregation as get_all_threads() to count unique thread keys.
+pub async fn count_all_threads(pool: &SqlitePool) -> Result<i64> {
+    // Fetch all post discourse URLs to aggregate by thread key
+    let rows: Vec<(String,)> = sqlx::query_as(
+        r"
+        SELECT DISTINCT p.discourse_url
+        FROM posts p
+        ",
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch post URLs for thread count")?;
+
+    // Count unique thread keys (same aggregation as get_all_threads)
+    let mut thread_keys: HashSet<String> = HashSet::new();
+    for (url,) in rows {
+        let key = thread_key_from_url(&url);
+        thread_keys.insert(key);
+    }
+
+    Ok(thread_keys.len() as i64)
 }
 
 /// Fetch all posts that belong to the given thread key (host + topic id/path).

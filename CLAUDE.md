@@ -101,6 +101,174 @@ cargo fmt && git add -A && git commit -m "your message"
 - All HTML UI elements should use or extend the shadcn-inspired styles defined in [static/css/style.css](static/css/style.css).
 - Keep the UI style consistent, minimal, and functional.
 
+## Web UI Development
+
+### Technology Stack
+
+- **Templating:** `maud` - compile-time HTML templating with type safety
+- **Routing:** `axum` - web framework for request handling
+- **Styling:** Custom CSS in `static/css/style.css` (shadcn-inspired)
+- **Components:** Rust modules in `src/components/`
+
+### Page Structure
+
+Pages are organized in `src/web/pages/`:
+- `mod.rs` - Common page components (header, footer, layout)
+- `home.rs` - Homepage with recent archives
+- `archive.rs` - Individual archive detail pages
+- `search.rs` - Search results page
+- `site.rs` - Site-specific archive listings
+- `threads.rs` - Thread-specific archive listings
+
+Each page module typically contains:
+- Render function (e.g., `render_archive_detail_page()`)
+- Parameter structs for passing data to templates
+- Unit tests for rendering logic
+
+### Using Components
+
+Components are reusable UI elements in `src/components/`:
+
+**Pagination Component:**
+```rust
+use crate::components::Pagination;
+
+let pagination = Pagination::new(current_page, total_pages, "/archives")
+    .with_content_type_filter(Some("video"))
+    .with_source_filter(Some("reddit.com"));
+
+// In maud template:
+html! {
+    (pagination)  // Renders pagination controls
+}
+```
+
+**Creating New Components:**
+1. Add module to `src/components/mod.rs`
+2. Create `src/components/your_component.rs`
+3. Implement `maud::Render` trait for your component
+4. Use the component in page templates with `(component_instance)`
+
+### Styling Guidelines
+
+**CSS Classes:**
+- Use existing utility classes from `style.css`
+- Button styles: `.btn`, `.btn-primary`, `.btn-secondary`
+- Cards: `.card`, `.card-header`, `.card-content`
+- Status badges: `.status-complete`, `.status-failed`, `.status-pending`
+- Layout: `.container`, `.grid`, `.flex`
+
+**Adding New Styles:**
+- Add to `static/css/style.css`
+- Follow existing naming conventions
+- Use CSS custom properties for colors/spacing
+- Keep mobile-responsive with media queries
+
+**Button Component Pattern:**
+All interactive elements should be proper buttons or links:
+- Clickable actions: `<a href="..." class="btn">` for navigation
+- Disabled states: `<button class="btn" disabled>` for non-interactive
+- Active/selected: `<button class="btn active" disabled>` for current state
+
+### Page Development Workflow
+
+**Adding a New Page:**
+
+1. **Create page module** in `src/web/pages/your_page.rs`:
+```rust
+use maud::{html, Markup};
+use crate::components::Pagination;
+
+pub struct YourPageParams<'a> {
+    pub data: &'a [YourData],
+    pub user: Option<&'a User>,
+}
+
+pub fn render_your_page(params: &YourPageParams) -> Markup {
+    html! {
+        (super::render_header("Page Title", params.user))
+        main class="container" {
+            h1 { "Your Page" }
+            // Content here
+        }
+        (super::render_footer())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_your_page() {
+        // Test rendering
+    }
+}
+```
+
+2. **Add route handler** in `src/web/routes.rs`:
+```rust
+async fn your_page_handler(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<QueryParams>,
+) -> impl IntoResponse {
+    // Fetch data
+    let data = db::get_your_data(&state.db).await?;
+
+    // Render
+    let params = YourPageParams { data: &data, user: None };
+    Html(render_your_page(&params).into_string())
+}
+```
+
+3. **Register route** in `create_router()`:
+```rust
+.route("/your-page", get(your_page_handler))
+```
+
+4. **Add tests**:
+- Unit tests in page module for rendering
+- Integration tests in `tests/` for full request/response
+
+### Common Patterns
+
+**Pagination:**
+```rust
+let total_items = db::count_items().await?;
+let total_pages = (total_items + per_page - 1) / per_page;
+let pagination = Pagination::new(page, total_pages, "/list");
+```
+
+**User Authentication:**
+```rust
+// In route handler
+let user = extract_user_from_session(&state, &headers).await;
+
+// Pass to template
+let params = PageParams { user: user.as_ref(), /* ... */ };
+```
+
+**Filter Preservation:**
+```rust
+// Preserve filters in pagination
+let pagination = Pagination::new(page, total_pages, "/archives")
+    .with_content_type_filter(filter.content_type.as_deref())
+    .with_source_filter(filter.source.as_deref());
+```
+
+**Conditional Rendering:**
+```rust
+html! {
+    @if items.is_empty() {
+        p { "No items found" }
+    } @else {
+        @for item in items {
+            (render_item(item))
+        }
+    }
+}
+```
+
 ## Testing Strategy
 
 ### Unit Tests

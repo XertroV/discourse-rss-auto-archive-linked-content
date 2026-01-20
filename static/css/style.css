@@ -855,27 +855,36 @@ article.error,
     margin-top: var(--spacing-xl);
 }
 
-.pagination a {
+.pagination .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     min-width: 36px;
     padding: var(--spacing-sm) var(--spacing-md);
     border: 1px solid var(--border-color);
+    background-color: var(--bg-primary);
     color: var(--text-primary);
+    text-decoration: none;
     transition: all 0.2s ease;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
 }
 
-.pagination a:hover {
+.pagination .btn:hover:not(:disabled) {
     background-color: var(--bg-secondary);
     border-color: var(--border-dark);
-    text-decoration: none;
 }
 
-.pagination .active {
+.pagination .btn.active {
     background-color: var(--primary);
     border-color: var(--primary);
     color: white;
+}
+
+.pagination .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 /* Stats table */
@@ -2052,8 +2061,22 @@ body.nsfw-hidden [data-nsfw="true"] {
 
 /* ==================== Filter Section Styles ==================== */
 
+.filters-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-lg);
+    margin: var(--spacing-lg) 0;
+}
+
+@media (max-width: 768px) {
+    .filters-container {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-md);
+    }
+}
+
 .filter-section {
-    margin: var(--spacing-md) 0;
+    margin: 0;
 }
 
 .filter-section h3 {

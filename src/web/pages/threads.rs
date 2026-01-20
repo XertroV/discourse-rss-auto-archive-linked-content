@@ -9,7 +9,7 @@ use chrono::NaiveDateTime;
 use maud::{html, Markup, Render};
 use urlencoding::encode;
 
-use crate::components::{Alert, ArchiveGrid, BaseLayout, EmptyState, KeyValueTable};
+use crate::components::{Alert, ArchiveGrid, BaseLayout, EmptyState, KeyValueTable, Pagination};
 use crate::db::{thread_key_from_url, ArchiveDisplay, Post, ThreadArchiveJob, ThreadDisplay, User};
 
 /// Format a SQLite datetime string into a more readable format.
@@ -188,7 +188,8 @@ impl Render for SortNav {
 pub struct ThreadsListParams<'a> {
     pub threads: &'a [ThreadDisplay],
     pub sort_by: ThreadSortBy,
-    pub page: u32,
+    pub page: usize,
+    pub total_pages: usize,
     pub user: Option<&'a User>,
 }
 
@@ -206,14 +207,10 @@ pub fn render_threads_list_page(params: &ThreadsListParams<'_>) -> Markup {
         } @else {
             (ThreadGrid::new(params.threads))
 
-            // Simple pagination - show next link if we have a full page
-            @if params.threads.len() >= 20 {
-                nav style="margin-top: 1.5rem;" {
-                    a href=(format!("/threads?sort={}&page={}", params.sort_by.as_str(), params.page + 1)) {
-                        "Next page"
-                    }
-                }
-            }
+            // Pagination component with sort parameter in base URL
+            @let base_url = format!("/threads?sort={}", params.sort_by.as_str());
+            @let pagination = Pagination::new(params.page, params.total_pages, &base_url);
+            (pagination)
         }
     };
 
@@ -648,6 +645,7 @@ mod tests {
             threads: &threads,
             sort_by: ThreadSortBy::Created,
             page: 0,
+            total_pages: 1,
             user: None,
         };
         let html = render_threads_list_page(&params).into_string();
@@ -664,6 +662,7 @@ mod tests {
             threads: &threads,
             sort_by: ThreadSortBy::Created,
             page: 0,
+            total_pages: 1,
             user: None,
         };
         let html = render_threads_list_page(&params).into_string();
@@ -685,12 +684,15 @@ mod tests {
             threads: &threads,
             sort_by: ThreadSortBy::Created,
             page: 0,
+            total_pages: 3, // Simulate multiple pages
             user: None,
         };
         let html = render_threads_list_page(&params).into_string();
 
-        assert!(html.contains("Next page"));
-        assert!(html.contains("page=1"));
+        // Should have pagination controls with button styling
+        assert!(html.contains("pagination"));
+        assert!(html.contains("Next"));
+        assert!(html.contains("class=\"btn\""));
     }
 
     #[test]

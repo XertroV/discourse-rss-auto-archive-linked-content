@@ -107,41 +107,41 @@ impl Render for Pagination {
             nav class="pagination" {
                 // Previous button
                 @if current > 0 {
-                    a href=(self.build_url(current - 1)) { "\u{00ab} Previous" }
+                    a href=(self.build_url(current - 1)) class="btn" { "\u{00ab} Previous" }
                 } @else {
-                    span class="disabled" { "\u{00ab} Previous" }
+                    button class="btn" disabled { "\u{00ab} Previous" }
                 }
 
                 // First page and ellipsis if needed
                 @if start > 0 {
-                    a href=(self.build_url(0)) { "1" }
+                    a href=(self.build_url(0)) class="btn" { "1" }
                     @if start > 1 {
-                        span { "..." }
+                        button class="btn" disabled { "..." }
                     }
                 }
 
                 // Page numbers around current page
                 @for page_num in start..end {
                     @if page_num == current {
-                        span class="current" { (page_num + 1) }
+                        button class="btn active" disabled { (page_num + 1) }
                     } @else {
-                        a href=(self.build_url(page_num)) { (page_num + 1) }
+                        a href=(self.build_url(page_num)) class="btn" { (page_num + 1) }
                     }
                 }
 
                 // Ellipsis and last page if needed
                 @if end < total {
                     @if end < total - 1 {
-                        span { "..." }
+                        button class="btn" disabled { "..." }
                     }
-                    a href=(self.build_url(total - 1)) { (total) }
+                    a href=(self.build_url(total - 1)) class="btn" { (total) }
                 }
 
                 // Next button
                 @if current + 1 < total {
-                    a href=(self.build_url(current + 1)) { "Next \u{00bb}" }
+                    a href=(self.build_url(current + 1)) class="btn" { "Next \u{00bb}" }
                 } @else {
-                    span class="disabled" { "Next \u{00bb}" }
+                    button class="btn" disabled { "Next \u{00bb}" }
                 }
             }
         }
@@ -221,12 +221,12 @@ mod tests {
         let pagination = Pagination::new(0, 10, "/");
         let html = pagination.render().into_string();
 
-        // Should have disabled previous
-        assert!(html.contains("class=\"disabled\""));
+        // Should have disabled previous button
+        assert!(html.contains("disabled"));
         assert!(html.contains("Previous"));
 
-        // Should have current page marked
-        assert!(html.contains("class=\"current\""));
+        // Should have current page marked as active
+        assert!(html.contains("class=\"btn active\""));
         assert!(html.contains(">1<")); // Page 1 should be displayed
 
         // Should have next link
@@ -264,8 +264,9 @@ mod tests {
         assert!(html.contains("Previous"));
         assert!(html.contains("page=8")); // Previous page link
 
-        // Should have disabled next
-        assert!(html.contains("class=\"disabled\""));
+        // Should have disabled next button
+        assert!(html.contains("disabled"));
+        assert!(html.contains("Next"));
     }
 
     #[test]

@@ -16,15 +16,15 @@ use super::pages;
 use super::AppState;
 use crate::auth::{MaybeUser, RequireAdmin, RequireApproved, RequireUser};
 use crate::db::{
-    add_comment_reaction, can_user_edit_comment, count_archives_by_status, count_links,
-    count_posts, count_submissions_from_ip_last_hour, count_user_thread_archive_jobs_last_hour,
-    create_comment, create_comment_reply, create_pending_archive, delete_archive,
-    find_artifact_by_s3_key, get_all_threads, get_archive, get_archive_by_link_id,
-    get_archives_by_domain_display, get_archives_for_post_display, get_archives_for_posts_display,
-    get_artifacts_for_archive, get_comment_edit_history, get_comment_with_author,
-    get_jobs_for_archive, get_link, get_link_by_normalized_url, get_link_occurrences_with_posts,
-    get_post_by_guid, get_posts_by_thread_key, get_queue_stats, get_quote_reply_chain,
-    get_recent_archives_display_filtered, get_recent_archives_filtered_full,
+    add_comment_reaction, can_user_edit_comment, count_all_threads, count_archives_by_status,
+    count_links, count_posts, count_submissions_from_ip_last_hour,
+    count_user_thread_archive_jobs_last_hour, create_comment, create_comment_reply,
+    create_pending_archive, delete_archive, find_artifact_by_s3_key, get_all_threads, get_archive,
+    get_archive_by_link_id, get_archives_by_domain_display, get_archives_for_post_display,
+    get_archives_for_posts_display, get_artifacts_for_archive, get_comment_edit_history,
+    get_comment_with_author, get_jobs_for_archive, get_link, get_link_by_normalized_url,
+    get_link_occurrences_with_posts, get_post_by_guid, get_posts_by_thread_key, get_queue_stats,
+    get_quote_reply_chain, get_recent_archives_display_filtered, get_recent_archives_filtered_full,
     get_recent_archives_with_filters, get_recent_failed_archives, get_thread_archive_job,
     get_video_file, has_missing_artifacts, insert_link, insert_submission,
     insert_thread_archive_job, pin_comment, remove_comment_reaction, reset_archive_for_rearchive,
@@ -1066,6 +1066,17 @@ async fn threads_list(
     let per_page = 20i64;
     let offset = i64::from(page.saturating_sub(1)) * per_page;
 
+    // Get total count for pagination
+    let total_threads = match count_all_threads(state.db.pool()).await {
+        Ok(count) => count,
+        Err(e) => {
+            tracing::error!("Failed to count threads: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    let total_pages = ((total_threads + per_page - 1) / per_page).max(1) as usize;
+
     let threads = match get_all_threads(state.db.pool(), sort_by, per_page, offset).await {
         Ok(t) => t,
         Err(e) => {
@@ -1077,7 +1088,8 @@ async fn threads_list(
     let params = pages::ThreadsListParams {
         threads: &threads,
         sort_by: pages::ThreadSortBy::from_str(sort_by),
-        page,
+        page: (page as usize).saturating_sub(1), // Convert to 0-indexed
+        total_pages,
         user: None,
     };
     let markup = pages::render_threads_list_page(&params);

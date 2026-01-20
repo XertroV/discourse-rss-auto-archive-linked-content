@@ -365,8 +365,10 @@ pub fn render_home_page(params: &HomePageParams) -> Markup {
 
         // Show filters on paginated pages
         @if params.total_pages > 0 {
-            (content_filter)
-            (source_filter)
+            div class="filters-container" {
+                (content_filter)
+                (source_filter)
+            }
         }
 
         @if params.archives.is_empty() {

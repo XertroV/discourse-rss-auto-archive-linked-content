@@ -1408,6 +1408,7 @@ mod tests {
             jobs: &jobs,
             quote_reply_chain: &[],
             user: None,
+            has_missing_artifacts: false,
         };
 
         let html = render_archive_detail_page(&params).into_string();
@@ -1433,6 +1434,7 @@ mod tests {
             jobs: &[],
             quote_reply_chain: &[],
             user: None,
+            has_missing_artifacts: false,
         };
 
         let html = render_archive_detail_page(&params).into_string();
@@ -1457,6 +1459,7 @@ mod tests {
             jobs: &[],
             quote_reply_chain: &[],
             user: None,
+            has_missing_artifacts: false,
         };
 
         let html = render_archive_detail_page(&params).into_string();
