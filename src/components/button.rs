@@ -83,6 +83,8 @@ pub struct Button<'a> {
     pub id: Option<&'a str>,
     /// JavaScript onclick handler
     pub onclick: Option<&'a str>,
+    /// Download attribute (for download links)
+    pub download: Option<&'a str>,
 }
 
 impl<'a> Button<'a> {
@@ -99,6 +101,7 @@ impl<'a> Button<'a> {
             class: None,
             id: None,
             onclick: None,
+            download: None,
         }
     }
 
@@ -199,6 +202,13 @@ impl<'a> Button<'a> {
         self
     }
 
+    /// Sets the download attribute (suggested filename for download).
+    #[must_use]
+    pub fn download(mut self, filename: &'a str) -> Self {
+        self.download = Some(filename);
+        self
+    }
+
     /// Builds the full CSS class string.
     fn build_class(&self) -> String {
         let mut classes = self.variant.class().to_string();
@@ -224,6 +234,7 @@ impl Render for Button<'_> {
                     target=[self.target_blank.then_some("_blank")]
                     rel=[self.target_blank.then_some("noopener noreferrer")]
                     onclick=[self.onclick]
+                    download=[self.download]
                     aria-disabled=[self.disabled.then_some("true")]
                 {
                     (self.label)
@@ -393,5 +404,16 @@ mod tests {
         let btn = Button::primary("Default Type");
         let html = btn.render().into_string();
         assert!(html.contains("type=\"button\""));
+    }
+
+    #[test]
+    fn test_download_button() {
+        let btn = Button::secondary("Download")
+            .href("/files/document.pdf")
+            .download("my-document.pdf");
+        let html = btn.render().into_string();
+        assert!(html.contains("download=\"my-document.pdf\""));
+        assert!(html.contains("href=\"/files/document.pdf\""));
+        assert!(html.contains("<a"));
     }
 }

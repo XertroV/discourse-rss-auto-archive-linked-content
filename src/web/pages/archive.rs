@@ -18,8 +18,8 @@
 use maud::{html, Markup, PreEscaped, Render};
 
 use crate::components::{
-    render_media_player, BaseLayout, KeyValueTable, NsfwBadge, NsfwWarning, StatusBadge, Table,
-    TableRow, TableVariant,
+    render_media_player, BaseLayout, Button, KeyValueTable, NsfwBadge, NsfwWarning, StatusBadge,
+    Table, TableRow, TableVariant,
 };
 use crate::db::{Archive, ArchiveArtifact, ArchiveJob, Link, LinkOccurrenceWithPost, User};
 
@@ -540,9 +540,9 @@ fn render_transcript_section(
 
             div style="margin-bottom: 1rem;" {
                 input type="text" id="transcript-search" placeholder="Search transcript..."
-                      style="width: 100%; max-width: 400px; padding: 0.5rem; border: 1px solid #e5e7eb; border-radius: 0.375rem;";
+                      style="width: 100%; max-width: 400px; padding: 0.5rem; border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);";
                 span id="match-counter"
-                     style="margin-left: 0.5rem; font-size: 0.875rem; color: #6b7280;" {}
+                     style="margin-left: 0.5rem; font-size: 0.875rem; color: var(--text-muted);" {}
             }
 
             details open {
@@ -552,16 +552,14 @@ fn render_transcript_section(
 
                 div id="transcript-content"
                     data-transcript-url=(format!("/s3/{}", transcript.s3_key))
-                    style="max-height: 400px; overflow-y: auto; padding: 1rem; background: #f9fafb; border-radius: 0.375rem; font-family: monospace; white-space: pre-wrap; line-height: 1.6;" {
+                    style="max-height: 400px; overflow-y: auto; padding: 1rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); font-family: monospace; white-space: pre-wrap; line-height: 1.6; color: var(--text-primary);" {
                     "Loading transcript..."
                 }
 
                 p style="margin-top: 0.5rem;" {
-                    a href=(format!("/s3/{}", transcript.s3_key))
-                      download=(download_name)
-                      class="btn-secondary" {
-                        "Download Transcript"
-                    }
+                    (Button::secondary("Download Transcript")
+                        .href(&format!("/s3/{}", transcript.s3_key))
+                        .download(&download_name))
                 }
 
                 // Subtitle files
@@ -603,18 +601,19 @@ fn render_transcript_section(
             style {
                 (PreEscaped(r#"
                     .timestamp-link {
-                        color: #3b82f6;
+                        color: var(--primary);
                         text-decoration: none;
                         font-weight: 500;
                         cursor: pointer;
                     }
                     .timestamp-link:hover {
+                        color: var(--primary-hover);
                         text-decoration: underline;
                     }
                     .highlight {
-                        background-color: #fef08a;
+                        background-color: var(--highlight);
+                        color: var(--text-primary);
                         padding: 0.125rem 0.25rem;
-                        border-radius: 0.25rem;
                     }
                 "#))
             }
