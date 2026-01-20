@@ -1,0 +1,734 @@
+//! Admin pages using maud templates.
+//!
+//! This module contains the admin panel, user management, and excluded domains pages.
+
+use std::collections::HashMap;
+
+use maud::{html, Markup, Render};
+
+use crate::components::{
+    Alert, BaseLayout, Button, Form, FormGroup, HiddenInput, Input, ResponsiveTable, StatusBox,
+    Table, TableRow, TableVariant,
+};
+use crate::db::{AuditEvent, ExcludedDomain, User};
+
+/// User status badge for admin panel.
+#[derive(Debug, Clone, Copy)]
+pub enum UserStatus {
+    Deactivated,
+    Admin,
+    Approved,
+    Pending,
+}
+
+impl UserStatus {
+    /// Determine the status from a user.
+    #[must_use]
+    pub fn from_user(user: &User) -> Self {
+        if !user.is_active {
+            Self::Deactivated
+        } else if user.is_admin {
+            Self::Admin
+        } else if user.is_approved {
+            Self::Approved
+        } else {
+            Self::Pending
+        }
+    }
+
+    /// Get the CSS class for this status badge.
+    #[must_use]
+    pub const fn css_class(&self) -> &'static str {
+        match self {
+            Self::Deactivated => "status-badge status-deactivated",
+            Self::Admin => "status-badge status-admin",
+            Self::Approved => "status-badge status-approved",
+            Self::Pending => "status-badge status-pending",
+        }
+    }
+
+    /// Get the label for this status badge.
+    #[must_use]
+    pub const fn label(&self) -> &'static str {
+        match self {
+            Self::Deactivated => "DEACTIVATED",
+            Self::Admin => "ADMIN",
+            Self::Approved => "APPROVED",
+            Self::Pending => "PENDING",
+        }
+    }
+}
+
+/// Render a user status badge.
+fn render_user_status_badge(user: &User) -> Markup {
+    let status = UserStatus::from_user(user);
+    html! {
+        span class=(status.css_class()) { (status.label()) }
+    }
+}
+
+/// Render action buttons for a user in the admin panel.
+fn render_user_actions(user: &User, is_current_user: bool) -> Markup {
+    // Deactivated users only get reactivate option
+    if !user.is_active {
+        if is_current_user {
+            return html! {};
+        }
+        return html! {
+            (Form::post("/admin/user/reactivate", html! {
+                (HiddenInput::new("user_id", &user.id.to_string()))
+                (Button::success("Reactivate").r#type("submit").class("btn-sm"))
+            }).class("inline-form"))
+        };
+    }
+
+    html! {
+        // Approval/Revoke buttons
+        @if !user.is_approved {
+            (Form::post("/admin/user/approve", html! {
+                (HiddenInput::new("user_id", &user.id.to_string()))
+                (Button::success("Approve").r#type("submit").class("btn-sm"))
+            }).class("inline-form"))
+        } @else if !is_current_user {
+            (Form::post("/admin/user/revoke", html! {
+                (HiddenInput::new("user_id", &user.id.to_string()))
+                (Button::warning("Revoke").r#type("submit").class("btn-sm"))
+            }).class("inline-form"))
+        }
+
+        // Promote/Demote buttons
+        @if !user.is_admin {
+            (Form::post("/admin/user/promote", html! {
+                (HiddenInput::new("user_id", &user.id.to_string()))
+                (Button::primary("Make Admin")
+                    .r#type("submit")
+                    .class("btn-sm")
+                    .onclick("return confirm('Are you sure you want to make this user an admin?')"))
+            }).class("inline-form"))
+        } @else if !is_current_user {
+            (Form::post("/admin/user/demote", html! {
+                (HiddenInput::new("user_id", &user.id.to_string()))
+                (Button::secondary("Remove Admin")
+                    .r#type("submit")
+                    .class("btn-sm")
+                    .onclick("return confirm('Are you sure you want to remove admin privileges from this user?')"))
+            }).class("inline-form"))
+        }
+
+        // Deactivate button (not for current user)
+        @if !is_current_user {
+            (Form::post("/admin/user/deactivate", html! {
+                (HiddenInput::new("user_id", &user.id.to_string()))
+                (Button::danger("Deactivate")
+                    .r#type("submit")
+                    .class("btn-sm")
+                    .onclick("return confirm('Are you sure you want to deactivate this user?')"))
+            }).class("inline-form"))
+        }
+
+        // Reset password button
+        (Form::post("/admin/user/reset-password", html! {
+            (HiddenInput::new("user_id", &user.id.to_string()))
+            (Button::secondary("Reset PW")
+                .r#type("submit")
+                .class("btn-sm")
+                .onclick("return confirm('Are you sure you want to reset this user\\'s password? Their current sessions will be invalidated.')"))
+        }).class("inline-form"))
+    }
+}
+
+/// Render a single user row for the admin table.
+fn render_user_row(user: &User, current_user: &User) -> Markup {
+    let is_current_user = user.id == current_user.id;
+    let display_name = user
+        .display_name
+        .as_ref()
+        .filter(|n| !n.is_empty())
+        .map_or_else(|| user.username.as_str(), String::as_str);
+
+    let row = TableRow::new()
+        .cell(&user.id.to_string())
+        .cell_markup(html! { code { (user.username) } })
+        .cell(display_name)
+        .cell(user.email.as_deref().unwrap_or("\u{2014}"))
+        .cell_markup(render_user_status_badge(user))
+        .cell(&user.created_at)
+        .cell_markup(render_user_actions(user, is_current_user));
+
+    if is_current_user {
+        row.class("current-user").render()
+    } else {
+        row.render()
+    }
+}
+
+/// Render the users table for the admin panel.
+fn render_users_table(users: &[User], current_user: &User) -> Markup {
+    let rows: Vec<Markup> = users
+        .iter()
+        .map(|u| render_user_row(u, current_user))
+        .collect();
+
+    let table = Table::new(vec![
+        "ID",
+        "Username",
+        "Display Name",
+        "Email",
+        "Status",
+        "Created",
+        "Actions",
+    ])
+    .variant(TableVariant::Admin)
+    .rows(rows);
+
+    ResponsiveTable::new(table.render()).render()
+}
+
+/// Render a single audit event row.
+fn render_audit_row(event: &AuditEvent, user_lookup: &HashMap<i64, &User>) -> Markup {
+    // Determine user display
+    let user_str = event.user_id.map_or_else(
+        || "System".to_string(),
+        |id| {
+            if let Some(user) = user_lookup.get(&id) {
+                user.display_name
+                    .as_ref()
+                    .filter(|n| !n.is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| user.username.clone())
+            } else {
+                format!("User #{id}")
+            }
+        },
+    );
+
+    // Determine target display
+    let target_str = match (&event.target_type, event.target_id) {
+        (Some(t), Some(id)) => format!("{t} #{id}"),
+        _ => "\u{2014}".to_string(),
+    };
+
+    html! {
+        tr {
+            td class="audit-cell" { (event.created_at) }
+            td class="audit-cell" { (user_str) }
+            td class="audit-cell" { (event.event_type) }
+            td class="audit-cell" { (target_str) }
+            td class="audit-cell" { (event.ip_address.as_deref().unwrap_or("\u{2014}")) }
+        }
+    }
+}
+
+/// Render the audit log table.
+fn render_audit_table(audit_events: &[AuditEvent], users: &[User]) -> Markup {
+    // Build lookup map for user display names
+    let user_lookup: HashMap<i64, &User> = users.iter().map(|u| (u.id, u)).collect();
+
+    let rows: Vec<Markup> = audit_events
+        .iter()
+        .map(|e| render_audit_row(e, &user_lookup))
+        .collect();
+
+    let table = Table::new(vec!["Timestamp", "User", "Event", "Target", "IP"])
+        .variant(TableVariant::Admin)
+        .rows(rows);
+
+    ResponsiveTable::new(table.render()).render()
+}
+
+/// Render the main admin panel page.
+///
+/// # Arguments
+///
+/// * `users` - List of all users
+/// * `audit_events` - Recent audit events
+/// * `current_user` - The currently logged-in admin user
+///
+/// # Returns
+///
+/// Complete HTML page as maud Markup
+#[must_use]
+pub fn render_admin_panel(
+    users: &[User],
+    audit_events: &[AuditEvent],
+    current_user: &User,
+) -> Markup {
+    let content = html! {
+        div class="admin-panel-container" {
+            h1 { "Admin Panel" }
+
+            // Users section
+            h2 class="admin-section-header" { "Users" }
+            (render_users_table(users, current_user))
+
+            // Admin tools section
+            h2 class="admin-section-header" { "Admin Tools" }
+            div class="admin-tools" {
+                (Button::primary("Manage Excluded Domains").href("/admin/excluded-domains"))
+            }
+
+            // Audit log section
+            h2 class="admin-section-header" { "Recent Audit Log" }
+            (render_audit_table(audit_events, users))
+        }
+    };
+
+    BaseLayout::new("Admin Panel")
+        .with_user(Some(current_user))
+        .render(content)
+}
+
+/// Render the password reset result page.
+///
+/// Shows the newly generated password after an admin resets a user's password.
+///
+/// # Arguments
+///
+/// * `username` - The username whose password was reset
+/// * `new_password` - The newly generated password
+///
+/// # Returns
+///
+/// Complete HTML page as maud Markup
+#[must_use]
+pub fn render_admin_password_reset_result(username: &str, new_password: &str) -> Markup {
+    let content = html! {
+        div class="password-reset-container" {
+            h1 { "Password Reset" }
+
+            (Alert::success(&format!("Password for {} has been reset successfully.", username))
+                .render())
+
+            div class="password-display" {
+                p class="password-label" { strong { "New Password:" } }
+                code class="password-value" { (new_password) }
+            }
+
+            (StatusBox::warning(
+                "Important",
+                "Copy this password now. It will not be shown again. The user's existing sessions have been invalidated."
+            ).render())
+
+            div class="action-buttons" {
+                (Button::primary("Back to Admin Panel").href("/admin"))
+            }
+        }
+    };
+
+    BaseLayout::new("Password Reset").render(content)
+}
+
+/// Render the excluded domain status badge.
+fn render_domain_status_badge(is_active: bool) -> Markup {
+    if is_active {
+        html! {
+            span class="domain-status-active" { "Active" }
+        }
+    } else {
+        html! {
+            span class="domain-status-inactive" { "Inactive" }
+        }
+    }
+}
+
+/// Render actions for an excluded domain row.
+fn render_domain_actions(domain: &ExcludedDomain) -> Markup {
+    let toggle_action = if domain.is_active {
+        "Disable"
+    } else {
+        "Enable"
+    };
+
+    html! {
+        (Form::post("/admin/excluded-domains/toggle", html! {
+            (HiddenInput::new("domain", &domain.domain))
+            (Button::secondary(toggle_action).r#type("submit").class("btn-sm"))
+        }).class("inline-form"))
+
+        (Form::post("/admin/excluded-domains/delete", html! {
+            (HiddenInput::new("domain", &domain.domain))
+            (Button::danger("Delete")
+                .r#type("submit")
+                .class("btn-sm")
+                .onclick("return confirm('Are you sure you want to delete this domain?');"))
+        }).class("inline-form"))
+    }
+}
+
+/// Render a single excluded domain row.
+fn render_domain_row(domain: &ExcludedDomain) -> Markup {
+    let row = TableRow::new()
+        .cell_markup(html! { code { (domain.domain) } })
+        .cell(&domain.reason)
+        .cell_markup(render_domain_status_badge(domain.is_active))
+        .cell(&domain.created_at)
+        .cell_markup(render_domain_actions(domain));
+
+    row.render()
+}
+
+/// Render the excluded domains table.
+fn render_excluded_domains_table(domains: &[ExcludedDomain]) -> Markup {
+    if domains.is_empty() {
+        return html! {
+            p class="no-domains-message" { "No excluded domains yet." }
+        };
+    }
+
+    let rows: Vec<Markup> = domains.iter().map(render_domain_row).collect();
+
+    let table = Table::new(vec!["Domain", "Reason", "Status", "Added", "Actions"]).rows(rows);
+
+    ResponsiveTable::new(table.render()).render()
+}
+
+/// Render the excluded domains management page.
+///
+/// # Arguments
+///
+/// * `domains` - List of excluded domains
+/// * `message` - Optional success/error message to display
+///
+/// # Returns
+///
+/// Complete HTML page as maud Markup
+#[must_use]
+pub fn render_admin_excluded_domains_page(
+    domains: &[ExcludedDomain],
+    message: Option<&str>,
+) -> Markup {
+    let content = html! {
+        div class="excluded-domains-container" {
+            h1 { "Excluded Domains" }
+
+            p class="page-description" {
+                "Manage domains that should not be archived. These domains will be automatically excluded from archiving."
+            }
+
+            // Success/error message if present
+            @if let Some(msg) = message {
+                (Alert::success(msg).render())
+            }
+
+            // Add new domain form
+            div class="add-domain-section" {
+                h2 { "Add New Excluded Domain" }
+                (Form::post("/admin/excluded-domains/add", html! {
+                    (FormGroup::new(
+                        "Domain:",
+                        "domain",
+                        Input::text("domain")
+                            .id("domain")
+                            .placeholder("example.com")
+                            .required()
+                            .render()
+                    ).render())
+
+                    (FormGroup::new(
+                        "Reason (optional):",
+                        "reason",
+                        Input::text("reason")
+                            .id("reason")
+                            .placeholder("Self-hosted instance")
+                            .render()
+                    ).render())
+
+                    (Button::primary("Add Domain").r#type("submit"))
+                }))
+            }
+
+            // Existing domains table
+            div class="domains-list-section" {
+                h2 { "Current Excluded Domains" }
+                (render_excluded_domains_table(domains))
+            }
+
+            // Back button
+            div class="action-buttons" {
+                (Button::outline("Back to Admin Panel").href("/admin"))
+            }
+        }
+    };
+
+    BaseLayout::new("Excluded Domains").render(content)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Create a test user for unit tests.
+    fn test_user(
+        id: i64,
+        username: &str,
+        is_admin: bool,
+        is_approved: bool,
+        is_active: bool,
+    ) -> User {
+        User {
+            id,
+            username: username.to_string(),
+            password_hash: "hash".to_string(),
+            email: Some(format!("{}@example.com", username)),
+            display_name: Some(format!("{} Display", username)),
+            is_approved,
+            is_admin,
+            is_active,
+            failed_login_attempts: 0,
+            locked_until: None,
+            password_updated_at: "2024-01-01T00:00:00Z".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: "2024-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    fn test_audit_event(id: i64, user_id: Option<i64>, event_type: &str) -> AuditEvent {
+        AuditEvent {
+            id,
+            user_id,
+            event_type: event_type.to_string(),
+            target_type: Some("user".to_string()),
+            target_id: Some(2),
+            metadata: None,
+            ip_address: Some("192.168.1.1".to_string()),
+            forwarded_for: None,
+            user_agent: None,
+            user_agent_id: None,
+            created_at: "2024-01-01T12:00:00Z".to_string(),
+        }
+    }
+
+    fn test_excluded_domain(id: i64, domain: &str, is_active: bool) -> ExcludedDomain {
+        ExcludedDomain {
+            id,
+            domain: domain.to_string(),
+            reason: "Test reason".to_string(),
+            is_active,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            created_by_user_id: Some(1),
+            updated_at: "2024-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_user_status_from_user() {
+        let deactivated = test_user(1, "deactivated", false, false, false);
+        assert!(matches!(
+            UserStatus::from_user(&deactivated),
+            UserStatus::Deactivated
+        ));
+
+        let admin = test_user(2, "admin", true, true, true);
+        assert!(matches!(UserStatus::from_user(&admin), UserStatus::Admin));
+
+        let approved = test_user(3, "approved", false, true, true);
+        assert!(matches!(
+            UserStatus::from_user(&approved),
+            UserStatus::Approved
+        ));
+
+        let pending = test_user(4, "pending", false, false, true);
+        assert!(matches!(
+            UserStatus::from_user(&pending),
+            UserStatus::Pending
+        ));
+    }
+
+    #[test]
+    fn test_user_status_css_classes() {
+        assert_eq!(
+            UserStatus::Deactivated.css_class(),
+            "status-badge status-deactivated"
+        );
+        assert_eq!(UserStatus::Admin.css_class(), "status-badge status-admin");
+        assert_eq!(
+            UserStatus::Approved.css_class(),
+            "status-badge status-approved"
+        );
+        assert_eq!(
+            UserStatus::Pending.css_class(),
+            "status-badge status-pending"
+        );
+    }
+
+    #[test]
+    fn test_render_user_status_badge() {
+        let admin = test_user(1, "admin", true, true, true);
+        let html = render_user_status_badge(&admin).into_string();
+        assert!(html.contains("status-admin"));
+        assert!(html.contains("ADMIN"));
+
+        let pending = test_user(2, "pending", false, false, true);
+        let html = render_user_status_badge(&pending).into_string();
+        assert!(html.contains("status-pending"));
+        assert!(html.contains("PENDING"));
+    }
+
+    #[test]
+    fn test_render_user_actions_current_user() {
+        let user = test_user(1, "current", true, true, true);
+        let html = render_user_actions(&user, true).into_string();
+
+        // Current user should not see deactivate or demote buttons
+        assert!(!html.contains("Deactivate"));
+        assert!(!html.contains("Remove Admin"));
+        // But should still see reset password
+        assert!(html.contains("Reset PW"));
+    }
+
+    #[test]
+    fn test_render_user_actions_other_user() {
+        let user = test_user(2, "other", false, true, true);
+        let html = render_user_actions(&user, false).into_string();
+
+        // Should see all applicable buttons
+        assert!(html.contains("Revoke"));
+        assert!(html.contains("Make Admin"));
+        assert!(html.contains("Deactivate"));
+        assert!(html.contains("Reset PW"));
+    }
+
+    #[test]
+    fn test_render_user_actions_deactivated_user() {
+        let user = test_user(3, "deactivated", false, false, false);
+        let html = render_user_actions(&user, false).into_string();
+
+        // Deactivated user should only show reactivate
+        assert!(html.contains("Reactivate"));
+        assert!(!html.contains("Deactivate"));
+        assert!(!html.contains("Make Admin"));
+    }
+
+    #[test]
+    fn test_render_admin_panel() {
+        let admin = test_user(1, "admin", true, true, true);
+        let user = test_user(2, "testuser", false, true, true);
+        let users = vec![admin.clone(), user];
+        let events = vec![test_audit_event(1, Some(1), "login")];
+
+        let html = render_admin_panel(&users, &events, &admin).into_string();
+
+        // Check page structure
+        assert!(html.contains("Admin Panel"));
+        assert!(html.contains("Users"));
+        assert!(html.contains("Admin Tools"));
+        assert!(html.contains("Recent Audit Log"));
+
+        // Check user table content
+        assert!(html.contains("admin"));
+        assert!(html.contains("testuser"));
+
+        // Check audit log content
+        assert!(html.contains("login"));
+        assert!(html.contains("192.168.1.1"));
+
+        // Check admin tools link
+        assert!(html.contains("Manage Excluded Domains"));
+        assert!(html.contains("/admin/excluded-domains"));
+    }
+
+    #[test]
+    fn test_render_admin_password_reset_result() {
+        let html = render_admin_password_reset_result("testuser", "newpassword123").into_string();
+
+        assert!(html.contains("Password Reset"));
+        assert!(html.contains("testuser"));
+        assert!(html.contains("newpassword123"));
+        assert!(html.contains("Important"));
+        assert!(html.contains("Copy this password now"));
+        assert!(html.contains("Back to Admin Panel"));
+    }
+
+    #[test]
+    fn test_render_domain_status_badge() {
+        let active = render_domain_status_badge(true).into_string();
+        assert!(active.contains("domain-status-active"));
+        assert!(active.contains("Active"));
+
+        let inactive = render_domain_status_badge(false).into_string();
+        assert!(inactive.contains("domain-status-inactive"));
+        assert!(inactive.contains("Inactive"));
+    }
+
+    #[test]
+    fn test_render_excluded_domains_table_empty() {
+        let html = render_excluded_domains_table(&[]).into_string();
+        assert!(html.contains("No excluded domains yet"));
+    }
+
+    #[test]
+    fn test_render_excluded_domains_table_with_domains() {
+        let domains = vec![
+            test_excluded_domain(1, "example.com", true),
+            test_excluded_domain(2, "test.org", false),
+        ];
+        let html = render_excluded_domains_table(&domains).into_string();
+
+        assert!(html.contains("example.com"));
+        assert!(html.contains("test.org"));
+        assert!(html.contains("Enable"));
+        assert!(html.contains("Disable"));
+        assert!(html.contains("Delete"));
+    }
+
+    #[test]
+    fn test_render_admin_excluded_domains_page() {
+        let domains = vec![test_excluded_domain(1, "example.com", true)];
+        let html = render_admin_excluded_domains_page(&domains, Some("Domain added successfully!"))
+            .into_string();
+
+        assert!(html.contains("Excluded Domains"));
+        assert!(html.contains("Add New Excluded Domain"));
+        assert!(html.contains("Current Excluded Domains"));
+        assert!(html.contains("example.com"));
+        assert!(html.contains("Domain added successfully!"));
+        assert!(html.contains("Back to Admin Panel"));
+    }
+
+    #[test]
+    fn test_render_admin_excluded_domains_page_no_message() {
+        let html = render_admin_excluded_domains_page(&[], None).into_string();
+
+        assert!(html.contains("Excluded Domains"));
+        assert!(html.contains("No excluded domains yet"));
+        // Should not contain any alert
+        assert!(!html.contains("class=\"success\""));
+    }
+
+    #[test]
+    fn test_audit_row_with_user() {
+        let user = test_user(1, "admin", true, true, true);
+        let users = vec![user];
+        let user_lookup: HashMap<i64, &User> = users.iter().map(|u| (u.id, u)).collect();
+
+        let event = test_audit_event(1, Some(1), "user_approved");
+        let html = render_audit_row(&event, &user_lookup).into_string();
+
+        assert!(html.contains("admin Display")); // Display name
+        assert!(html.contains("user_approved"));
+        assert!(html.contains("192.168.1.1"));
+    }
+
+    #[test]
+    fn test_audit_row_system() {
+        let event = AuditEvent {
+            id: 1,
+            user_id: None,
+            event_type: "system_startup".to_string(),
+            target_type: None,
+            target_id: None,
+            metadata: None,
+            ip_address: None,
+            forwarded_for: None,
+            user_agent: None,
+            user_agent_id: None,
+            created_at: "2024-01-01T12:00:00Z".to_string(),
+        };
+
+        let user_lookup: HashMap<i64, &User> = HashMap::new();
+        let html = render_audit_row(&event, &user_lookup).into_string();
+
+        assert!(html.contains("System"));
+        assert!(html.contains("system_startup"));
+    }
+}

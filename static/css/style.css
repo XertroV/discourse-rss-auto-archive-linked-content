@@ -2042,3 +2042,131 @@ pre {
 .status-box-error p {
     color: var(--error-text);
 }
+
+/* ==================== NSFW Filtering ==================== */
+
+/* Hide NSFW items when filter is active */
+body.nsfw-hidden [data-nsfw="true"] {
+    display: none !important;
+}
+
+/* ==================== Filter Section Styles ==================== */
+
+.filter-section {
+    margin: var(--spacing-md) 0;
+}
+
+.filter-section h3 {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.filter-buttons {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+}
+
+.filter-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-decoration: none;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-secondary);
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.filter-btn:hover {
+    color: var(--text-primary);
+    background-color: var(--bg-tertiary);
+    text-decoration: none;
+}
+
+.filter-btn.active {
+    color: var(--text-primary);
+    border-color: var(--primary);
+}
+
+/* ==================== Playlist Styles ==================== */
+
+.playlist-section {
+    margin: var(--spacing-lg) 0;
+}
+
+.playlist-info {
+    background-color: var(--bg-secondary);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-md);
+    border-left: 4px solid var(--primary);
+}
+
+.playlist-info p {
+    margin: var(--spacing-xs) 0;
+    font-size: var(--font-size-sm);
+}
+
+.playlist-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: var(--spacing-md);
+}
+
+.playlist-table thead {
+    background-color: var(--bg-secondary);
+    border-bottom: 2px solid var(--border-color);
+}
+
+.playlist-table th {
+    padding: var(--spacing-sm);
+    text-align: left;
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+}
+
+.playlist-table td {
+    padding: var(--spacing-sm);
+    border-bottom: 1px solid var(--border-color);
+    font-size: var(--font-size-sm);
+}
+
+.playlist-table tbody tr:hover {
+    background-color: var(--bg-secondary);
+}
+
+.playlist-table .position {
+    text-align: center;
+    color: var(--text-secondary);
+    font-weight: 500;
+    width: 60px;
+}
+
+.playlist-table .duration {
+    text-align: center;
+    color: var(--text-secondary);
+    font-family: monospace;
+    width: 80px;
+}
+
+.playlist-table .video-link {
+    text-decoration: none;
+    font-size: 1.2em;
+    display: inline-block;
+    padding: var(--spacing-xs);
+}
+
+.playlist-table .video-link:hover {
+    transform: scale(1.2);
+}

@@ -1,9 +1,9 @@
 mod auth;
-mod diff;
+pub mod diff;
 pub mod export;
 mod feeds;
+pub mod pages;
 mod routes;
-pub mod templates;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
