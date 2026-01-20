@@ -311,6 +311,7 @@ pub fn render_home_paginated(
     total_pages: usize,
     content_type_filter: Option<&str>,
     source_filter: Option<&str>,
+    user: Option<&User>,
 ) -> String {
     render_recent_archives_page_paginated(
         "Recent Archives",
@@ -323,6 +324,7 @@ pub fn render_home_paginated(
         "/",
         content_type_filter,
         source_filter,
+        user,
     )
 }
 
@@ -346,6 +348,7 @@ pub fn render_recent_failed_archives_paginated(
     total_pages: usize,
     content_type_filter: Option<&str>,
     source_filter: Option<&str>,
+    user: Option<&User>,
 ) -> String {
     render_recent_archives_page_paginated(
         "Recent Failed Archives",
@@ -358,6 +361,7 @@ pub fn render_recent_failed_archives_paginated(
         "/archives/failed",
         content_type_filter,
         source_filter,
+        user,
     )
 }
 
@@ -381,6 +385,7 @@ pub fn render_recent_all_archives_paginated(
     total_pages: usize,
     content_type_filter: Option<&str>,
     source_filter: Option<&str>,
+    user: Option<&User>,
 ) -> String {
     render_recent_archives_page_paginated(
         "All Recent Archives",
@@ -393,6 +398,7 @@ pub fn render_recent_all_archives_paginated(
         "/archives/all",
         content_type_filter,
         source_filter,
+        user,
     )
 }
 
@@ -475,6 +481,7 @@ fn render_recent_archives_page_paginated(
     base_url: &str,
     content_type_filter: Option<&str>,
     source_filter: Option<&str>,
+    user: Option<&User>,
 ) -> String {
     let mut content = String::new();
     content.push_str(&format!("<h1>{}</h1>", html_escape(heading)));
@@ -518,7 +525,7 @@ fn render_recent_archives_page_paginated(
         }
     }
 
-    base_layout(page_title, &content)
+    base_layout_with_user(page_title, &content, user)
 }
 
 /// Render content type filter buttons.
@@ -748,6 +755,7 @@ pub fn render_archive_detail(
     occurrences: &[LinkOccurrenceWithPost],
     jobs: &[ArchiveJob],
     quote_reply_chain: &[Archive],
+    user: Option<&User>,
 ) -> String {
     let title = archive
         .content_title
@@ -861,50 +869,78 @@ pub fn render_archive_detail(
         content.push_str("</section>");
     }
 
-    // Debug actions section
-    content.push_str(&format!(
-        r#"<section class="debug-actions">
-            <h3>Debug Actions</h3>
-            <div class="debug-buttons">
-                <form method="post" action="/archive/{id}/rearchive" style="display: inline;">
-                    <button type="submit" class="debug-button" title="Re-run the full archive pipeline including redirect handling">
-                        🔄 Re-archive
-                    </button>
-                </form>
-                <form method="post" action="/archive/{id}/toggle-nsfw" style="display: inline;">
-                    <button type="submit" class="debug-button" title="Toggle NSFW status">
-                        {nsfw_toggle_icon} Toggle NSFW
-                    </button>
-                </form>"#,
-        id = archive.id,
-        nsfw_toggle_icon = if archive.is_nsfw { "🔓" } else { "🔞" }
-    ));
+    // Archive actions section - show actions based on user permissions
+    let is_admin = user.map(|u| u.is_admin).unwrap_or(false);
+    let is_approved = user.map(|u| u.is_approved).unwrap_or(false);
 
-    // Add retry skipped button only for skipped archives
-    if archive.status == "skipped" {
-        content.push_str(&format!(
+    if is_admin || is_approved {
+        content.push_str(
+            r#"<section class="debug-actions">
+                <details>
+                    <summary><h3>Archive Actions</h3></summary>
+                    <div class="debug-buttons">"#,
+        );
+
+        // Re-archive button - admins only
+        if is_admin {
+            content.push_str(&format!(
+                r#"
+                        <form method="post" action="/archive/{id}/rearchive" style="display: inline;">
+                            <button type="submit" class="debug-button" title="Re-run the full archive pipeline including redirect handling">
+                                🔄 Re-archive
+                            </button>
+                        </form>"#,
+                id = archive.id
+            ));
+        }
+
+        // Toggle NSFW button - approved users and admins
+        if is_approved || is_admin {
+            content.push_str(&format!(
+                r#"
+                        <form method="post" action="/archive/{id}/toggle-nsfw" style="display: inline;">
+                            <button type="submit" class="debug-button" title="Toggle NSFW status">
+                                {nsfw_toggle_icon} Toggle NSFW
+                            </button>
+                        </form>"#,
+                id = archive.id,
+                nsfw_toggle_icon = if archive.is_nsfw { "🔓" } else { "🔞" }
+            ));
+        }
+
+        // Retry skipped button - admins only, only for skipped archives
+        if is_admin && archive.status == "skipped" {
+            content.push_str(&format!(
+                r#"
+                        <form method="post" action="/archive/{}/retry-skipped" style="display: inline;">
+                            <button type="submit" class="debug-button" title="Reset skipped archive for retry">
+                                🔁 Retry Skipped
+                            </button>
+                        </form>"#,
+                archive.id
+            ));
+        }
+
+        // Delete button - admins only
+        if is_admin {
+            content.push_str(&format!(
+                r#"
+                        <form method="post" action="/archive/{}/delete" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this archive? This cannot be undone.');">
+                            <button type="submit" class="debug-button debug-button-danger" title="Delete archive and all artifacts">
+                                🗑️ Delete
+                            </button>
+                        </form>"#,
+                archive.id
+            ));
+        }
+
+        content.push_str(
             r#"
-                <form method="post" action="/archive/{}/retry-skipped" style="display: inline;">
-                    <button type="submit" class="debug-button" title="Reset skipped archive for retry">
-                        🔁 Retry Skipped
-                    </button>
-                </form>"#,
-            archive.id
-        ));
+                    </div>
+                </details>
+            </section>"#,
+        );
     }
-
-    // Delete button with confirmation
-    content.push_str(&format!(
-        r#"
-                <form method="post" action="/archive/{}/delete" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this archive? This cannot be undone.');">
-                    <button type="submit" class="debug-button debug-button-danger" title="Delete archive and all artifacts">
-                        🗑️ Delete
-                    </button>
-                </form>
-            </div>
-        </section>"#,
-        archive.id
-    ));
 
     if let Some(ref author) = archive.content_author {
         content.push_str(&format!(
@@ -1503,8 +1539,10 @@ pub fn render_archive_detail(
         content.push_str("</tbody></table></details></section>");
     }
 
-    // Collapsible debug info section
-    content.push_str(r#"<section class="debug-info"><details><summary><h2 style="display: inline;">Debug Info</h2></summary>"#);
+    // Collapsible archive metadata section
+    content.push_str(
+        r#"<section class="debug-info"><details><summary><h2>Archive Metadata</h2></summary>"#,
+    );
     content.push_str(r#"<table class="debug-table"><tbody>"#);
 
     // Archive internal fields
@@ -1613,7 +1651,7 @@ pub fn render_archive_detail(
         archive.id, archive.id
     ));
 
-    base_layout(title, &content)
+    base_layout_with_user(title, &content, user)
 }
 
 /// Convert artifact kind to human-readable display string.

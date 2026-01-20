@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use scraper::Html;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 use url::Url;
@@ -373,10 +374,16 @@ async fn fetch_url_for_signals(url: &str) -> Result<ArchivePreventionSignals> {
             .send()
             .await
         {
-            if let Ok(html) = full_response.text().await {
-                let html_lower = html.to_lowercase();
-                if html_lower.contains("x-no-archive") || html_lower.contains("noarchive") {
-                    signals.has_no_archive_meta = true;
+            if let Ok(html_text) = full_response.text().await {
+                // Parse HTML and check only the <head> section
+                let document = Html::parse_document(&html_text);
+                if let Ok(selector) = scraper::Selector::parse("head") {
+                    if let Some(head) = document.select(&selector).next() {
+                        let head_html = head.inner_html().to_lowercase();
+                        if head_html.contains("x-no-archive") || head_html.contains("noarchive") {
+                            signals.has_no_archive_meta = true;
+                        }
+                    }
                 }
             }
         }
