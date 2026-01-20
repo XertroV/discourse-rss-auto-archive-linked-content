@@ -91,6 +91,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 14).await?;
     }
 
+    if current_version < 15 {
+        debug!("Running migration v15");
+        run_migration_v15(pool).await?;
+        set_schema_version(pool, 15).await?;
+    }
+
     Ok(())
 }
 
@@ -824,6 +830,107 @@ async fn run_migration_v14(pool: &SqlitePool) -> Result<()> {
         .execute(pool)
         .await
         .context("Failed to add metadata column to archive_artifacts")?;
+
+    Ok(())
+}
+
+async fn run_migration_v15(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v15: adding comments system");
+
+    // Comments table - stores user comments on archives
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            archive_id INTEGER NOT NULL REFERENCES archives(id) ON DELETE CASCADE,
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            parent_comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
+            content TEXT NOT NULL,
+            is_deleted INTEGER NOT NULL DEFAULT 0,
+            deleted_by_admin INTEGER NOT NULL DEFAULT 0,
+            is_pinned INTEGER NOT NULL DEFAULT 0,
+            pinned_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            deleted_at TEXT
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create comments table")?;
+
+    // Comment edits table - tracks edit history
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS comment_edits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+            previous_content TEXT NOT NULL,
+            edited_by_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create comment_edits table")?;
+
+    // Comment reactions table - tracks helpful votes
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS comment_reactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            reaction_type TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(comment_id, user_id, reaction_type)
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create comment_reactions table")?;
+
+    // Create indexes for efficient querying
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_comments_archive_id ON comments(archive_id) WHERE is_deleted = 0",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create comments archive_id index")?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_comments_user_id ON comments(user_id)")
+        .execute(pool)
+        .await
+        .context("Failed to create comments user_id index")?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON comments(parent_comment_id)")
+        .execute(pool)
+        .await
+        .context("Failed to create comments parent_comment_id index")?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_comments_pinned_created ON comments(is_pinned DESC, created_at DESC) WHERE is_deleted = 0",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create comments pinned+created index")?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_comment_edits_comment_id ON comment_edits(comment_id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create comment_edits comment_id index")?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_comment_reactions_comment_id ON comment_reactions(comment_id, reaction_type)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create comment_reactions index")?;
 
     Ok(())
 }

@@ -558,3 +558,61 @@ pub struct UserAgent {
     pub first_seen_at: String,
     pub last_seen_at: String,
 }
+
+/// A comment on an archive.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Comment {
+    pub id: i64,
+    pub archive_id: i64,
+    pub user_id: Option<i64>,
+    pub parent_comment_id: Option<i64>,
+    pub content: String,
+    pub is_deleted: bool,
+    pub deleted_by_admin: bool,
+    pub is_pinned: bool,
+    pub pinned_by_user_id: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+}
+
+/// Edit history entry for a comment.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CommentEdit {
+    pub id: i64,
+    pub comment_id: i64,
+    pub previous_content: String,
+    pub edited_by_user_id: i64,
+    pub edited_at: String,
+}
+
+/// A helpful reaction (upvote) on a comment.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CommentReaction {
+    pub id: i64,
+    pub comment_id: i64,
+    pub user_id: i64,
+    pub reaction_type: String,
+    pub created_at: String,
+}
+
+/// A comment with author details for display.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CommentWithAuthor {
+    pub id: i64,
+    pub archive_id: i64,
+    pub user_id: Option<i64>,
+    pub parent_comment_id: Option<i64>,
+    pub content: String,
+    pub is_deleted: bool,
+    pub deleted_by_admin: bool,
+    pub is_pinned: bool,
+    pub pinned_by_user_id: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+    pub author_username: Option<String>,
+    pub author_display_name: Option<String>,
+    pub edit_count: i64,
+    pub helpful_count: i64,
+}
