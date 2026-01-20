@@ -84,7 +84,7 @@ pub fn extract_video_id(url: &str) -> Option<String> {
     if let Some(idx) = url.find("/video/") {
         let rest = &url[idx + 7..]; // Skip "/video/"
                                     // Take digits until non-digit or end
-        let video_id: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let video_id: String = rest.chars().take_while(char::is_ascii_digit).collect();
         if !video_id.is_empty() {
             return Some(video_id);
         }

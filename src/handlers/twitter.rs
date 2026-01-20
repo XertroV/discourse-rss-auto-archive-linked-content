@@ -87,7 +87,7 @@ pub fn extract_tweet_id(url: &str) -> Option<String> {
     if let Some(idx) = url.find("/status/") {
         let rest = &url[idx + 8..]; // Skip "/status/"
                                     // Take digits until non-digit or end
-        let tweet_id: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let tweet_id: String = rest.chars().take_while(char::is_ascii_digit).collect();
         if !tweet_id.is_empty() {
             return Some(tweet_id);
         }

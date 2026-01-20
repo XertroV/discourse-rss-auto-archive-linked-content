@@ -68,7 +68,7 @@ pub fn extract_video_id(url: &str) -> Option<String> {
     url::Url::parse(url).ok().and_then(|parsed| {
         let path = parsed.path().trim_start_matches('/');
         // Video ID is typically alphanumeric, 5-8 chars
-        if !path.is_empty() && path.chars().all(|c| c.is_alphanumeric()) {
+        if !path.is_empty() && path.chars().all(char::is_alphanumeric) {
             Some(path.to_string())
         } else {
             None
