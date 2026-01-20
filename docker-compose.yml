@@ -75,9 +75,9 @@ services:
       # Optional: bind-mount a local cookie file instead of using the volume
       # - ./cookies.txt:/app/cookies/cookies.txt:ro
       # - ./yt-cookies.json:/app/yt-cookies.json:ro
-    depends_on:
-      minio:
-        condition: service_healthy
+    # depends_on:
+    #   minio:
+    #     condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]

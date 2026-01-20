@@ -15,13 +15,7 @@ services:
       S3_PREFIX: ${S3_PREFIX:-archives/}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-    depends_on: []  # Remove MinIO dependency for production
 
-  # Disable MinIO services in production
-  minio:
-    profiles:
-      - local-dev
-
-  minio-init:
-    profiles:
-      - local-dev
+  # MinIO services defined but not started (use scale=0 when running)
+  # To exclude from deployment: docker compose up -d archiver
+  # Or use: docker compose --scale minio=0 --scale minio-init=0 up -d
