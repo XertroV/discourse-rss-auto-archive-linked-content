@@ -22,6 +22,31 @@ fn base_layout(title: &str, content: &str) -> String {
     <style>
         /* NSFW filtering styles */
         body.nsfw-hidden [data-nsfw="true"] {{ display: none !important; }}
+
+        /* Content type filter styles */
+        .content-type-filters {{
+            display: flex;
+            gap: 0.5rem;
+            margin: 1rem 0;
+            flex-wrap: wrap;
+        }}
+        .filter-btn {{
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--muted-border-color, #dee2e6);
+            border-radius: 0.25rem;
+            text-decoration: none;
+            color: var(--color, #000);
+            background: var(--card-background-color, #fff);
+            transition: all 0.2s;
+        }}
+        .filter-btn:hover {{
+            background: var(--secondary-hover, #f8f9fa);
+        }}
+        .filter-btn.active {{
+            background: var(--primary, #0066cc);
+            color: #fff;
+            border-color: var(--primary, #0066cc);
+        }}
     </style>
     <script>
         (function() {{
@@ -139,6 +164,7 @@ pub fn render_home_paginated(
     recent_failed_count: usize,
     page: usize,
     total_pages: usize,
+    content_type_filter: Option<&str>,
 ) -> String {
     render_recent_archives_page_paginated(
         "Recent Archives",
@@ -149,6 +175,7 @@ pub fn render_home_paginated(
         page,
         total_pages,
         "/",
+        content_type_filter,
     )
 }
 
@@ -170,6 +197,7 @@ pub fn render_recent_failed_archives_paginated(
     recent_failed_count: usize,
     page: usize,
     total_pages: usize,
+    content_type_filter: Option<&str>,
 ) -> String {
     render_recent_archives_page_paginated(
         "Recent Failed Archives",
@@ -180,6 +208,7 @@ pub fn render_recent_failed_archives_paginated(
         page,
         total_pages,
         "/archives/failed",
+        content_type_filter,
     )
 }
 
@@ -201,6 +230,7 @@ pub fn render_recent_all_archives_paginated(
     recent_failed_count: usize,
     page: usize,
     total_pages: usize,
+    content_type_filter: Option<&str>,
 ) -> String {
     render_recent_archives_page_paginated(
         "All Recent Archives",
@@ -211,6 +241,7 @@ pub fn render_recent_all_archives_paginated(
         page,
         total_pages,
         "/archives/all",
+        content_type_filter,
     )
 }
 
@@ -291,6 +322,7 @@ fn render_recent_archives_page_paginated(
     page: usize,
     total_pages: usize,
     base_url: &str,
+    content_type_filter: Option<&str>,
 ) -> String {
     let mut content = String::new();
     content.push_str(&format!("<h1>{}</h1>", html_escape(heading)));
@@ -298,6 +330,9 @@ fn render_recent_archives_page_paginated(
         active_tab,
         recent_failed_count,
     ));
+
+    // Add content type filter buttons
+    content.push_str(&render_content_type_filters(base_url, content_type_filter));
 
     if archives.is_empty() {
         content.push_str("<p>No archives yet.</p>");
@@ -310,24 +345,88 @@ fn render_recent_archives_page_paginated(
 
         // Add pagination controls if needed
         if total_pages > 1 {
-            content.push_str(&render_pagination(page, total_pages, base_url));
+            content.push_str(&render_pagination(
+                page,
+                total_pages,
+                base_url,
+                content_type_filter,
+            ));
         }
     }
 
     base_layout(page_title, &content)
 }
 
+/// Render content type filter buttons.
+fn render_content_type_filters(base_url: &str, active_filter: Option<&str>) -> String {
+    let mut html = String::from(r#"<div class="content-type-filters">"#);
+
+    // Define available content types
+    let types = [
+        ("All", None),
+        ("Video", Some("video")),
+        ("Image", Some("image")),
+        ("Gallery", Some("gallery")),
+        ("Text", Some("text")),
+        ("Thread", Some("thread")),
+    ];
+
+    for (label, type_value) in &types {
+        let is_active = match (active_filter, type_value) {
+            (None, None) => true,
+            (Some(a), Some(t)) if a == *t => true,
+            _ => false,
+        };
+
+        let class = if is_active {
+            "filter-btn active"
+        } else {
+            "filter-btn"
+        };
+
+        let url = if let Some(t) = type_value {
+            format!("{}?type={}", base_url, urlencoding::encode(t))
+        } else {
+            base_url.to_string()
+        };
+
+        html.push_str(&format!(r#"<a href="{url}" class="{class}">{label}</a>"#));
+    }
+
+    html.push_str("</div>");
+    html
+}
+
 /// Render pagination controls.
-fn render_pagination(current_page: usize, total_pages: usize, base_url: &str) -> String {
+fn render_pagination(
+    current_page: usize,
+    total_pages: usize,
+    base_url: &str,
+    content_type_filter: Option<&str>,
+) -> String {
     let mut html = String::from(r#"<nav class="pagination">"#);
+
+    // Helper to build URL with filters
+    let build_url = |page_num: usize| -> String {
+        let mut params = Vec::new();
+        if page_num > 0 {
+            params.push(format!("page={page_num}"));
+        }
+        if let Some(ct) = content_type_filter {
+            let encoded = urlencoding::encode(ct);
+            params.push(format!("type={encoded}"));
+        }
+        if params.is_empty() {
+            base_url.to_string()
+        } else {
+            let query = params.join("&");
+            format!("{base_url}?{query}")
+        }
+    };
 
     // Previous button
     if current_page > 0 {
-        let prev_url = if current_page == 1 {
-            base_url.to_string()
-        } else {
-            format!("{}?page={}", base_url, current_page - 1)
-        };
+        let prev_url = build_url(current_page - 1);
         html.push_str(&format!(r#"<a href="{prev_url}">&laquo; Previous</a>"#));
     } else {
         html.push_str(r#"<span class="disabled">&laquo; Previous</span>"#);
@@ -339,18 +438,14 @@ fn render_pagination(current_page: usize, total_pages: usize, base_url: &str) ->
 
     if start > 0 {
         // Page 0 uses base_url without query param
-        html.push_str(&format!(r#"<a href="{base_url}">1</a>"#));
+        html.push_str(&format!(r#"<a href="{}">1</a>"#, build_url(0)));
         if start > 1 {
             html.push_str("<span>...</span>");
         }
     }
 
     for page_num in start..end {
-        let url = if page_num == 0 {
-            base_url.to_string()
-        } else {
-            format!("{base_url}?page={page_num}")
-        };
+        let url = build_url(page_num);
 
         if page_num == current_page {
             html.push_str(&format!(r#"<span class="current">{}</span>"#, page_num + 1));
@@ -363,13 +458,13 @@ fn render_pagination(current_page: usize, total_pages: usize, base_url: &str) ->
         if end < total_pages - 1 {
             html.push_str("<span>...</span>");
         }
-        let url = format!("{}?page={}", base_url, total_pages - 1);
+        let url = build_url(total_pages - 1);
         html.push_str(&format!(r#"<a href="{url}">{total_pages}</a>"#));
     }
 
     // Next button
     if current_page + 1 < total_pages {
-        let next_url = format!("{}?page={}", base_url, current_page + 1);
+        let next_url = build_url(current_page + 1);
         html.push_str(&format!(r#"<a href="{next_url}">Next &raquo;</a>"#));
     } else {
         html.push_str(r#"<span class="disabled">Next &raquo;</span>"#);

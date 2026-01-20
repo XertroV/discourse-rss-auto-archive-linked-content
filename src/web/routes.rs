@@ -19,11 +19,11 @@ use crate::db::{
     get_archives_by_domain_display, get_archives_for_post_display, get_archives_for_posts_display,
     get_artifacts_for_archive, get_jobs_for_archive, get_link, get_link_by_normalized_url,
     get_link_occurrences_with_posts, get_post_by_guid, get_posts_by_thread_key, get_queue_stats,
-    get_recent_archives_display, get_recent_archives_filtered, get_recent_archives_with_filters,
-    get_recent_failed_archives, insert_link, insert_submission, reset_archive_for_rearchive,
-    reset_single_skipped_archive, reset_skipped_archives, search_archives_display,
-    search_archives_filtered, submission_exists_for_url, toggle_archive_nsfw, NewLink,
-    NewSubmission,
+    get_recent_archives_display_filtered, get_recent_archives_filtered_full,
+    get_recent_archives_with_filters, get_recent_failed_archives, insert_link, insert_submission,
+    reset_archive_for_rearchive, reset_single_skipped_archive, reset_skipped_archives,
+    search_archives_display_filtered, search_archives_filtered_full, submission_exists_for_url,
+    toggle_archive_nsfw, NewLink, NewSubmission,
 };
 use crate::handlers::normalize_url;
 
@@ -32,6 +32,9 @@ use crate::handlers::normalize_url;
 struct PaginationParams {
     #[serde(default)]
     page: usize,
+    /// Filter by content type (e.g., "video", "image", "gallery", "text", "thread")
+    #[serde(rename = "type")]
+    content_type: Option<String>,
 }
 
 const ITEMS_PER_PAGE: i64 = 50;
@@ -73,7 +76,13 @@ pub fn router() -> Router<AppState> {
 async fn home(State(state): State<AppState>, Query(params): Query<PaginationParams>) -> Response {
     let page = params.page;
 
-    let all_recent = match get_recent_archives_display(state.db.pool(), 100).await {
+    let all_recent = match get_recent_archives_display_filtered(
+        state.db.pool(),
+        100,
+        params.content_type.as_deref(),
+    )
+    .await
+    {
         Ok(a) => a,
         Err(e) => {
             tracing::error!("Failed to fetch recent archives: {e}");
@@ -97,7 +106,13 @@ async fn home(State(state): State<AppState>, Query(params): Query<PaginationPara
     let end = ((page + 1) * ITEMS_PER_PAGE as usize).min(total_items);
     archives = archives.into_iter().skip(start).take(end - start).collect();
 
-    let html = templates::render_home_paginated(&archives, recent_failed_count, page, total_pages);
+    let html = templates::render_home_paginated(
+        &archives,
+        recent_failed_count,
+        page,
+        total_pages,
+        params.content_type.as_deref(),
+    );
     Html(html).into_response()
 }
 
@@ -107,7 +122,13 @@ async fn recent_failed_archives(
 ) -> Response {
     let page = params.page;
 
-    let all_recent = match get_recent_archives_display(state.db.pool(), 100).await {
+    let all_recent = match get_recent_archives_display_filtered(
+        state.db.pool(),
+        100,
+        params.content_type.as_deref(),
+    )
+    .await
+    {
         Ok(a) => a,
         Err(e) => {
             tracing::error!("Failed to fetch recent archives: {e}");
@@ -134,6 +155,7 @@ async fn recent_failed_archives(
         recent_failed_count,
         page,
         total_pages,
+        params.content_type.as_deref(),
     );
     Html(html).into_response()
 }
@@ -144,7 +166,13 @@ async fn recent_all_archives(
 ) -> Response {
     let page = params.page;
 
-    let all_recent = match get_recent_archives_display(state.db.pool(), 100).await {
+    let all_recent = match get_recent_archives_display_filtered(
+        state.db.pool(),
+        100,
+        params.content_type.as_deref(),
+    )
+    .await
+    {
         Ok(a) => a,
         Err(e) => {
             tracing::error!("Failed to fetch recent archives: {e}");
@@ -170,6 +198,7 @@ async fn recent_all_archives(
         recent_failed_count,
         page,
         total_pages,
+        params.content_type.as_deref(),
     );
     Html(html).into_response()
 }
@@ -180,6 +209,9 @@ pub struct SearchParams {
     #[allow(dead_code)]
     site: Option<String>,
     page: Option<u32>,
+    /// Filter by content type (e.g., "video", "image", "gallery", "text", "thread")
+    #[serde(rename = "type")]
+    content_type: Option<String>,
 }
 
 async fn search(State(state): State<AppState>, Query(params): Query<SearchParams>) -> Response {
@@ -189,7 +221,13 @@ async fn search(State(state): State<AppState>, Query(params): Query<SearchParams
     let offset = i64::from(page.saturating_sub(1)) * per_page;
 
     let archives = if query.is_empty() {
-        match get_recent_archives_display(state.db.pool(), per_page + offset).await {
+        match get_recent_archives_display_filtered(
+            state.db.pool(),
+            per_page + offset,
+            params.content_type.as_deref(),
+        )
+        .await
+        {
             Ok(a) => a.into_iter().skip(offset as usize).collect(),
             Err(e) => {
                 tracing::error!("Failed to fetch archives: {e}");
@@ -197,7 +235,14 @@ async fn search(State(state): State<AppState>, Query(params): Query<SearchParams
             }
         }
     } else {
-        match search_archives_display(state.db.pool(), &query, per_page).await {
+        match search_archives_display_filtered(
+            state.db.pool(),
+            &query,
+            per_page,
+            params.content_type.as_deref(),
+        )
+        .await
+        {
             Ok(a) => a,
             Err(e) => {
                 tracing::error!("Failed to search archives: {e}");
@@ -890,6 +935,9 @@ pub struct ApiArchivesParams {
     per_page: Option<u32>,
     #[serde(default)]
     nsfw: NsfwFilter,
+    /// Filter by content type (e.g., "video", "image", "gallery", "text", "thread")
+    #[serde(rename = "type")]
+    content_type: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -915,11 +963,12 @@ async fn api_archives(
         NsfwFilter::Only => Some(true),
     };
 
-    let archives = match get_recent_archives_filtered(
+    let archives = match get_recent_archives_filtered_full(
         state.db.pool(),
         i64::from(per_page),
         offset,
         nsfw_filter,
+        params.content_type.as_deref(),
     )
     .await
     {
@@ -945,6 +994,9 @@ pub struct ApiSearchParams {
     per_page: Option<u32>,
     #[serde(default)]
     nsfw: NsfwFilter,
+    /// Filter by content type (e.g., "video", "image", "gallery", "text", "thread")
+    #[serde(rename = "type")]
+    content_type: Option<String>,
 }
 
 async fn api_search(
@@ -962,11 +1014,12 @@ async fn api_search(
         NsfwFilter::Only => Some(true),
     };
 
-    let archives = match search_archives_filtered(
+    let archives = match search_archives_filtered_full(
         state.db.pool(),
         &params.q,
         i64::from(per_page),
         nsfw_filter,
+        params.content_type.as_deref(),
     )
     .await
     {
