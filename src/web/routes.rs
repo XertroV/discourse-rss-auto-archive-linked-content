@@ -35,6 +35,8 @@ struct PaginationParams {
     /// Filter by content type (e.g., "video", "image", "gallery", "text", "thread")
     #[serde(rename = "type")]
     content_type: Option<String>,
+    /// Filter by source platform (e.g., "reddit", "youtube", "tiktok", "twitter")
+    source: Option<String>,
 }
 
 const ITEMS_PER_PAGE: i64 = 50;
@@ -80,6 +82,7 @@ async fn home(State(state): State<AppState>, Query(params): Query<PaginationPara
         state.db.pool(),
         100,
         params.content_type.as_deref(),
+        params.source.as_deref(),
     )
     .await
     {
@@ -112,6 +115,7 @@ async fn home(State(state): State<AppState>, Query(params): Query<PaginationPara
         page,
         total_pages,
         params.content_type.as_deref(),
+        params.source.as_deref(),
     );
     Html(html).into_response()
 }
@@ -126,6 +130,7 @@ async fn recent_failed_archives(
         state.db.pool(),
         100,
         params.content_type.as_deref(),
+        params.source.as_deref(),
     )
     .await
     {
@@ -156,6 +161,7 @@ async fn recent_failed_archives(
         page,
         total_pages,
         params.content_type.as_deref(),
+        params.source.as_deref(),
     );
     Html(html).into_response()
 }
@@ -170,6 +176,7 @@ async fn recent_all_archives(
         state.db.pool(),
         100,
         params.content_type.as_deref(),
+        params.source.as_deref(),
     )
     .await
     {
@@ -199,6 +206,7 @@ async fn recent_all_archives(
         page,
         total_pages,
         params.content_type.as_deref(),
+        params.source.as_deref(),
     );
     Html(html).into_response()
 }
@@ -212,6 +220,8 @@ pub struct SearchParams {
     /// Filter by content type (e.g., "video", "image", "gallery", "text", "thread")
     #[serde(rename = "type")]
     content_type: Option<String>,
+    /// Filter by source platform (e.g., "reddit", "youtube", "tiktok", "twitter")
+    source: Option<String>,
 }
 
 async fn search(State(state): State<AppState>, Query(params): Query<SearchParams>) -> Response {
@@ -225,6 +235,7 @@ async fn search(State(state): State<AppState>, Query(params): Query<SearchParams
             state.db.pool(),
             per_page + offset,
             params.content_type.as_deref(),
+            params.source.as_deref(),
         )
         .await
         {
@@ -240,6 +251,7 @@ async fn search(State(state): State<AppState>, Query(params): Query<SearchParams
             &query,
             per_page,
             params.content_type.as_deref(),
+            params.source.as_deref(),
         )
         .await
         {
