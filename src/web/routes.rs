@@ -8,6 +8,7 @@ use axum::Router;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
+use super::auth;
 use super::diff;
 use super::export;
 use super::feeds;
@@ -45,6 +46,9 @@ const ITEMS_PER_PAGE: i64 = 50;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(home))
+        .route("/login", get(auth::login_page).post(auth::login_post))
+        .route("/logout", post(auth::logout))
+        .route("/profile", get(auth::profile_page).post(auth::profile_post))
         .route("/archives/failed", get(recent_failed_archives))
         .route("/archives/all", get(recent_all_archives))
         .route("/search", get(search))

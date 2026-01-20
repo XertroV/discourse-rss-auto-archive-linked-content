@@ -3,8 +3,9 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 
 use super::models::{
-    Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, ArchiveJobType, Link, LinkOccurrence,
-    NewLink, NewLinkOccurrence, NewPost, NewSubmission, Post, Submission, ThreadDisplay, VideoFile,
+    Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, ArchiveJobType, AuditEvent, Link,
+    LinkOccurrence, NewLink, NewLinkOccurrence, NewPost, NewSubmission, Post, Session,
+    Submission, ThreadDisplay, User, VideoFile,
 };
 
 // ========== Posts ==========
@@ -2303,4 +2304,344 @@ pub async fn get_video_files_by_platform(
     .fetch_all(pool)
     .await
     .context("Failed to get video files by platform")
+}
+
+// ========== Users ==========
+
+/// Get a user by ID.
+pub async fn get_user_by_id(pool: &SqlitePool, id: i64) -> Result<Option<User>> {
+    sqlx::query_as("SELECT * FROM users WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to fetch user by id")
+}
+
+/// Get a user by username.
+pub async fn get_user_by_username(pool: &SqlitePool, username: &str) -> Result<Option<User>> {
+    sqlx::query_as("SELECT * FROM users WHERE username = ?")
+        .bind(username)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to fetch user by username")
+}
+
+/// Create a new user.
+pub async fn create_user(
+    pool: &SqlitePool,
+    username: &str,
+    password_hash: &str,
+    is_admin: bool,
+) -> Result<i64> {
+    let result = sqlx::query(
+        r"
+        INSERT INTO users (username, password_hash, is_admin, is_approved)
+        VALUES (?, ?, ?, ?)
+        ",
+    )
+    .bind(username)
+    .bind(password_hash)
+    .bind(is_admin)
+    .bind(is_admin) // First user auto-approved, others need approval
+    .execute(pool)
+    .await
+    .context("Failed to create user")?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Count total users.
+pub async fn count_users(pool: &SqlitePool) -> Result<i64> {
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+        .fetch_one(pool)
+        .await
+        .context("Failed to count users")?;
+    Ok(row.0)
+}
+
+/// Get all users with pagination.
+pub async fn get_all_users(
+    pool: &SqlitePool,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<User>> {
+    sqlx::query_as(
+        r"
+        SELECT * FROM users
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        ",
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .context("Failed to get all users")
+}
+
+/// Update user approval status.
+pub async fn update_user_approval(pool: &SqlitePool, user_id: i64, is_approved: bool) -> Result<()> {
+    sqlx::query("UPDATE users SET is_approved = ?, updated_at = datetime('now') WHERE id = ?")
+        .bind(is_approved)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .context("Failed to update user approval")?;
+    Ok(())
+}
+
+/// Update user admin status.
+pub async fn update_user_admin(pool: &SqlitePool, user_id: i64, is_admin: bool) -> Result<()> {
+    sqlx::query("UPDATE users SET is_admin = ?, updated_at = datetime('now') WHERE id = ?")
+        .bind(is_admin)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .context("Failed to update user admin status")?;
+    Ok(())
+}
+
+/// Update user active status (soft delete).
+pub async fn update_user_active(pool: &SqlitePool, user_id: i64, is_active: bool) -> Result<()> {
+    sqlx::query("UPDATE users SET is_active = ?, updated_at = datetime('now') WHERE id = ?")
+        .bind(is_active)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .context("Failed to update user active status")?;
+    Ok(())
+}
+
+/// Update user password.
+pub async fn update_user_password(pool: &SqlitePool, user_id: i64, password_hash: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET password_hash = ?, password_updated_at = datetime('now'), updated_at = datetime('now') WHERE id = ?"
+    )
+    .bind(password_hash)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .context("Failed to update user password")?;
+    Ok(())
+}
+
+/// Update user profile (email, display_name).
+pub async fn update_user_profile(
+    pool: &SqlitePool,
+    user_id: i64,
+    email: Option<&str>,
+    display_name: Option<&str>,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET email = ?, display_name = ?, updated_at = datetime('now') WHERE id = ?"
+    )
+    .bind(email)
+    .bind(display_name)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .context("Failed to update user profile")?;
+    Ok(())
+}
+
+/// Increment failed login attempts.
+pub async fn increment_failed_login_attempts(pool: &SqlitePool, user_id: i64) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET failed_login_attempts = failed_login_attempts + 1, updated_at = datetime('now') WHERE id = ?"
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .context("Failed to increment failed login attempts")?;
+    Ok(())
+}
+
+/// Reset failed login attempts.
+pub async fn reset_failed_login_attempts(pool: &SqlitePool, user_id: i64) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET failed_login_attempts = 0, locked_until = NULL, updated_at = datetime('now') WHERE id = ?"
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .context("Failed to reset failed login attempts")?;
+    Ok(())
+}
+
+/// Lock user account until specified time.
+pub async fn lock_user_until(pool: &SqlitePool, user_id: i64, locked_until: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE users SET locked_until = ?, updated_at = datetime('now') WHERE id = ?"
+    )
+    .bind(locked_until)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .context("Failed to lock user account")?;
+    Ok(())
+}
+
+// ========== Sessions ==========
+
+/// Create a new session.
+pub async fn create_session(
+    pool: &SqlitePool,
+    user_id: i64,
+    token: &str,
+    csrf_token: &str,
+    ip_address: &str,
+    user_agent: Option<&str>,
+    expires_at: &str,
+) -> Result<i64> {
+    let result = sqlx::query(
+        r"
+        INSERT INTO sessions (user_id, token, csrf_token, ip_address, user_agent, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ",
+    )
+    .bind(user_id)
+    .bind(token)
+    .bind(csrf_token)
+    .bind(ip_address)
+    .bind(user_agent)
+    .bind(expires_at)
+    .execute(pool)
+    .await
+    .context("Failed to create session")?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Get a session by token.
+pub async fn get_session_by_token(pool: &SqlitePool, token: &str) -> Result<Option<Session>> {
+    sqlx::query_as("SELECT * FROM sessions WHERE token = ?")
+        .bind(token)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to fetch session by token")
+}
+
+/// Update session last_used_at.
+pub async fn update_session_last_used(pool: &SqlitePool, session_id: i64) -> Result<()> {
+    sqlx::query("UPDATE sessions SET last_used_at = datetime('now') WHERE id = ?")
+        .bind(session_id)
+        .execute(pool)
+        .await
+        .context("Failed to update session last_used")?;
+    Ok(())
+}
+
+/// Delete a session.
+pub async fn delete_session(pool: &SqlitePool, token: &str) -> Result<()> {
+    sqlx::query("DELETE FROM sessions WHERE token = ?")
+        .bind(token)
+        .execute(pool)
+        .await
+        .context("Failed to delete session")?;
+    Ok(())
+}
+
+/// Delete all sessions for a user.
+pub async fn delete_user_sessions(pool: &SqlitePool, user_id: i64) -> Result<()> {
+    sqlx::query("DELETE FROM sessions WHERE user_id = ?")
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .context("Failed to delete user sessions")?;
+    Ok(())
+}
+
+/// Delete expired sessions.
+pub async fn delete_expired_sessions(pool: &SqlitePool) -> Result<u64> {
+    let result = sqlx::query("DELETE FROM sessions WHERE expires_at < datetime('now')")
+        .execute(pool)
+        .await
+        .context("Failed to delete expired sessions")?;
+    Ok(result.rows_affected())
+}
+
+// ========== Audit Events ==========
+
+/// Create an audit event.
+#[allow(clippy::too_many_arguments)]
+pub async fn create_audit_event(
+    pool: &SqlitePool,
+    user_id: Option<i64>,
+    event_type: &str,
+    target_type: Option<&str>,
+    target_id: Option<i64>,
+    metadata: Option<&str>,
+    ip_address: Option<&str>,
+    user_agent: Option<&str>,
+) -> Result<i64> {
+    let result = sqlx::query(
+        r"
+        INSERT INTO audit_events (user_id, event_type, target_type, target_id, metadata, ip_address, user_agent)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ",
+    )
+    .bind(user_id)
+    .bind(event_type)
+    .bind(target_type)
+    .bind(target_id)
+    .bind(metadata)
+    .bind(ip_address)
+    .bind(user_agent)
+    .execute(pool)
+    .await
+    .context("Failed to create audit event")?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Get audit events with pagination.
+pub async fn get_audit_events(
+    pool: &SqlitePool,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<AuditEvent>> {
+    sqlx::query_as(
+        r"
+        SELECT * FROM audit_events
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        ",
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .context("Failed to get audit events")
+}
+
+/// Get audit events for a specific user.
+pub async fn get_audit_events_for_user(
+    pool: &SqlitePool,
+    user_id: i64,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<AuditEvent>> {
+    sqlx::query_as(
+        r"
+        SELECT * FROM audit_events
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        ",
+    )
+    .bind(user_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .context("Failed to get audit events for user")
+}
+
+/// Count total audit events.
+pub async fn count_audit_events(pool: &SqlitePool) -> Result<i64> {
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM audit_events")
+        .fetch_one(pool)
+        .await
+        .context("Failed to count audit events")?;
+    Ok(row.0)
 }

@@ -73,6 +73,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 11).await?;
     }
 
+    if current_version < 12 {
+        debug!("Running migration v12");
+        run_migration_v12(pool).await?;
+        set_schema_version(pool, 12).await?;
+    }
+
     Ok(())
 }
 
@@ -624,6 +630,128 @@ async fn run_migration_v11(pool: &SqlitePool) -> Result<()> {
         .execute(pool)
         .await
         .context("Failed to create content_type index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v12(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v12: adding user accounts and auth tables");
+
+    // Users table
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            email TEXT,
+            display_name TEXT,
+            is_approved INTEGER NOT NULL DEFAULT 0,
+            is_admin INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+            locked_until TEXT,
+            password_updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create users table")?;
+
+    // Sessions table
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            token TEXT NOT NULL UNIQUE,
+            csrf_token TEXT NOT NULL,
+            ip_address TEXT NOT NULL,
+            user_agent TEXT,
+            expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_used_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create sessions table")?;
+
+    // Audit events table
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS audit_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            event_type TEXT NOT NULL,
+            target_type TEXT,
+            target_id INTEGER,
+            metadata TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create audit_events table")?;
+
+    // Create indexes
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+        .execute(pool)
+        .await
+        .context("Failed to create users username index")?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_users_is_approved ON users(is_approved)")
+        .execute(pool)
+        .await
+        .context("Failed to create users is_approved index")?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_users_is_admin ON users(is_admin)")
+        .execute(pool)
+        .await
+        .context("Failed to create users is_admin index")?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)")
+        .execute(pool)
+        .await
+        .context("Failed to create sessions token index")?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)")
+        .execute(pool)
+        .await
+        .context("Failed to create sessions user_id index")?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)")
+        .execute(pool)
+        .await
+        .context("Failed to create sessions expires_at index")?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_audit_events_user_id ON audit_events(user_id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create audit_events user_id index")?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_audit_events_event_type ON audit_events(event_type)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create audit_events event_type index")?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create audit_events created_at index")?;
 
     Ok(())
 }

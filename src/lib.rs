@@ -30,6 +30,7 @@
 
 pub mod archive_today;
 pub mod archiver;
+pub mod auth;
 pub mod backup;
 pub mod chromium_profile;
 pub mod config;

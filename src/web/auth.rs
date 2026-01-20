@@ -1,0 +1,419 @@
+use axum::{
+    extract::State,
+    http::{header, StatusCode},
+    response::{Html, IntoResponse, Redirect, Response},
+    Form,
+};
+use chrono::{DateTime, Duration, Utc};
+use serde::Deserialize;
+use std::net::SocketAddr;
+
+use crate::auth::{
+    generate_csrf_token, generate_password, generate_session_token, generate_username,
+    hash_password, verify_password, MaybeUser, RequireUser, SessionDuration,
+};
+use crate::db as queries;
+use crate::web::{templates, AppState};
+
+/// Login form data.
+#[derive(Debug, Deserialize)]
+pub struct LoginForm {
+    #[serde(default)]
+    action: String,
+    username: Option<String>,
+    password: Option<String>,
+    #[serde(default)]
+    remember: bool,
+}
+
+/// GET /login - Show login form.
+pub async fn login_page(MaybeUser(user): MaybeUser) -> Response {
+    // If already logged in, redirect to home
+    if user.is_some() {
+        return Redirect::to("/").into_response();
+    }
+
+    Html(templates::login_page(None, None, None)).into_response()
+}
+
+/// POST /login - Handle login or registration.
+pub async fn login_post(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    Form(form): Form<LoginForm>,
+) -> Response {
+    let ip = addr.ip().to_string();
+
+    match form.action.as_str() {
+        "register" => handle_registration(state, ip).await,
+        "login" | "" => handle_login(state, ip, form).await,
+        _ => (StatusCode::BAD_REQUEST, "Invalid action").into_response(),
+    }
+}
+
+/// Handle user registration.
+async fn handle_registration(state: AppState, ip: String) -> Response {
+    // Check rate limit: 1 registration per 5 minutes per IP
+    let five_minutes_ago = Utc::now() - Duration::minutes(5);
+    let count_result = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM audit_events WHERE event_type = 'registration' AND ip_address = ? AND created_at > ?",
+    )
+    .bind(&ip)
+    .bind(five_minutes_ago.to_rfc3339())
+    .fetch_one(state.db.pool())
+    .await;
+
+    if let Ok(count) = count_result {
+        if count > 0 {
+            return Html(templates::login_page(
+                Some("Rate limit exceeded. Please try again later."),
+                None,
+                None,
+            ))
+            .into_response();
+        }
+    }
+
+    // Generate random credentials
+    let username = generate_username();
+    let password = generate_password(16);
+
+    // Hash password
+    let password_hash = match hash_password(&password) {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::error!("Failed to hash password: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Registration failed").into_response();
+        }
+    };
+
+    // Check if this is the first user (becomes admin)
+    let user_count = queries::count_users(state.db.pool()).await.unwrap_or(0);
+    let is_first_user = user_count == 0;
+
+    // Create user
+    let user_id = match queries::create_user(state.db.pool(), &username, &password_hash, is_first_user).await {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!("Failed to create user: {e}");
+            return Html(templates::login_page(
+                Some("Registration failed. Please try again."),
+                None,
+                None,
+            ))
+            .into_response();
+        }
+    };
+
+    // Log registration event
+    let _ = queries::create_audit_event(
+        state.db.pool(),
+        Some(user_id),
+        "registration",
+        None,
+        None,
+        None,
+        Some(&ip),
+        None,
+    )
+    .await;
+
+    // Show credentials to user
+    Html(templates::login_page(
+        None,
+        Some(&username),
+        Some(&password),
+    ))
+    .into_response()
+}
+
+/// Handle user login.
+async fn handle_login(state: AppState, ip: String, form: LoginForm) -> Response {
+    let username = match form.username {
+        Some(u) if !u.is_empty() => u,
+        _ => {
+            return Html(templates::login_page(
+                Some("Username is required"),
+                None,
+                None,
+            ))
+            .into_response();
+        }
+    };
+
+    let password = match form.password {
+        Some(p) if !p.is_empty() => p,
+        _ => {
+            return Html(templates::login_page(
+                Some("Password is required"),
+                None,
+                None,
+            ))
+            .into_response();
+        }
+    };
+
+    // Get user
+    let user = match queries::get_user_by_username(state.db.pool(), &username).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return Html(templates::login_page(
+                Some("Invalid username or password"),
+                None,
+                None,
+            ))
+            .into_response();
+        }
+        Err(e) => {
+            tracing::error!("Database error during login: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Login failed").into_response();
+        }
+    };
+
+    // Check if user is active
+    if !user.is_active {
+        return Html(templates::login_page(
+            Some("Account has been deactivated"),
+            None,
+            None,
+        ))
+        .into_response();
+    }
+
+    // Check if user is locked
+    if let Some(locked_until) = &user.locked_until {
+        let locked_time: Result<DateTime<Utc>, _> = locked_until.parse();
+        if let Ok(locked_time) = locked_time {
+            if locked_time > Utc::now() {
+                return Html(templates::login_page(
+                    Some("Account is temporarily locked due to failed login attempts"),
+                    None,
+                    None,
+                ))
+                .into_response();
+            }
+        }
+    }
+
+    // Verify password
+    let password_valid = match verify_password(&password, &user.password_hash) {
+        Ok(valid) => valid,
+        Err(e) => {
+            tracing::error!("Password verification error: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Login failed").into_response();
+        }
+    };
+
+    if !password_valid {
+        // Increment failed attempts
+        let _ = queries::increment_failed_login_attempts(state.db.pool(), user.id).await;
+
+        // Lock account after 5 failed attempts
+        if user.failed_login_attempts >= 4 {
+            let lock_duration = match user.failed_login_attempts {
+                4 => 5,   // 5 minutes after 5th failure
+                5 => 15,  // 15 minutes after 6th failure
+                6 => 60,  // 1 hour after 7th failure
+                _ => 240, // 4 hours after 8th+ failure
+            };
+            let locked_until = (Utc::now() + Duration::minutes(lock_duration)).to_rfc3339();
+            let _ = queries::lock_user_until(state.db.pool(), user.id, &locked_until).await;
+        }
+
+        // Log failed login
+        let _ = queries::create_audit_event(
+            state.db.pool(),
+            Some(user.id),
+            "login_failed",
+            None,
+            None,
+            None,
+            Some(&ip),
+            None,
+        )
+        .await;
+
+        return Html(templates::login_page(
+            Some("Invalid username or password"),
+            None,
+            None,
+        ))
+        .into_response();
+    }
+
+    // Reset failed login attempts
+    let _ = queries::reset_failed_login_attempts(state.db.pool(), user.id).await;
+
+    // Create session
+    let session_token = generate_session_token();
+    let csrf_token = generate_csrf_token();
+    let duration = if form.remember {
+        SessionDuration::Long
+    } else {
+        SessionDuration::Short
+    };
+    let expires_at = (Utc::now() + Duration::seconds(duration.as_seconds())).to_rfc3339();
+
+    if let Err(e) = queries::create_session(
+        state.db.pool(),
+        user.id,
+        &session_token,
+        &csrf_token,
+        &ip,
+        None, // user_agent would need to be extracted from headers
+        &expires_at,
+    )
+    .await
+    {
+        tracing::error!("Failed to create session: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Login failed").into_response();
+    }
+
+    // Log successful login
+    let _ = queries::create_audit_event(
+        state.db.pool(),
+        Some(user.id),
+        "login_success",
+        None,
+        None,
+        None,
+        Some(&ip),
+        None,
+    )
+    .await;
+
+    // Set session cookie
+    let max_age = duration.as_seconds();
+    let cookie = format!(
+        "session={session_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age={max_age}"
+    );
+
+    (
+        [(header::SET_COOKIE, cookie)],
+        Redirect::to("/"),
+    )
+        .into_response()
+}
+
+/// POST /logout - Log out user.
+pub async fn logout(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    RequireUser(user): RequireUser,
+) -> Response {
+    let ip = addr.ip().to_string();
+
+    // Get session token from cookie
+    // (In a real implementation, we'd extract this from the request)
+    // For now, delete all sessions for this user
+    let _ = queries::delete_user_sessions(state.db.pool(), user.id).await;
+
+    // Log logout event
+    let _ = queries::create_audit_event(
+        state.db.pool(),
+        Some(user.id),
+        "logout",
+        None,
+        None,
+        None,
+        Some(&ip),
+        None,
+    )
+    .await;
+
+    // Clear session cookie
+    let cookie = "session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0";
+
+    (
+        [(header::SET_COOKIE, cookie)],
+        Redirect::to("/login"),
+    )
+        .into_response()
+}
+
+/// GET /profile - User profile page.
+pub async fn profile_page(RequireUser(user): RequireUser) -> Response {
+    Html(templates::profile_page(&user)).into_response()
+}
+
+/// POST /profile - Update user profile.
+#[derive(Debug, Deserialize)]
+pub struct ProfileForm {
+    email: Option<String>,
+    display_name: Option<String>,
+    current_password: Option<String>,
+    new_password: Option<String>,
+    confirm_password: Option<String>,
+}
+
+pub async fn profile_post(
+    State(state): State<AppState>,
+    RequireUser(user): RequireUser,
+    Form(form): Form<ProfileForm>,
+) -> Response {
+    let mut error: Option<String> = None;
+
+    // Update email and display name if changed
+    let email = form.email.filter(|e| !e.is_empty());
+    let display_name = form.display_name.filter(|d| !d.is_empty());
+
+    if let Err(e) = queries::update_user_profile(
+        state.db.pool(),
+        user.id,
+        email.as_deref(),
+        display_name.as_deref(),
+    )
+    .await
+    {
+        tracing::error!("Failed to update profile: {e}");
+        error = Some("Failed to update profile".to_string());
+    }
+
+    // Handle password change if requested
+    if let (Some(current), Some(new), Some(confirm)) = (
+        &form.current_password,
+        &form.new_password,
+        &form.confirm_password,
+    ) {
+        if !current.is_empty() && !new.is_empty() {
+            // Verify current password
+            let password_valid = match verify_password(current, &user.password_hash) {
+                Ok(valid) => valid,
+                Err(e) => {
+                    tracing::error!("Password verification error: {e}");
+                    error = Some("Failed to change password".to_string());
+                    false
+                }
+            };
+
+            if !password_valid {
+                error = Some("Current password is incorrect".to_string());
+            } else if new != confirm {
+                error = Some("New passwords do not match".to_string());
+            } else {
+                // Hash new password
+                match hash_password(new) {
+                    Ok(new_hash) => {
+                        if let Err(e) = queries::update_user_password(state.db.pool(), user.id, &new_hash).await {
+                            tracing::error!("Failed to update password: {e}");
+                            error = Some("Failed to change password".to_string());
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to hash password: {e}");
+                        error = Some("Failed to change password".to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Reload user and show profile page
+    let updated_user = queries::get_user_by_id(state.db.pool(), user.id)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(user);
+
+    Html(templates::profile_page_with_message(&updated_user, error.as_deref())).into_response()
+}

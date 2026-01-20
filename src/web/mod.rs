@@ -1,3 +1,4 @@
+mod auth;
 mod diff;
 pub mod export;
 mod feeds;
@@ -10,7 +11,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::extract::ConnectInfo;
-use axum::extract::Host;
+use axum::extract::{FromRef, Host};
 use axum::handler::HandlerWithoutStateExt;
 use axum::http::Request;
 use axum::http::Uri;
@@ -18,6 +19,7 @@ use axum::response::Redirect;
 use axum::Router;
 use futures_util::StreamExt;
 use rustls_acme::AcmeState;
+use sqlx::SqlitePool;
 use tower_http::compression::CompressionLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
@@ -34,6 +36,13 @@ pub struct AppState {
     pub db: Database,
     pub config: Arc<Config>,
     pub s3: Arc<S3Client>,
+}
+
+// Implement FromRef for SqlitePool to enable auth extractors
+impl FromRef<AppState> for SqlitePool {
+    fn from_ref(state: &AppState) -> SqlitePool {
+        state.db.pool().clone()
+    }
 }
 
 /// Start the web server.

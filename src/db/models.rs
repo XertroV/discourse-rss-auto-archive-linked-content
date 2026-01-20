@@ -496,3 +496,49 @@ impl ArchiveJob {
         ArchiveJobStatus::from_str(&self.status)
     }
 }
+
+/// User account.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct User {
+    pub id: i64,
+    pub username: String,
+    pub password_hash: String,
+    pub email: Option<String>,
+    pub display_name: Option<String>,
+    pub is_approved: bool,
+    pub is_admin: bool,
+    pub is_active: bool,
+    pub failed_login_attempts: i32,
+    pub locked_until: Option<String>,
+    pub password_updated_at: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// User session.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Session {
+    pub id: i64,
+    pub user_id: i64,
+    pub token: String,
+    pub csrf_token: String,
+    pub ip_address: String,
+    pub user_agent: Option<String>,
+    pub expires_at: String,
+    pub created_at: String,
+    pub last_used_at: String,
+}
+
+/// Audit event for tracking user actions.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct AuditEvent {
+    pub id: i64,
+    pub user_id: Option<i64>,
+    pub event_type: String,
+    pub target_type: Option<String>,
+    pub target_id: Option<i64>,
+    pub metadata: Option<String>,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub created_at: String,
+}

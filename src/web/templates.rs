@@ -1,6 +1,6 @@
 use crate::db::{
     thread_key_from_url, Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, Link,
-    LinkOccurrenceWithPost, Post, QueueStats, ThreadDisplay,
+    LinkOccurrenceWithPost, Post, QueueStats, ThreadDisplay, User,
 };
 use crate::web::diff::DiffResult;
 use urlencoding::encode;
@@ -2645,4 +2645,184 @@ fn format_duration_seconds(total_seconds: u64) -> String {
     } else {
         format!("{:02}:{:02}", minutes, seconds)
     }
+}
+
+
+/// Login page.
+pub fn login_page(error: Option<&str>, username: Option<&str>, password: Option<&str>) -> String {
+    let content = if let (Some(u), Some(p)) = (username, password) {
+        // Show generated credentials after registration
+        format!(
+            r#"<main class="container">
+    <div style="max-width: 500px; margin: 2rem auto;">
+        <div style="background: var(--success-bg, #d1fae5); border: 1px solid var(--success-border, #6ee7b7); padding: var(--spacing-md, 1rem); margin-bottom: var(--spacing-lg, 1.5rem); border-radius: var(--radius, 0.375rem);">
+            <h2 style="margin-top: 0; color: var(--success-text, #065f46);">✅ Account Created!</h2>
+            <p style="margin: var(--spacing-sm, 0.5rem) 0; font-weight: 600;">Save these credentials now. They will not be shown again:</p>
+            <div style="background: white; padding: var(--spacing-md, 1rem); border-radius: var(--radius, 0.375rem); font-family: monospace; margin: var(--spacing-md, 1rem) 0;">
+                <div style="margin-bottom: var(--spacing-sm, 0.5rem);"><strong>Username:</strong> {}</div>
+                <div><strong>Password:</strong> {}</div>
+            </div>
+            <p style="margin: var(--spacing-sm, 0.5rem) 0; font-size: var(--font-size-sm, 0.875rem); color: var(--text-secondary, #52525b);">Your account is pending admin approval before you can submit links.</p>
+        </div>
+
+        <h1>Login</h1>
+        <form method="post" action="/login" style="display: flex; flex-direction: column; gap: var(--spacing-md, 1rem);">
+            <input type="hidden" name="action" value="login">
+            <div>
+                <label for="username" style="display: block; margin-bottom: var(--spacing-xs, 0.25rem); font-weight: 500;">Username</label>
+                <input type="text" id="username" name="username" required style="width: 100%; padding: var(--spacing-sm, 0.5rem); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
+            </div>
+            <div>
+                <label for="password" style="display: block; margin-bottom: var(--spacing-xs, 0.25rem); font-weight: 500;">Password</label>
+                <input type="password" id="password" name="password" required style="width: 100%; padding: var(--spacing-sm, 0.5rem); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
+            </div>
+            <div style="display: flex; align-items: center; gap: var(--spacing-xs, 0.25rem);">
+                <input type="checkbox" id="remember" name="remember" value="true">
+                <label for="remember" style="font-size: var(--font-size-sm, 0.875rem);">Remember me for 30 days</label>
+            </div>
+            <button type="submit" style="padding: var(--spacing-sm, 0.5rem) var(--spacing-md, 1rem); background: var(--primary, #ec4899); color: white; border: none; border-radius: var(--radius, 0.375rem); font-weight: 600; cursor: pointer;">Login</button>
+        </form>
+    </div>
+</main>"#,
+            html_escape(u),
+            html_escape(p)
+        )
+    } else {
+        // Normal login form
+        let error_html = error.map_or(String::new(), |e| {
+            format!(
+                r#"<div style="background: var(--error-bg, #fee2e2); border: 1px solid var(--error-border, #fca5a5); padding: var(--spacing-md, 1rem); margin-bottom: var(--spacing-md, 1rem); border-radius: var(--radius, 0.375rem); color: var(--error-text, #991b1b);">{}</div>"#,
+                html_escape(e)
+            )
+        });
+
+        format!(
+            r#"<main class="container">
+    <div style="max-width: 500px; margin: 2rem auto;">
+        <h1>Login</h1>
+        {}
+        <form method="post" action="/login" style="display: flex; flex-direction: column; gap: var(--spacing-md, 1rem);">
+            <input type="hidden" name="action" value="login">
+            <div>
+                <label for="username" style="display: block; margin-bottom: var(--spacing-xs, 0.25rem); font-weight: 500;">Username</label>
+                <input type="text" id="username" name="username" required style="width: 100%; padding: var(--spacing-sm, 0.5rem); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
+            </div>
+            <div>
+                <label for="password" style="display: block; margin-bottom: var(--spacing-xs, 0.25rem); font-weight: 500;">Password</label>
+                <input type="password" id="password" name="password" required style="width: 100%; padding: var(--spacing-sm, 0.5rem); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
+            </div>
+            <div style="display: flex; align-items: center; gap: var(--spacing-xs, 0.25rem);">
+                <input type="checkbox" id="remember" name="remember" value="true">
+                <label for="remember" style="font-size: var(--font-size-sm, 0.875rem);">Remember me for 30 days</label>
+            </div>
+            <button type="submit" style="padding: var(--spacing-sm, 0.5rem) var(--spacing-md, 1rem); background: var(--primary, #ec4899); color: white; border: none; border-radius: var(--radius, 0.375rem); font-weight: 600; cursor: pointer;">Login</button>
+        </form>
+
+        <div style="margin-top: var(--spacing-lg, 1.5rem); padding-top: var(--spacing-lg, 1.5rem); border-top: 1px solid var(--border-color, #e4e4e7); text-align: center;">
+            <p style="font-size: var(--font-size-sm, 0.875rem); color: var(--text-secondary, #52525b); margin-bottom: var(--spacing-sm, 0.5rem);">Dont have an account?</p>
+            <form method="post" action="/login" style="display: inline;">
+                <input type="hidden" name="action" value="register">
+                <button type="submit" style="padding: var(--spacing-sm, 0.5rem) var(--spacing-md, 1rem); background: transparent; color: var(--primary, #ec4899); border: 1px solid var(--primary, #ec4899); border-radius: var(--radius, 0.375rem); font-weight: 600; cursor: pointer;">Register</button>
+            </form>
+        </div>
+    </div>
+</main>"#,
+            error_html
+        )
+    };
+
+    base_layout("Login", &content)
+}
+
+/// Profile page.
+pub fn profile_page(user: &User) -> String {
+    profile_page_with_message(user, None)
+}
+
+/// Profile page with optional message.
+pub fn profile_page_with_message(user: &User, message: Option<&str>) -> String {
+    let approval_status = if user.is_admin {
+        r#"<div style="background: var(--success-bg, #d1fae5); border: 1px solid var(--success-border, #6ee7b7); padding: var(--spacing-md, 1rem); border-radius: var(--radius, 0.375rem); margin-bottom: var(--spacing-md, 1rem);">
+            <strong style="color: var(--success-text, #065f46);">✓ Admin Account</strong>
+            <p style="margin: var(--spacing-xs, 0.25rem) 0; font-size: var(--font-size-sm, 0.875rem);">You have full administrative privileges.</p>
+        </div>"#
+    } else if user.is_approved {
+        r#"<div style="background: var(--success-bg, #d1fae5); border: 1px solid var(--success-border, #6ee7b7); padding: var(--spacing-md, 1rem); border-radius: var(--radius, 0.375rem); margin-bottom: var(--spacing-md, 1rem);">
+            <strong style="color: var(--success-text, #065f46);">✓ Approved Account</strong>
+            <p style="margin: var(--spacing-xs, 0.25rem) 0; font-size: var(--font-size-sm, 0.875rem);">You can submit links for archiving.</p>
+        </div>"#
+    } else {
+        r#"<div style="background: var(--warning-bg, #fef3c7); border: 1px solid var(--warning-border, #fcd34d); padding: var(--spacing-md, 1rem); border-radius: var(--radius, 0.375rem); margin-bottom: var(--spacing-md, 1rem);">
+            <strong style="color: var(--warning-text, #92400e);">⚠️ Pending Approval</strong>
+            <p style="margin: var(--spacing-xs, 0.25rem) 0; font-size: var(--font-size-sm, 0.875rem);">Your account is awaiting admin approval before you can submit links.</p>
+        </div>"#
+    };
+
+    let message_html = message.map_or(String::new(), |m| {
+        format!(
+            r#"<div style="background: var(--error-bg, #fee2e2); border: 1px solid var(--error-border, #fca5a5); padding: var(--spacing-md, 1rem); margin-bottom: var(--spacing-md, 1rem); border-radius: var(--radius, 0.375rem); color: var(--error-text, #991b1b);">{}</div>"#,
+            html_escape(m)
+        )
+    });
+
+    let display_name = user.display_name.as_ref().unwrap_or(&user.username);
+    let email = user.email.as_deref().unwrap_or("");
+
+    let content = format!(
+        r#"<main class="container">
+    <div style="max-width: 700px; margin: 2rem auto;">
+        <h1>Profile</h1>
+        {}
+        {}
+
+        <h2 style="margin-top: var(--spacing-lg, 1.5rem);">Account Information</h2>
+        <div style="background: var(--bg-secondary, #fafafa); padding: var(--spacing-md, 1rem); border-radius: var(--radius, 0.375rem); margin-bottom: var(--spacing-lg, 1.5rem);">
+            <p><strong>Username:</strong> {}</p>
+            <p><strong>Account created:</strong> {}</p>
+        </div>
+
+        <h2>Update Profile</h2>
+        <form method="post" action="/profile" style="display: flex; flex-direction: column; gap: var(--spacing-md, 1rem);">
+            <div>
+                <label for="email" style="display: block; margin-bottom: var(--spacing-xs, 0.25rem); font-weight: 500;">Email (optional)</label>
+                <input type="email" id="email" name="email" value="{}" style="width: 100%; padding: var(--spacing-sm, 0.5rem); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
+            </div>
+            <div>
+                <label for="display_name" style="display: block; margin-bottom: var(--spacing-xs, 0.25rem); font-weight: 500;">Display Name (optional)</label>
+                <input type="text" id="display_name" name="display_name" value="{}" style="width: 100%; padding: var(--spacing-sm, 0.5rem); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
+            </div>
+
+            <h3 style="margin-top: var(--spacing-lg, 1.5rem); margin-bottom: 0;">Change Password</h3>
+            <div>
+                <label for="current_password" style="display: block; margin-bottom: var(--spacing-xs, 0.25rem); font-weight: 500;">Current Password</label>
+                <input type="password" id="current_password" name="current_password" style="width: 100%; padding: var(--spacing-sm, 0.5rem); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
+            </div>
+            <div>
+                <label for="new_password" style="display: block; margin-bottom: var(--spacing-xs, 0.25rem); font-weight: 500;">New Password</label>
+                <input type="password" id="new_password" name="new_password" style="width: 100%; padding: var(--spacing-sm, 0.5rem); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
+            </div>
+            <div>
+                <label for="confirm_password" style="display: block; margin-bottom: var(--spacing-xs, 0.25rem); font-weight: 500;">Confirm New Password</label>
+                <input type="password" id="confirm_password" name="confirm_password" style="width: 100%; padding: var(--spacing-sm, 0.5rem); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
+            </div>
+
+            <button type="submit" style="padding: var(--spacing-sm, 0.5rem) var(--spacing-md, 1rem); background: var(--primary, #ec4899); color: white; border: none; border-radius: var(--radius, 0.375rem); font-weight: 600; cursor: pointer;">Update Profile</button>
+        </form>
+
+        <div style="margin-top: var(--spacing-xl, 2rem); padding-top: var(--spacing-lg, 1.5rem); border-top: 1px solid var(--border-color, #e4e4e7);">
+            <form method="post" action="/logout">
+                <button type="submit" style="padding: var(--spacing-sm, 0.5rem) var(--spacing-md, 1rem); background: var(--bg-secondary, #fafafa); color: var(--text-primary, #18181b); border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem); font-weight: 600; cursor: pointer;">Logout</button>
+            </form>
+        </div>
+    </div>
+</main>"#,
+        approval_status,
+        message_html,
+        html_escape(&user.username),
+        html_escape(&user.created_at),
+        html_escape(email),
+        html_escape(display_name)
+    );
+
+    base_layout("Profile", &content)
 }
