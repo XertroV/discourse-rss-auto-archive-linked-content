@@ -1689,6 +1689,133 @@ pre {
     text-decoration: underline;
 }
 
+/* Debug/Metadata sections */
+.debug-info,
+.debug-actions {
+    margin-top: var(--spacing-lg);
+}
+
+.debug-info details,
+.debug-actions details {
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+}
+
+.debug-info summary,
+.debug-actions summary {
+    background-color: var(--bg-secondary);
+    padding: var(--spacing-md);
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+}
+
+.debug-info summary:hover,
+.debug-actions summary:hover {
+    background-color: var(--bg-tertiary);
+}
+
+.debug-info summary h2,
+.debug-actions summary h3 {
+    margin: 0;
+    display: inline;
+    font-size: inherit;
+}
+
+.debug-info summary::before,
+.debug-actions summary::before {
+    content: "▶ ";
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+}
+
+.debug-info details[open] summary::before,
+.debug-actions details[open] summary::before {
+    content: "▼ ";
+}
+
+.debug-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+    margin: 0;
+}
+
+.debug-table tbody {
+    display: contents;
+}
+
+.debug-table th,
+.debug-table td {
+    padding: var(--spacing-sm) var(--spacing-md);
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.debug-table tr:last-child th,
+.debug-table tr:last-child td {
+    border-bottom: none;
+}
+
+.debug-table th {
+    font-weight: 600;
+    width: 150px;
+    background-color: var(--bg-secondary);
+}
+
+.debug-table th[colspan] {
+    width: auto;
+    background-color: var(--bg-tertiary);
+    font-weight: 600;
+    padding: var(--spacing-sm) var(--spacing-md);
+}
+
+.debug-buttons {
+    padding: var(--spacing-md);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    background-color: var(--bg-secondary);
+}
+
+.debug-button,
+.debug-button-danger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.debug-button:hover {
+    background-color: var(--bg-tertiary);
+    border-color: var(--border-dark);
+}
+
+.debug-button-danger {
+    background-color: rgba(239, 68, 68, 0.1);
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.debug-button-danger:hover {
+    background-color: var(--danger);
+    color: white;
+    border-color: var(--danger);
+}
+
 /* Print styles */
 @media print {
     header,

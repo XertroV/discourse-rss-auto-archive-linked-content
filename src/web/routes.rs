@@ -135,7 +135,11 @@ pub fn router() -> Router<AppState> {
 
 // ========== HTML Routes ==========
 
-async fn home(State(state): State<AppState>, Query(params): Query<PaginationParams>) -> Response {
+async fn home(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+    MaybeUser(user): MaybeUser,
+) -> Response {
     let page = params.page;
 
     let all_recent = match get_recent_archives_display_filtered(
@@ -176,6 +180,7 @@ async fn home(State(state): State<AppState>, Query(params): Query<PaginationPara
         total_pages,
         params.content_type.as_deref(),
         params.source.as_deref(),
+        user.as_ref(),
     );
     Html(html).into_response()
 }
@@ -183,6 +188,7 @@ async fn home(State(state): State<AppState>, Query(params): Query<PaginationPara
 async fn recent_failed_archives(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
+    MaybeUser(user): MaybeUser,
 ) -> Response {
     let page = params.page;
 
@@ -222,6 +228,7 @@ async fn recent_failed_archives(
         total_pages,
         params.content_type.as_deref(),
         params.source.as_deref(),
+        user.as_ref(),
     );
     Html(html).into_response()
 }
@@ -229,6 +236,7 @@ async fn recent_failed_archives(
 async fn recent_all_archives(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
+    MaybeUser(user): MaybeUser,
 ) -> Response {
     let page = params.page;
 
@@ -267,6 +275,7 @@ async fn recent_all_archives(
         total_pages,
         params.content_type.as_deref(),
         params.source.as_deref(),
+        user.as_ref(),
     );
     Html(html).into_response()
 }
@@ -285,6 +294,7 @@ pub struct SearchParams {
 }
 
 async fn search(State(state): State<AppState>, Query(params): Query<SearchParams>) -> Response {
+    tracing::debug!(q = ?params.q, page = ?params.page, "HTTP API: GET /search");
     let query = params.q.unwrap_or_default();
     let page = params.page.unwrap_or(1);
     let per_page = 20i64;
@@ -327,7 +337,11 @@ async fn search(State(state): State<AppState>, Query(params): Query<SearchParams
     Html(html).into_response()
 }
 
-async fn archive_detail(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
+async fn archive_detail(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    MaybeUser(user): MaybeUser,
+) -> Response {
     let archive = match get_archive(state.db.pool(), id).await {
         Ok(Some(a)) => a,
         Ok(None) => {
@@ -396,6 +410,7 @@ async fn archive_detail(State(state): State<AppState>, Path(id): Path<i64>) -> R
         &occurrences,
         &jobs,
         &quote_reply_chain,
+        user.as_ref(),
     );
     Html(html).into_response()
 }
@@ -409,6 +424,7 @@ async fn rearchive(
     Path(id): Path<i64>,
     RequireAdmin(_admin): RequireAdmin,
 ) -> Response {
+    tracing::debug!(archive_id = id, "HTTP API: POST /archive/:id/rearchive");
     // Check that the archive exists
     let archive = match get_archive(state.db.pool(), id).await {
         Ok(Some(a)) => a,
@@ -450,6 +466,11 @@ async fn toggle_nsfw(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> Response {
+    tracing::debug!(
+        archive_id = id,
+        user_id = user.id,
+        "HTTP API: POST /archive/:id/toggle-nsfw"
+    );
     let client_ip = addr.ip().to_string();
     let forwarded_for = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok());
     let user_agent = headers
@@ -497,6 +518,7 @@ async fn delete_archive_handler(
     Path(id): Path<i64>,
     RequireAdmin(_admin): RequireAdmin,
 ) -> Response {
+    tracing::debug!(archive_id = id, "HTTP API: POST /archive/:id/delete");
     // Get the archive first to log what we're deleting
     let archive = match get_archive(state.db.pool(), id).await {
         Ok(Some(a)) => a,
@@ -539,6 +561,7 @@ async fn retry_skipped(
     Path(id): Path<i64>,
     RequireAdmin(_admin): RequireAdmin,
 ) -> Response {
+    tracing::debug!(archive_id = id, "HTTP API: POST /archive/:id/retry-skipped");
     match reset_single_skipped_archive(state.db.pool(), id).await {
         Ok(true) => {
             tracing::info!(archive_id = id, "Reset skipped archive for retry");
@@ -846,9 +869,10 @@ pub struct SubmitForm {
 async fn submit_url(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    RequireApproved(_user): RequireApproved,
+    RequireApproved(user): RequireApproved,
     Form(form): Form<SubmitForm>,
 ) -> Response {
+    tracing::debug!(user_id = user.id, "HTTP API: POST /submit");
     // Check if submissions are enabled
     if !state.config.submission_enabled {
         let html = templates::render_submit_error("URL submissions are currently disabled.");
@@ -909,6 +933,17 @@ async fn submit_url(
     // Normalize URL
     let normalized = normalize_url(url);
     let domain = parsed_url.host_str().unwrap_or("unknown").to_string();
+
+    // Detect and log Twitter URL submissions from authenticated users
+    let is_twitter = domain.contains("twitter.com") || domain.contains("x.com");
+    if is_twitter {
+        tracing::info!(
+            user_id = user.id,
+            username = &user.username,
+            url = url,
+            "Twitter URL submitted for archival by authenticated user"
+        );
+    }
 
     // Check if this URL was submitted recently
     match submission_exists_for_url(state.db.pool(), &normalized).await {
@@ -1333,6 +1368,11 @@ async fn create_comment_handler(
     RequireApproved(user): RequireApproved,
     Form(form): Form<CreateCommentForm>,
 ) -> Response {
+    tracing::debug!(
+        archive_id,
+        user_id = user.id,
+        "HTTP API: POST /archive/:id/comment"
+    );
     let content = form.content.trim();
 
     // Validate content length (max 5000 chars)
@@ -1387,6 +1427,12 @@ async fn create_reply_handler(
     RequireApproved(user): RequireApproved,
     Form(form): Form<CreateCommentForm>,
 ) -> Response {
+    tracing::debug!(
+        archive_id,
+        parent_comment_id,
+        user_id = user.id,
+        "HTTP API: POST /archive/:id/comment/:comment_id/reply"
+    );
     let content = form.content.trim();
 
     // Validate content length (max 5000 chars)
@@ -1448,6 +1494,12 @@ async fn edit_comment_handler(
     RequireUser(user): RequireUser,
     Form(form): Form<EditCommentForm>,
 ) -> Response {
+    tracing::debug!(
+        archive_id,
+        comment_id,
+        user_id = user.id,
+        "HTTP API: PUT /archive/:id/comment/:comment_id"
+    );
     let content = form.content.trim();
 
     // Validate content length
@@ -1502,6 +1554,12 @@ async fn delete_comment_handler(
     Path((archive_id, comment_id)): Path<(i64, i64)>,
     RequireUser(user): RequireUser,
 ) -> Response {
+    tracing::debug!(
+        archive_id,
+        comment_id,
+        user_id = user.id,
+        "HTTP API: DELETE /archive/:id/comment/:comment_id"
+    );
     // Get comment to verify ownership
     let comment = match get_comment_with_author(state.db.pool(), comment_id).await {
         Ok(Some(c)) => c,
