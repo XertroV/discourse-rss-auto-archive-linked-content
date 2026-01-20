@@ -120,6 +120,7 @@ async fn submit_url(
         url: url.to_string(),
         normalized_url: normalized.clone(),
         submitted_by_ip: client_ip,
+        submitted_by_user_id: None,
     };
 
     if insert_submission(state.db.pool(), &submission)
@@ -319,6 +320,7 @@ async fn test_submit_duplicate_url() {
         url: "https://example.com/page".to_string(),
         normalized_url: "https://example.com/page".to_string(),
         submitted_by_ip: "127.0.0.1".to_string(),
+        submitted_by_user_id: None,
     };
     insert_submission(db.pool(), &submission)
         .await
@@ -357,6 +359,7 @@ async fn test_submit_rate_limiting() {
             url: format!("https://example.com/page{i}"),
             normalized_url: format!("https://example.com/page{i}"),
             submitted_by_ip: "127.0.0.1".to_string(),
+            submitted_by_user_id: None,
         };
         insert_submission(db.pool(), &submission)
             .await
@@ -453,6 +456,7 @@ async fn test_submission_count_tracking() {
             url: format!("https://example.com/page{i}"),
             normalized_url: format!("https://example.com/page{i}"),
             submitted_by_ip: client_ip.to_string(),
+            submitted_by_user_id: None,
         };
         insert_submission(db.pool(), &submission)
             .await
@@ -489,6 +493,7 @@ async fn test_submission_exists_check() {
         url: url.to_string(),
         normalized_url: url.to_string(),
         submitted_by_ip: "127.0.0.1".to_string(),
+        submitted_by_user_id: None,
     };
     insert_submission(db.pool(), &submission)
         .await

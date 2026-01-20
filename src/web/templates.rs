@@ -1980,10 +1980,20 @@ pub fn render_thread_detail(
     content.push_str("<section><h2>Posts</h2><ul>");
     for post in posts {
         let post_title = post.title.as_deref().unwrap_or("Untitled Post");
+        let post_author = post.author.as_deref().unwrap_or("Unknown");
+        let author_display = if post_author != "Unknown" {
+            format!(
+                r#" <span class="text-muted-foreground">by {}</span>"#,
+                html_escape(post_author)
+            )
+        } else {
+            String::new()
+        };
         content.push_str(&format!(
-            r#"<li><a href="/post/{guid}">{title}</a> — {published}</li>"#,
+            r#"<li><a href="/post/{guid}">{title}</a>{author} — {published}</li>"#,
             guid = html_escape(&post.guid),
             title = html_escape(post_title),
+            author = author_display,
             published = post.published_at.as_deref().unwrap_or("Unknown"),
         ));
     }

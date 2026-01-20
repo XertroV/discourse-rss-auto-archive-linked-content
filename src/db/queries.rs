@@ -1186,6 +1186,45 @@ pub async fn get_artifacts_for_archive(
         .context("Failed to fetch artifacts")
 }
 
+/// Get distinct artifact kinds that exist for an archive.
+pub async fn get_existing_artifact_kinds(
+    pool: &SqlitePool,
+    archive_id: i64,
+) -> Result<std::collections::HashSet<String>> {
+    let rows: Vec<(String,)> =
+        sqlx::query_as("SELECT DISTINCT kind FROM archive_artifacts WHERE archive_id = ?")
+            .bind(archive_id)
+            .fetch_all(pool)
+            .await
+            .context("Failed to get existing artifact kinds")?;
+
+    Ok(rows.into_iter().map(|(k,)| k).collect())
+}
+
+/// Check if a specific artifact kind exists for an archive.
+pub async fn has_artifact_kind(pool: &SqlitePool, archive_id: i64, kind: &str) -> Result<bool> {
+    let row: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM archive_artifacts WHERE archive_id = ? AND kind = ?")
+            .bind(archive_id)
+            .bind(kind)
+            .fetch_one(pool)
+            .await?;
+
+    Ok(row.0 > 0)
+}
+
+/// Find an artifact by its S3 key.
+pub async fn find_artifact_by_s3_key(
+    pool: &SqlitePool,
+    s3_key: &str,
+) -> Result<Option<ArchiveArtifact>> {
+    sqlx::query_as("SELECT * FROM archive_artifacts WHERE s3_key = ?")
+        .bind(s3_key)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to find artifact by S3 key")
+}
+
 // ========== Statistics ==========
 
 /// Get total count of archives by status.
@@ -1276,13 +1315,14 @@ pub async fn set_archive_ipfs_cid(pool: &SqlitePool, id: i64, ipfs_cid: &str) ->
 pub async fn insert_submission(pool: &SqlitePool, submission: &NewSubmission) -> Result<i64> {
     let result = sqlx::query(
         r"
-        INSERT INTO submissions (url, normalized_url, submitted_by_ip, status)
-        VALUES (?, ?, ?, 'pending')
+        INSERT INTO submissions (url, normalized_url, submitted_by_ip, status, submitted_by_user_id)
+        VALUES (?, ?, ?, 'pending', ?)
         ",
     )
     .bind(&submission.url)
     .bind(&submission.normalized_url)
     .bind(&submission.submitted_by_ip)
+    .bind(submission.submitted_by_user_id)
     .execute(pool)
     .await
     .context("Failed to insert submission")?;
@@ -1852,6 +1892,84 @@ pub async fn reset_archive_for_rearchive(pool: &SqlitePool, id: i64) -> Result<(
             last_attempt_at = NULL,
             is_nsfw = 0,
             nsfw_source = NULL,
+            http_status_code = NULL
+        WHERE id = ?
+        ",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    .context("Failed to reset archive")?;
+
+    tx.commit().await.context("Failed to commit reset")?;
+
+    Ok(())
+}
+
+/// Reset an archive for re-archiving while preserving existing metadata.
+///
+/// This resets the archive to pending state but keeps:
+/// - archived_at, content_title, content_author, content_text, content_type
+/// - is_nsfw, nsfw_source
+/// - post_date
+///
+/// Artifacts and jobs are deleted to be regenerated during processing.
+/// Use this when you want to refresh artifacts without losing metadata.
+pub async fn reset_archive_for_rearchive_preserve_metadata(
+    pool: &SqlitePool,
+    id: i64,
+) -> Result<()> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("Failed to begin reset transaction")?;
+
+    // If other artifacts point at this archive's artifacts as duplicates,
+    // SQLite will block deletion due to the self-referential FK.
+    sqlx::query(
+        r"
+        UPDATE archive_artifacts
+        SET duplicate_of_artifact_id = NULL
+        WHERE duplicate_of_artifact_id IN (
+            SELECT id FROM archive_artifacts WHERE archive_id = ?
+        )
+        ",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    .context("Failed to clear duplicate references")?;
+
+    // Delete existing artifacts for this archive
+    sqlx::query("DELETE FROM archive_artifacts WHERE archive_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .context("Failed to delete artifacts")?;
+
+    // Delete existing jobs for this archive
+    sqlx::query("DELETE FROM archive_jobs WHERE archive_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .context("Failed to delete jobs")?;
+
+    // Reset archive to pending state but PRESERVE metadata
+    // Only reset: status, s3 keys, external URLs, error state, retry count
+    sqlx::query(
+        r"
+        UPDATE archives
+        SET status = 'pending',
+            s3_key_primary = NULL,
+            s3_key_thumb = NULL,
+            s3_keys_extra = NULL,
+            wayback_url = NULL,
+            archive_today_url = NULL,
+            ipfs_cid = NULL,
+            error_message = NULL,
+            retry_count = 0,
+            next_retry_at = NULL,
+            last_attempt_at = NULL,
             http_status_code = NULL
         WHERE id = ?
         ",

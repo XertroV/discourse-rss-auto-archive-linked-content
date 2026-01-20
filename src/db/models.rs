@@ -138,6 +138,8 @@ pub struct Archive {
     pub quoted_archive_id: Option<i64>,
     /// Reference to the archive of the tweet this replies to (Twitter/X only).
     pub reply_to_archive_id: Option<i64>,
+    /// User who submitted this for archiving (NULL for RSS-sourced archives).
+    pub submitted_by_user_id: Option<i64>,
 }
 
 impl Archive {
@@ -351,6 +353,8 @@ pub struct Submission {
     pub error_message: Option<String>,
     pub created_at: String,
     pub processed_at: Option<String>,
+    /// User who submitted this URL (NULL for anonymous submissions).
+    pub submitted_by_user_id: Option<i64>,
 }
 
 /// Data for creating a new submission.
@@ -359,6 +363,7 @@ pub struct NewSubmission {
     pub url: String,
     pub normalized_url: String,
     pub submitted_by_ip: String,
+    pub submitted_by_user_id: Option<i64>,
 }
 
 /// Job type for archive jobs.

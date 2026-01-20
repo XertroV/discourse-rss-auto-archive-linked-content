@@ -18,15 +18,15 @@ use crate::auth::{MaybeUser, RequireAdmin, RequireApproved, RequireUser};
 use crate::db::{
     add_comment_reaction, can_user_edit_comment, count_archives_by_status, count_links,
     count_posts, count_submissions_from_ip_last_hour, count_user_thread_archive_jobs_last_hour,
-    create_comment, create_comment_reply, create_pending_archive, delete_archive, get_all_threads,
-    get_archive, get_archive_by_link_id, get_archives_by_domain_display,
-    get_archives_for_post_display, get_archives_for_posts_display, get_artifacts_for_archive,
-    get_comment_edit_history, get_comment_with_author, get_jobs_for_archive, get_link,
-    get_link_by_normalized_url, get_link_occurrences_with_posts, get_post_by_guid,
-    get_posts_by_thread_key, get_queue_stats, get_quote_reply_chain,
+    create_comment, create_comment_reply, create_pending_archive, delete_archive,
+    find_artifact_by_s3_key, get_all_threads, get_archive, get_archive_by_link_id,
+    get_archives_by_domain_display, get_archives_for_post_display, get_archives_for_posts_display,
+    get_artifacts_for_archive, get_comment_edit_history, get_comment_with_author,
+    get_jobs_for_archive, get_link, get_link_by_normalized_url, get_link_occurrences_with_posts,
+    get_post_by_guid, get_posts_by_thread_key, get_queue_stats, get_quote_reply_chain,
     get_recent_archives_display_filtered, get_recent_archives_filtered_full,
     get_recent_archives_with_filters, get_recent_failed_archives, get_thread_archive_job,
-    insert_link, insert_submission, insert_thread_archive_job, pin_comment,
+    get_video_file, insert_link, insert_submission, insert_thread_archive_job, pin_comment,
     remove_comment_reaction, reset_archive_for_rearchive, reset_single_skipped_archive,
     reset_skipped_archives, search_archives_display_filtered, search_archives_filtered_full,
     soft_delete_comment, submission_exists_for_url, thread_archive_job_exists_recent,
@@ -978,6 +978,7 @@ async fn submit_url(
         url: url.to_string(),
         normalized_url: normalized.clone(),
         submitted_by_ip: client_ip,
+        submitted_by_user_id: Some(user.id),
     };
 
     let submission_id = match insert_submission(state.db.pool(), &submission).await {
@@ -1448,6 +1449,13 @@ async fn serve_s3_file(State(state): State<AppState>, Path(path): Path<String>) 
     // Path already contains the full path after /s3/, use it directly as S3 key
     let s3_key = &path;
 
+    // Check if this is an archive-specific video that should redirect to canonical path
+    if let Some(canonical_key) = try_get_canonical_video_redirect(state.db.pool(), s3_key).await {
+        // Redirect to canonical video URL
+        let redirect_url = format!("/s3/{}", canonical_key);
+        return axum::response::Redirect::temporary(&redirect_url).into_response();
+    }
+
     // Check if S3 is public (AWS S3) - if so, redirect to public URL
     if state.s3.is_public() {
         let public_url = state.s3.get_public_url(s3_key);
@@ -1545,6 +1553,53 @@ fn suggest_content_disposition_filename(s3_key: &str) -> Option<String> {
         .collect();
 
     Some(name)
+}
+
+/// Check if an S3 key is an archive-specific video that should redirect to canonical.
+///
+/// Returns the canonical S3 key if this is a video alias, None otherwise.
+async fn try_get_canonical_video_redirect(pool: &sqlx::SqlitePool, s3_key: &str) -> Option<String> {
+    // Only process archive-specific paths
+    if !s3_key.starts_with("archives/") {
+        return None;
+    }
+
+    // Check if this is a video file
+    let video_exts = ["mp4", "webm", "mkv", "mov", "avi"];
+    let ext = s3_key.rsplit('.').next()?;
+    if !video_exts.contains(&ext) {
+        return None;
+    }
+
+    // Look up the artifact by S3 key
+    let artifact = match find_artifact_by_s3_key(pool, s3_key).await {
+        Ok(Some(a)) => a,
+        Ok(None) => return None,
+        Err(e) => {
+            tracing::debug!(s3_key, error = %e, "Failed to find artifact by S3 key");
+            return None;
+        }
+    };
+
+    // Check if artifact has a video_file_id
+    let video_file_id = artifact.video_file_id?;
+
+    // Get the canonical video file
+    let video_file = match get_video_file(pool, video_file_id).await {
+        Ok(Some(vf)) => vf,
+        Ok(None) => return None,
+        Err(e) => {
+            tracing::debug!(video_file_id, error = %e, "Failed to get video file");
+            return None;
+        }
+    };
+
+    // Only redirect if the canonical path is different
+    if video_file.s3_key == s3_key {
+        return None; // Already canonical
+    }
+
+    Some(video_file.s3_key)
 }
 
 // ========== Comment Handlers ==========

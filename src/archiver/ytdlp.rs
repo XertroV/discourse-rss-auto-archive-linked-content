@@ -300,6 +300,122 @@ pub async fn download(
     Ok(metadata)
 }
 
+/// Download supplementary artifacts (subtitles, comments) without re-downloading the video.
+///
+/// This is used during re-archiving when the video file already exists but
+/// subtitles or comments are missing. Uses `--skip-download` to avoid re-downloading the video.
+///
+/// # Errors
+///
+/// Returns an error if yt-dlp fails or times out.
+pub async fn download_supplementary_artifacts(
+    url: &str,
+    work_dir: &Path,
+    cookies: &CookieOptions<'_>,
+    config: &Config,
+    download_subtitles: bool,
+    download_comments: bool,
+) -> Result<ArchiveResult> {
+    if !download_subtitles && !download_comments {
+        debug!("No supplementary artifacts requested");
+        return Ok(ArchiveResult::default());
+    }
+
+    let output_template = work_dir.join("%(title)s.%(ext)s");
+
+    let mut args = vec![
+        "-4".to_string(),
+        "--no-playlist".to_string(),
+        "--skip-download".to_string(), // Skip video download - we already have it
+        "--write-info-json".to_string(),
+        "--output".to_string(),
+        output_template.to_string_lossy().to_string(),
+        "--no-progress".to_string(),
+        "--quiet".to_string(),
+    ];
+
+    // Add subtitle options if requested
+    if download_subtitles {
+        args.push("--write-subs".to_string());
+        args.push("--write-auto-subs".to_string());
+        args.push("--sub-langs".to_string());
+        args.push("en.*,en-orig,en".to_string());
+        args.push("--sub-format".to_string());
+        args.push("vtt,srt".to_string());
+        debug!("Subtitle download enabled for supplementary artifacts");
+    }
+
+    // Add comment extraction if requested
+    if download_comments && config.comments_enabled {
+        args.push("--write-comments".to_string());
+        debug!("Comment extraction enabled for supplementary artifacts");
+    }
+
+    // Cookie handling
+    let mut cookie_method_used = false;
+
+    if let Some(spec) = cookies.browser_profile {
+        let spec = maybe_adjust_chromium_user_data_dir_spec(spec);
+        debug!(spec = %spec, "Using cookies from browser profile");
+        args.push("--cookies-from-browser".to_string());
+        args.push(spec);
+        cookie_method_used = true;
+    }
+
+    if !cookie_method_used {
+        if let Some(cookies_path) = cookies.cookies_file {
+            if cookies_path.exists() && !cookies_path.is_dir() {
+                debug!(path = %cookies_path.display(), "Using cookies file");
+                args.push("--cookies".to_string());
+                args.push(cookies_path.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    args.push(url.to_string());
+
+    debug!(url = %url, download_subtitles, download_comments, "Running yt-dlp for supplementary artifacts");
+
+    // Wrap with timeout (shorter than full download since we're not downloading video)
+    let timeout_duration = Duration::from_secs(120); // 2 minutes should be plenty for metadata
+    let download_future = async {
+        Command::new("yt-dlp")
+            .args(&args)
+            .current_dir(work_dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("Failed to spawn yt-dlp")?
+            .wait_with_output()
+            .await
+            .context("Failed to wait for yt-dlp")
+    };
+
+    let output = tokio::time::timeout(timeout_duration, download_future)
+        .await
+        .context("yt-dlp supplementary artifact download timed out after 120 seconds")??;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("yt-dlp supplementary download failed: {stderr}");
+    }
+
+    // Find and parse metadata to get the extra files
+    let metadata = find_and_parse_metadata(work_dir, config).await?;
+
+    info!(
+        subtitle_count = metadata
+            .extra_files
+            .iter()
+            .filter(|f| is_subtitle_file(f))
+            .count(),
+        has_comments = metadata.extra_files.iter().any(|f| f == "comments.json"),
+        "Downloaded supplementary artifacts"
+    );
+
+    Ok(metadata)
+}
+
 fn maybe_adjust_chromium_user_data_dir_spec(spec: &str) -> String {
     let Some((browser, rest)) = spec.split_once(':') else {
         return spec.to_string();

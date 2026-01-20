@@ -15,7 +15,7 @@ use crate::config::Config;
 use crate::db::{
     create_archive_job, find_artifact_by_perceptual_hash, find_video_file, get_archive,
     get_failed_archives_for_retry, get_link, get_or_create_video_file, get_pending_archives,
-    insert_artifact, insert_artifact_with_hash, insert_artifact_with_metadata,
+    has_artifact_kind, insert_artifact, insert_artifact_with_hash, insert_artifact_with_metadata,
     insert_artifact_with_video_file, is_domain_excluded, reset_archive_for_retry,
     reset_stuck_processing_archives, reset_todays_failed_archives, set_archive_complete,
     set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw, set_archive_processing,
@@ -734,6 +734,59 @@ async fn process_archive_inner(
                         video_id = %vid,
                         error = %e,
                         "Failed to save yt-dlp metadata JSON"
+                    );
+                }
+            }
+        }
+
+        // Check for missing supplementary artifacts (subtitles, comments) and download them
+        let needs_subtitles =
+            !has_artifact_kind(db.pool(), archive_id, ArtifactKind::Subtitles.as_str())
+                .await
+                .unwrap_or(true);
+        let needs_transcript =
+            !has_artifact_kind(db.pool(), archive_id, ArtifactKind::Transcript.as_str())
+                .await
+                .unwrap_or(true);
+        // Check if we have comments artifact (stored as metadata with kind "comments" or in extra_files)
+        let has_comments_artifact = result.extra_files.iter().any(|f| f == "comments.json");
+
+        if needs_subtitles || (needs_transcript && needs_subtitles) {
+            info!(
+                archive_id,
+                needs_subtitles,
+                needs_transcript,
+                "Downloading missing supplementary artifacts for existing video"
+            );
+
+            match super::ytdlp::download_supplementary_artifacts(
+                &link.normalized_url,
+                &work_dir,
+                &cookies,
+                config,
+                needs_subtitles,
+                config.comments_enabled && !has_comments_artifact,
+            )
+            .await
+            {
+                Ok(supplementary_result) => {
+                    // Update result's extra_files with any new files downloaded
+                    for file in supplementary_result.extra_files {
+                        if !result.extra_files.contains(&file) {
+                            result.extra_files.push(file);
+                        }
+                    }
+                    debug!(
+                        archive_id,
+                        extra_files = ?result.extra_files,
+                        "Merged supplementary artifacts into result"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        archive_id,
+                        error = %e,
+                        "Failed to download supplementary artifacts, continuing without them"
                     );
                 }
             }

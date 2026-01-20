@@ -121,6 +121,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 19).await?;
     }
 
+    if current_version < 20 {
+        debug!("Running migration v20");
+        run_migration_v20(pool).await?;
+        set_schema_version(pool, 20).await?;
+    }
+
     Ok(())
 }
 
@@ -1111,6 +1117,43 @@ async fn run_migration_v19(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to create forum_account_links post_guid index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v20(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v20: adding submitted_by_user_id to submissions and archives");
+
+    // Add submitted_by_user_id column to submissions table
+    sqlx::query(
+        "ALTER TABLE submissions ADD COLUMN submitted_by_user_id INTEGER REFERENCES users(id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to add submitted_by_user_id column to submissions")?;
+
+    // Add submitted_by_user_id column to archives table
+    sqlx::query(
+        "ALTER TABLE archives ADD COLUMN submitted_by_user_id INTEGER REFERENCES users(id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to add submitted_by_user_id column to archives")?;
+
+    // Create indexes for efficient lookup
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_submissions_user_id ON submissions(submitted_by_user_id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create submissions user_id index")?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_archives_submitted_by_user_id ON archives(submitted_by_user_id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create archives submitted_by_user_id index")?;
 
     Ok(())
 }
