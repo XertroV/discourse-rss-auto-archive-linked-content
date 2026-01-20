@@ -1213,6 +1213,31 @@ pub async fn has_artifact_kind(pool: &SqlitePool, archive_id: i64, kind: &str) -
     Ok(row.0 > 0)
 }
 
+/// Check if an archive has missing artifacts based on its content type.
+/// For video content (e.g., YouTube), checks for subtitles and transcripts.
+/// Returns true if any expected artifacts are missing.
+pub async fn has_missing_artifacts(pool: &SqlitePool, archive_id: i64) -> Result<bool> {
+    use crate::db::models::ArtifactKind;
+
+    // Get the archive to check its content type
+    let archive = get_archive(pool, archive_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Archive {} not found", archive_id))?;
+
+    // Only check video content for now (YouTube videos)
+    if archive.content_type.as_deref() != Some("video") {
+        return Ok(false);
+    }
+
+    // Video content should have subtitles and transcript
+    let has_subtitles =
+        has_artifact_kind(pool, archive_id, ArtifactKind::Subtitles.as_str()).await?;
+    let has_transcript =
+        has_artifact_kind(pool, archive_id, ArtifactKind::Transcript.as_str()).await?;
+
+    Ok(!has_subtitles || !has_transcript)
+}
+
 /// Find an artifact by its S3 key.
 pub async fn find_artifact_by_s3_key(
     pool: &SqlitePool,

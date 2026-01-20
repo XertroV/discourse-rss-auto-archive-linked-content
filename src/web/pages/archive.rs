@@ -40,6 +40,8 @@ pub struct ArchiveDetailParams<'a> {
     pub quote_reply_chain: &'a [Archive],
     /// Current authenticated user (if any).
     pub user: Option<&'a User>,
+    /// Whether the archive has missing artifacts (e.g., subtitles, transcripts).
+    pub has_missing_artifacts: bool,
 }
 
 /// Render the archive detail page.
@@ -79,7 +81,7 @@ pub fn render_archive_detail_page(params: &ArchiveDetailParams<'_>) -> Markup {
             }
 
             // Archive actions section (for authorized users)
-            (render_actions_section(archive, params.user))
+            (render_actions_section(archive, params.user, params.has_missing_artifacts))
 
             // Quote/reply chain section (for Twitter)
             @if archive.quoted_archive_id.is_some() || archive.reply_to_archive_id.is_some() {
@@ -213,7 +215,11 @@ fn render_error_section(archive: &Archive) -> Markup {
 }
 
 /// Render archive actions section for authorized users.
-fn render_actions_section(archive: &Archive, user: Option<&User>) -> Markup {
+fn render_actions_section(
+    archive: &Archive,
+    user: Option<&User>,
+    has_missing_artifacts: bool,
+) -> Markup {
     let is_admin = user.map(|u| u.is_admin).unwrap_or(false);
     let is_approved = user.map(|u| u.is_approved).unwrap_or(false);
 
@@ -235,6 +241,17 @@ fn render_actions_section(archive: &Archive, user: Option<&User>) -> Markup {
                             button type="submit" class="debug-button"
                                    title="Re-run the full archive pipeline including redirect handling" {
                                 "\u{1F504} Re-archive"  // 🔄
+                            }
+                        }
+                    }
+
+                    // Get missing artifacts button - admins only, only if artifacts are missing
+                    @if is_admin && has_missing_artifacts {
+                        form method="post" action=(format!("/archive/{}/get-missing-artifacts", archive.id))
+                             style="display: inline;" {
+                            button type="submit" class="debug-button"
+                                   title="Download missing supplementary artifacts (e.g., subtitles, transcripts) without re-archiving" {
+                                "\u{1F4E5} Get Missing Artifacts"  // 📥
                             }
                         }
                     }
@@ -1570,7 +1587,7 @@ mod tests {
     #[test]
     fn test_render_actions_section_no_user() {
         let archive = sample_archive();
-        let html = render_actions_section(&archive, None).into_string();
+        let html = render_actions_section(&archive, None, false).into_string();
 
         assert!(html.is_empty());
     }
@@ -1594,7 +1611,7 @@ mod tests {
             updated_at: "2024-01-01".to_string(),
         };
 
-        let html = render_actions_section(&archive, Some(&user)).into_string();
+        let html = render_actions_section(&archive, Some(&user), false).into_string();
 
         assert!(html.contains("debug-actions"));
         assert!(html.contains("Re-archive"));

@@ -104,6 +104,135 @@ impl ArchiveWorker {
         Ok(())
     }
 
+    /// Fetch missing artifacts for a completed archive without re-archiving.
+    /// This is useful for getting supplementary artifacts like subtitles and transcripts
+    /// for video content that was archived without them.
+    pub async fn fetch_missing_artifacts(&self, archive_id: i64) -> Result<()> {
+        info!(archive_id, "Fetching missing artifacts for archive");
+
+        // Get the archive
+        let archive = get_archive(self.db.pool(), archive_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Archive {} not found", archive_id))?;
+
+        // Only process complete archives
+        if archive.status != "complete" {
+            anyhow::bail!(
+                "Archive {} is not complete (status: {})",
+                archive_id,
+                archive.status
+            );
+        }
+
+        // Only process video content for now
+        if archive.content_type.as_deref() != Some("video") {
+            anyhow::bail!("Archive {} is not video content", archive_id);
+        }
+
+        // Get the link
+        let link = get_link(self.db.pool(), archive.link_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Link {} not found", archive.link_id))?;
+
+        // Check what artifacts are missing
+        let needs_subtitles =
+            !has_artifact_kind(self.db.pool(), archive_id, ArtifactKind::Subtitles.as_str())
+                .await
+                .unwrap_or(true);
+
+        let needs_transcript = !has_artifact_kind(
+            self.db.pool(),
+            archive_id,
+            ArtifactKind::Transcript.as_str(),
+        )
+        .await
+        .unwrap_or(true);
+
+        if !needs_subtitles && !needs_transcript {
+            info!(archive_id, "No missing artifacts to fetch");
+            return Ok(());
+        }
+
+        info!(
+            archive_id,
+            needs_subtitles, needs_transcript, "Downloading missing supplementary artifacts"
+        );
+
+        // Create a temporary work directory
+        let work_dir = std::env::temp_dir().join(format!("archive-{}", archive_id));
+        std::fs::create_dir_all(&work_dir).context("Failed to create temp directory")?;
+
+        // Set up cookies
+        let cookies_file = match self.config.cookies_file_path.as_deref() {
+            Some(path) if path.exists() => Some(path),
+            _ => None,
+        };
+        let cookies = super::CookieOptions {
+            cookies_file,
+            browser_profile: self.config.yt_dlp_cookies_from_browser.as_deref(),
+        };
+
+        // Download supplementary artifacts (subtitles, transcripts)
+        let result = super::ytdlp::download_supplementary_artifacts(
+            &link.normalized_url,
+            &work_dir,
+            &cookies,
+            &self.config,
+            needs_subtitles,
+            false, // don't download comments for now
+        )
+        .await
+        .context("Failed to download supplementary artifacts")?;
+
+        // Process subtitle files if any were downloaded
+        if !result.extra_files.is_empty() {
+            let subtitle_files: Vec<String> = result
+                .extra_files
+                .iter()
+                .filter(|f| f.ends_with(".vtt") || f.ends_with(".srt"))
+                .cloned()
+                .collect();
+
+            if !subtitle_files.is_empty() {
+                // Determine S3 prefix for this archive
+                let s3_prefix = format!("archives/{}/", archive_id);
+
+                // Process and upload subtitle files
+                process_subtitle_files(
+                    &self.db,
+                    &self.s3,
+                    archive_id,
+                    &subtitle_files,
+                    &work_dir,
+                    &s3_prefix,
+                )
+                .await;
+
+                info!(
+                    archive_id,
+                    count = subtitle_files.len(),
+                    "Successfully fetched missing artifacts"
+                );
+            }
+        } else {
+            warn!(
+                archive_id,
+                "No supplementary artifacts were downloaded (might not be available)"
+            );
+        }
+
+        // Clean up temp directory
+        if let Err(e) = std::fs::remove_dir_all(&work_dir) {
+            warn!(
+                archive_id,
+                error = %e,
+                "Failed to clean up temp directory"
+            );
+        }
+
+        Ok(())
+    }
+
     /// Run the worker loop.
     pub async fn run(&self) {
         loop {
