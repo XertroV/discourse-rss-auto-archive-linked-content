@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use tracing::{debug, error, info};
+use tracing::{trace, error, info};
 
 use crate::config::Config;
 use crate::db::{
@@ -63,7 +63,7 @@ pub async fn run(config: Config, db: Database) {
             }
             Ok(_) => {
                 // No pending jobs, just wait
-                debug!("No pending thread archive jobs");
+                trace!("No pending thread archive jobs");
             }
             Err(e) => {
                 error!("Failed to fetch pending thread archive jobs: {e}");
