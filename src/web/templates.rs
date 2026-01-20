@@ -931,6 +931,73 @@ pub fn render_archive_detail(
         ));
     }
 
+    // Display transcript if available (for videos with subtitles)
+    if let Some(transcript_artifact) = artifacts.iter().find(|a| a.kind == "transcript") {
+        // Fetch the transcript content from S3 (assuming it's available via /s3/ route)
+        let transcript_size = transcript_artifact.size_bytes.map_or_else(
+            || "Unknown".to_string(),
+            |size| {
+                if size >= 1024 {
+                    format!("{:.1} KB", size as f64 / 1024.0)
+                } else {
+                    format!("{size} bytes")
+                }
+            },
+        );
+
+        // Get subtitle artifacts for download links
+        let subtitle_artifacts: Vec<&ArchiveArtifact> =
+            artifacts.iter().filter(|a| a.kind == "subtitles").collect();
+
+        let mut subtitle_links = String::new();
+        if !subtitle_artifacts.is_empty() {
+            subtitle_links.push_str("<p><strong>Available subtitle files:</strong> ");
+            for (i, sub) in subtitle_artifacts.iter().enumerate() {
+                if i > 0 {
+                    subtitle_links.push_str(" • ");
+                }
+                let filename = sub.s3_key.rsplit('/').next().unwrap_or(&sub.s3_key);
+                let download_name =
+                    suggested_download_filename(&link.domain, archive.id, &sub.s3_key);
+
+                // Parse metadata to show language and type
+                let lang_info = if let Some(ref metadata) = sub.metadata {
+                    if let Ok(meta_json) = serde_json::from_str::<serde_json::Value>(metadata) {
+                        let lang = meta_json["language"].as_str().unwrap_or("unknown");
+                        let is_auto = meta_json["is_auto"].as_bool().unwrap_or(false);
+                        let format = meta_json["format"].as_str().unwrap_or("vtt");
+                        let auto_label = if is_auto { " (auto)" } else { "" };
+                        format!("{}{} ({})", lang, auto_label, format)
+                    } else {
+                        filename.to_string()
+                    }
+                } else {
+                    filename.to_string()
+                };
+
+                subtitle_links.push_str(&format!(
+                    r#"<a href="/s3/{}" download="{}" title="Download subtitle file">{}</a>"#,
+                    html_escape(&sub.s3_key),
+                    html_escape(&download_name),
+                    html_escape(&lang_info)
+                ));
+            }
+            subtitle_links.push_str("</p>");
+        }
+
+        content.push_str(&format!(
+            r#"<section class="content-text-section"><details>
+            <summary><h2 style="display: inline;">Video Transcript</h2> <span class="text-size">({transcript_size})</span></summary>
+            {subtitle_links}
+            <p><a href="/s3/{transcript_key}" target="_blank">View transcript</a> • <a href="/s3/{transcript_key}" download="{download_name}">Download transcript</a></p>
+            <p><em>Note: The transcript is generated from subtitles and can be viewed or downloaded above. Full transcript preview will be available in a future update.</em></p>
+            </details></section>"#,
+            transcript_key = html_escape(&transcript_artifact.s3_key),
+            download_name = html_escape(&suggested_download_filename(&link.domain, archive.id, &transcript_artifact.s3_key)),
+            subtitle_links = subtitle_links
+        ));
+    }
+
     let thumb_key = archive.s3_key_thumb.as_deref().or_else(|| {
         artifacts
             .iter()
@@ -1471,6 +1538,7 @@ fn artifact_kind_display(kind: &str) -> &'static str {
         "metadata" => "Metadata",
         "image" => "Image",
         "subtitles" => "Subtitles",
+        "transcript" => "Transcript",
         _ => "File",
     }
 }
@@ -1513,6 +1581,9 @@ fn is_viewable_in_browser(filename: &str) -> bool {
         || filename_lower.ends_with(".txt")
         || filename_lower.ends_with(".json")
         || filename_lower.ends_with(".xml")
+        // Subtitle files
+        || filename_lower.ends_with(".vtt")
+        || filename_lower.ends_with(".srt")
 }
 
 fn suggested_download_filename(domain: &str, archive_id: i64, s3_key: &str) -> String {
