@@ -224,6 +224,12 @@ header nav li a strong {
     color: var(--header-primary);
 }
 
+/* Site logo with pink accent */
+header nav .site-logo {
+    color: var(--primary);
+    font-size: var(--font-size-xl);
+}
+
 /* Theme and NSFW toggle buttons */
 .theme-toggle,
 .nsfw-toggle {

@@ -108,7 +108,7 @@ impl<'a> BaseLayout<'a> {
                     ul {
                         li {
                             a href="/" {
-                                strong { "Archive" }
+                                strong class="site-logo" { "CF Archive" }
                             }
                         }
                     }
