@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 
 use crate::auth::{
     generate_csrf_token, generate_password, generate_session_token, generate_username,
-    hash_password, verify_password, MaybeUser, RequireUser, SessionDuration,
+    hash_password, verify_password, MaybeUser, RequireAdmin, RequireUser, SessionDuration,
 };
 use crate::db as queries;
 use crate::web::{templates, AppState};
@@ -416,4 +416,228 @@ pub async fn profile_post(
         .unwrap_or(user);
 
     Html(templates::profile_page_with_message(&updated_user, error.as_deref())).into_response()
+}
+
+/// GET /admin - Admin panel.
+pub async fn admin_panel(
+    State(state): State<AppState>,
+    RequireAdmin(_admin): RequireAdmin,
+) -> Response {
+    // Get all users
+    let users = match queries::get_all_users(state.db.pool(), 100, 0).await {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::error!("Failed to fetch users: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to load users").into_response();
+        }
+    };
+
+    // Get recent audit events
+    let audit_events = match queries::get_audit_events(state.db.pool(), 50, 0).await {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::error!("Failed to fetch audit events: {e}");
+            vec![]
+        }
+    };
+
+    Html(templates::admin_panel(&users, &audit_events)).into_response()
+}
+
+/// POST /admin/user/:id/approve - Approve a user.
+#[derive(Debug, Deserialize)]
+pub struct UserIdForm {
+    user_id: i64,
+}
+
+pub async fn admin_approve_user(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    RequireAdmin(admin): RequireAdmin,
+    Form(form): Form<UserIdForm>,
+) -> Response {
+    let ip = addr.ip().to_string();
+
+    if let Err(e) = queries::update_user_approval(state.db.pool(), form.user_id, true).await {
+        tracing::error!("Failed to approve user: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to approve user").into_response();
+    }
+
+    // Log audit event
+    let _ = queries::create_audit_event(
+        state.db.pool(),
+        Some(admin.id),
+        "user_approved",
+        Some("user"),
+        Some(form.user_id),
+        None,
+        Some(&ip),
+        None,
+    )
+    .await;
+
+    Redirect::to("/admin").into_response()
+}
+
+/// POST /admin/user/:id/revoke - Revoke user approval.
+pub async fn admin_revoke_user(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    RequireAdmin(admin): RequireAdmin,
+    Form(form): Form<UserIdForm>,
+) -> Response {
+    let ip = addr.ip().to_string();
+
+    if let Err(e) = queries::update_user_approval(state.db.pool(), form.user_id, false).await {
+        tracing::error!("Failed to revoke user approval: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to revoke approval").into_response();
+    }
+
+    // Log audit event
+    let _ = queries::create_audit_event(
+        state.db.pool(),
+        Some(admin.id),
+        "user_approval_revoked",
+        Some("user"),
+        Some(form.user_id),
+        None,
+        Some(&ip),
+        None,
+    )
+    .await;
+
+    Redirect::to("/admin").into_response()
+}
+
+/// POST /admin/user/:id/promote - Promote user to admin.
+pub async fn admin_promote_user(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    RequireAdmin(admin): RequireAdmin,
+    Form(form): Form<UserIdForm>,
+) -> Response {
+    let ip = addr.ip().to_string();
+
+    if let Err(e) = queries::update_user_admin(state.db.pool(), form.user_id, true).await {
+        tracing::error!("Failed to promote user: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to promote user").into_response();
+    }
+
+    // Log audit event
+    let _ = queries::create_audit_event(
+        state.db.pool(),
+        Some(admin.id),
+        "user_promoted_admin",
+        Some("user"),
+        Some(form.user_id),
+        None,
+        Some(&ip),
+        None,
+    )
+    .await;
+
+    Redirect::to("/admin").into_response()
+}
+
+/// POST /admin/user/:id/demote - Demote admin to regular user.
+pub async fn admin_demote_user(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    RequireAdmin(admin): RequireAdmin,
+    Form(form): Form<UserIdForm>,
+) -> Response {
+    let ip = addr.ip().to_string();
+
+    // Prevent self-demotion
+    if admin.id == form.user_id {
+        return (StatusCode::BAD_REQUEST, "Cannot demote yourself").into_response();
+    }
+
+    if let Err(e) = queries::update_user_admin(state.db.pool(), form.user_id, false).await {
+        tracing::error!("Failed to demote user: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to demote user").into_response();
+    }
+
+    // Log audit event
+    let _ = queries::create_audit_event(
+        state.db.pool(),
+        Some(admin.id),
+        "user_demoted_admin",
+        Some("user"),
+        Some(form.user_id),
+        None,
+        Some(&ip),
+        None,
+    )
+    .await;
+
+    Redirect::to("/admin").into_response()
+}
+
+/// POST /admin/user/:id/deactivate - Deactivate user account.
+pub async fn admin_deactivate_user(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    RequireAdmin(admin): RequireAdmin,
+    Form(form): Form<UserIdForm>,
+) -> Response {
+    let ip = addr.ip().to_string();
+
+    // Prevent self-deactivation
+    if admin.id == form.user_id {
+        return (StatusCode::BAD_REQUEST, "Cannot deactivate yourself").into_response();
+    }
+
+    if let Err(e) = queries::update_user_active(state.db.pool(), form.user_id, false).await {
+        tracing::error!("Failed to deactivate user: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to deactivate user").into_response();
+    }
+
+    // Delete all sessions for deactivated user
+    let _ = queries::delete_user_sessions(state.db.pool(), form.user_id).await;
+
+    // Log audit event
+    let _ = queries::create_audit_event(
+        state.db.pool(),
+        Some(admin.id),
+        "user_deactivated",
+        Some("user"),
+        Some(form.user_id),
+        None,
+        Some(&ip),
+        None,
+    )
+    .await;
+
+    Redirect::to("/admin").into_response()
+}
+
+/// POST /admin/user/:id/reactivate - Reactivate user account.
+pub async fn admin_reactivate_user(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    RequireAdmin(admin): RequireAdmin,
+    Form(form): Form<UserIdForm>,
+) -> Response {
+    let ip = addr.ip().to_string();
+
+    if let Err(e) = queries::update_user_active(state.db.pool(), form.user_id, true).await {
+        tracing::error!("Failed to reactivate user: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to reactivate user").into_response();
+    }
+
+    // Log audit event
+    let _ = queries::create_audit_event(
+        state.db.pool(),
+        Some(admin.id),
+        "user_reactivated",
+        Some("user"),
+        Some(form.user_id),
+        None,
+        Some(&ip),
+        None,
+    )
+    .await;
+
+    Redirect::to("/admin").into_response()
 }

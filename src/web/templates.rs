@@ -1,5 +1,5 @@
 use crate::db::{
-    thread_key_from_url, Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, Link,
+    thread_key_from_url, Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, AuditEvent, Link,
     LinkOccurrenceWithPost, Post, QueueStats, ThreadDisplay, User,
 };
 use crate::web::diff::DiffResult;
@@ -2825,4 +2825,168 @@ pub fn profile_page_with_message(user: &User, message: Option<&str>) -> String {
     );
 
     base_layout("Profile", &content)
+}
+
+/// Admin panel page.
+pub fn admin_panel(users: &[User], audit_events: &[AuditEvent]) -> String {
+    let users_html: String = users
+        .iter()
+        .map(|u| {
+            let status_badge = if !u.is_active {
+                r#"<span style="background: var(--error-bg, #fee2e2); color: var(--error-text, #991b1b); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">DEACTIVATED</span>"#
+            } else if u.is_admin {
+                r#"<span style="background: var(--primary, #ec4899); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">ADMIN</span>"#
+            } else if u.is_approved {
+                r#"<span style="background: var(--success-bg, #d1fae5); color: var(--success-text, #065f46); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">APPROVED</span>"#
+            } else {
+                r#"<span style="background: var(--warning-bg, #fef3c7); color: var(--warning-text, #92400e); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">PENDING</span>"#
+            };
+
+            let actions = if !u.is_active {
+                format!(
+                    r#"<form method="post" action="/admin/user/reactivate" style="display: inline;">
+                        <input type="hidden" name="user_id" value="{}">
+                        <button type="submit" style="padding: 4px 12px; font-size: 0.875rem; background: var(--success-bg, #d1fae5); color: var(--success-text, #065f46); border: 1px solid var(--success-border, #6ee7b7); border-radius: 4px; cursor: pointer;">Reactivate</button>
+                    </form>"#,
+                    u.id
+                )
+            } else {
+                let mut actions_html = String::new();
+
+                if !u.is_approved {
+                    actions_html.push_str(&format!(
+                        r#"<form method="post" action="/admin/user/approve" style="display: inline; margin-right: 0.5rem;">
+                            <input type="hidden" name="user_id" value="{}">
+                            <button type="submit" style="padding: 4px 12px; font-size: 0.875rem; background: var(--success-bg, #d1fae5); color: var(--success-text, #065f46); border: 1px solid var(--success-border, #6ee7b7); border-radius: 4px; cursor: pointer;">Approve</button>
+                        </form>"#,
+                        u.id
+                    ));
+                } else {
+                    actions_html.push_str(&format!(
+                        r#"<form method="post" action="/admin/user/revoke" style="display: inline; margin-right: 0.5rem;">
+                            <input type="hidden" name="user_id" value="{}">
+                            <button type="submit" style="padding: 4px 12px; font-size: 0.875rem; background: var(--warning-bg, #fef3c7); color: var(--warning-text, #92400e); border: 1px solid var(--warning-border, #fcd34d); border-radius: 4px; cursor: pointer;">Revoke</button>
+                        </form>"#,
+                        u.id
+                    ));
+                }
+
+                if !u.is_admin {
+                    actions_html.push_str(&format!(
+                        r#"<form method="post" action="/admin/user/promote" style="display: inline; margin-right: 0.5rem;">
+                            <input type="hidden" name="user_id" value="{}">
+                            <button type="submit" style="padding: 4px 12px; font-size: 0.875rem; background: var(--primary, #ec4899); color: white; border: none; border-radius: 4px; cursor: pointer;">Make Admin</button>
+                        </form>"#,
+                        u.id
+                    ));
+                } else {
+                    actions_html.push_str(&format!(
+                        r#"<form method="post" action="/admin/user/demote" style="display: inline; margin-right: 0.5rem;">
+                            <input type="hidden" name="user_id" value="{}">
+                            <button type="submit" style="padding: 4px 12px; font-size: 0.875rem; background: var(--bg-secondary, #fafafa); color: var(--text-primary, #18181b); border: 1px solid var(--border-color, #e4e4e7); border-radius: 4px; cursor: pointer;">Remove Admin</button>
+                        </form>"#,
+                        u.id
+                    ));
+                }
+
+                actions_html.push_str(&format!(
+                    r#"<form method="post" action="/admin/user/deactivate" style="display: inline;">
+                        <input type="hidden" name="user_id" value="{}">
+                        <button type="submit" style="padding: 4px 12px; font-size: 0.875rem; background: var(--error-bg, #fee2e2); color: var(--error-text, #991b1b); border: 1px solid var(--error-border, #fca5a5); border-radius: 4px; cursor: pointer;">Deactivate</button>
+                    </form>"#,
+                    u.id
+                ));
+
+                actions_html
+            };
+
+            format!(
+                r#"<tr>
+                    <td style="padding: 0.75rem;">{}</td>
+                    <td style="padding: 0.75rem;">{}</td>
+                    <td style="padding: 0.75rem;">{}</td>
+                    <td style="padding: 0.75rem;">{}</td>
+                    <td style="padding: 0.75rem;">{}</td>
+                </tr>"#,
+                html_escape(&u.username),
+                u.email.as_deref().unwrap_or("—"),
+                status_badge,
+                html_escape(&u.created_at),
+                actions
+            )
+        })
+        .collect();
+
+    let audit_html: String = audit_events
+        .iter()
+        .map(|e| {
+            let user_str = e.user_id.map_or("System".to_string(), |id| format!("User #{id}"));
+            let target_str = match (&e.target_type, e.target_id) {
+                (Some(t), Some(id)) => format!("{t} #{id}"),
+                _ => "—".to_string(),
+            };
+
+            format!(
+                r#"<tr>
+                    <td style="padding: 0.75rem; font-size: 0.875rem;">{}</td>
+                    <td style="padding: 0.75rem; font-size: 0.875rem;">{}</td>
+                    <td style="padding: 0.75rem; font-size: 0.875rem;">{}</td>
+                    <td style="padding: 0.75rem; font-size: 0.875rem;">{}</td>
+                    <td style="padding: 0.75rem; font-size: 0.875rem;">{}</td>
+                </tr>"#,
+                html_escape(&e.created_at),
+                user_str,
+                html_escape(&e.event_type),
+                target_str,
+                e.ip_address.as_deref().unwrap_or("—")
+            )
+        })
+        .collect();
+
+    let content = format!(
+        r#"<main class="container">
+    <div style="max-width: 1200px; margin: 2rem auto;">
+        <h1>Admin Panel</h1>
+
+        <h2 style="margin-top: var(--spacing-xl, 2rem);">Users</h2>
+        <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; background: white; border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
+                <thead style="background: var(--bg-secondary, #fafafa);">
+                    <tr>
+                        <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Username</th>
+                        <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Email</th>
+                        <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Status</th>
+                        <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Created</th>
+                        <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {}
+                </tbody>
+            </table>
+        </div>
+
+        <h2 style="margin-top: var(--spacing-xl, 2rem);">Recent Audit Log</h2>
+        <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; background: white; border: 1px solid var(--border-color, #e4e4e7); border-radius: var(--radius, 0.375rem);">
+                <thead style="background: var(--bg-secondary, #fafafa);">
+                    <tr>
+                        <th style="padding: 0.75rem; text-align: left; font-weight: 600; font-size: 0.875rem;">Timestamp</th>
+                        <th style="padding: 0.75rem; text-align: left; font-weight: 600; font-size: 0.875rem;">User</th>
+                        <th style="padding: 0.75rem; text-align: left; font-weight: 600; font-size: 0.875rem;">Event</th>
+                        <th style="padding: 0.75rem; text-align: left; font-weight: 600; font-size: 0.875rem;">Target</th>
+                        <th style="padding: 0.75rem; text-align: left; font-weight: 600; font-size: 0.875rem;">IP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>"#,
+        users_html, audit_html
+    );
+
+    base_layout("Admin Panel", &content)
 }
