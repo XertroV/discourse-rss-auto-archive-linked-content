@@ -1041,7 +1041,10 @@ async fn serve_s3_file(State(state): State<AppState>, Path(path): Path<String>) 
         &mime_type
     };
 
-    let content_disposition = suggest_content_disposition_filename(&final_key).map_or_else(|| "inline".to_string(), |name| format!("inline; filename=\"{name}\""));
+    let content_disposition = suggest_content_disposition_filename(&final_key).map_or_else(
+        || "inline".to_string(),
+        |name| format!("inline; filename=\"{name}\""),
+    );
 
     (
         StatusCode::OK,

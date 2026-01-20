@@ -12,13 +12,14 @@ use super::rate_limiter::DomainRateLimiter;
 use super::screenshot::ScreenshotService;
 use crate::config::Config;
 use crate::db::{
-    create_archive_job, find_artifact_by_perceptual_hash, get_archive,
-    get_failed_archives_for_retry, get_link, get_pending_archives, insert_artifact,
-    insert_artifact_with_hash, reset_archive_for_retry, reset_stuck_processing_archives,
-    reset_todays_failed_archives, set_archive_complete, set_archive_failed, set_archive_ipfs_cid,
-    set_archive_nsfw, set_archive_processing, set_archive_skipped, set_job_completed,
-    set_job_failed, set_job_running, set_job_skipped, update_link_final_url,
-    update_link_last_archived, ArchiveJobType, ArtifactKind, Database,
+    create_archive_job, find_artifact_by_perceptual_hash, find_video_file, get_archive,
+    get_failed_archives_for_retry, get_link, get_or_create_video_file, get_pending_archives,
+    insert_artifact, insert_artifact_with_hash, insert_artifact_with_video_file,
+    reset_archive_for_retry, reset_stuck_processing_archives, reset_todays_failed_archives,
+    set_archive_complete, set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw,
+    set_archive_processing, set_archive_skipped, set_job_completed, set_job_failed,
+    set_job_running, set_job_skipped, update_link_final_url, update_link_last_archived,
+    update_video_file_metadata_key, ArchiveJobType, ArtifactKind, Database, VideoFile,
 };
 use crate::dedup;
 use crate::handlers::youtube::extract_video_id;
@@ -384,8 +385,9 @@ async fn process_archive_inner(
         .find_handler(&link.normalized_url)
         .context("No handler found for URL")?;
 
-    // Check for existing YouTube video before downloading
-    let is_youtube = handler.site_id() == "youtube";
+    // Check for existing video before downloading (supports all platforms)
+    let platform = handler.site_id();
+    let is_youtube = platform == "youtube";
     let video_id = if is_youtube {
         extract_video_id(&link.normalized_url)
     } else {
@@ -399,54 +401,85 @@ async fn process_archive_inner(
     };
     let main_job = start_job(db.pool(), archive_id, primary_job_type).await;
 
-    // Check if video already exists on S3
-    let mut existing_video = if let Some(ref vid) = video_id {
-        match check_existing_youtube_video(s3, vid).await {
-            Ok(Some((existing_key, ext))) => {
+    // Check if video already exists in database (database-backed deduplication)
+    let mut existing_video_file: Option<VideoFile> = None;
+    if let Some(ref vid) = video_id {
+        match find_video_file(db.pool(), platform, vid).await {
+            Ok(Some(vf)) => {
                 info!(
                     archive_id,
                     video_id = %vid,
-                    s3_key = %existing_key,
-                    "YouTube video already exists on S3, skipping download"
+                    platform = %platform,
+                    s3_key = %vf.s3_key,
+                    "Video already exists in database, skipping download"
                 );
-                Some((existing_key, ext))
+                existing_video_file = Some(vf);
             }
-            Ok(None) => None,
-            Err(e) => {
-                warn!(archive_id, error = %e, "Failed to check for existing video, proceeding with download");
-                None
-            }
-        }
-    } else {
-        None
-    };
-
-    // If we found an existing video, ensure it is usable (non-zero size)
-    let mut existing_video_metadata: Option<(i64, String)> = None;
-    if let Some((ref existing_key, _)) = existing_video {
-        match s3.get_object_metadata(existing_key).await {
-            Ok((size_bytes, content_type)) => {
-                if size_bytes <= 0 {
-                    warn!(
-                        archive_id,
-                        video_id = ?video_id,
-                        s3_key = %existing_key,
-                        "Existing YouTube video on S3 is empty; will re-download"
-                    );
-                    existing_video = None;
-                } else {
-                    existing_video_metadata = Some((size_bytes, content_type));
+            Ok(None) => {
+                // Not in database, check S3 as fallback for migration from old system
+                match check_existing_youtube_video(s3, vid).await {
+                    Ok(Some((existing_key, _ext))) => {
+                        // Found on S3 but not in database - register it
+                        match s3.get_object_metadata(&existing_key).await {
+                            Ok((size_bytes, content_type)) if size_bytes > 0 => {
+                                info!(
+                                    archive_id,
+                                    video_id = %vid,
+                                    s3_key = %existing_key,
+                                    "Found existing video on S3, registering in database"
+                                );
+                                // Register the existing video in the database
+                                match get_or_create_video_file(
+                                    db.pool(),
+                                    vid,
+                                    platform,
+                                    &existing_key,
+                                    Some(&format!("videos/{vid}.json")),
+                                    Some(size_bytes),
+                                    Some(&content_type),
+                                    None, // duration unknown
+                                )
+                                .await
+                                {
+                                    Ok(vf) => existing_video_file = Some(vf),
+                                    Err(e) => {
+                                        warn!(
+                                            archive_id,
+                                            video_id = %vid,
+                                            error = %e,
+                                            "Failed to register existing video in database"
+                                        );
+                                    }
+                                }
+                            }
+                            Ok((size_bytes, _)) => {
+                                warn!(
+                                    archive_id,
+                                    video_id = ?video_id,
+                                    s3_key = %existing_key,
+                                    size = size_bytes,
+                                    "Existing video on S3 is empty; will re-download"
+                                );
+                            }
+                            Err(e) => {
+                                warn!(
+                                    archive_id,
+                                    video_id = ?video_id,
+                                    s3_key = %existing_key,
+                                    error = %e,
+                                    "Failed to get metadata for existing video; will re-download"
+                                );
+                            }
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        warn!(archive_id, error = %e, "Failed to check S3 for existing video");
+                    }
                 }
             }
             Err(e) => {
-                warn!(
-                    archive_id,
-                    video_id = ?video_id,
-                    s3_key = %existing_key,
-                    error = %e,
-                    "Failed to get metadata for existing video; will re-download"
-                );
-                existing_video = None;
+                warn!(archive_id, error = %e, "Failed to check database for existing video, proceeding with download");
             }
         }
     }
@@ -462,7 +495,7 @@ async fn process_archive_inner(
     let mut primary_local_path: Option<PathBuf> = None;
 
     // If video already exists, fetch metadata without re-downloading
-    let (result, _existing_video_handled) = if let Some((existing_key, _ext)) = existing_video {
+    let (result, _existing_video_file_used) = if let Some(ref vf) = existing_video_file {
         // Fetch metadata using yt-dlp without downloading the video
         let cookies_file = match config.cookies_file_path.as_deref() {
             Some(path) if path.exists() => Some(path),
@@ -479,7 +512,7 @@ async fn process_archive_inner(
                     debug!(
                         url = %link.normalized_url,
                         title = ?meta.title,
-                        "Fetched metadata for existing YouTube video"
+                        "Fetched metadata for existing video"
                     );
                     meta
                 }
@@ -499,49 +532,44 @@ async fn process_archive_inner(
             };
 
         // Set the primary file to the existing video filename
-        let filename = existing_key
+        let filename = vf
+            .s3_key
             .rsplit('/')
             .next()
-            .unwrap_or(&existing_key)
+            .unwrap_or(&vf.s3_key)
             .to_string();
         result.primary_file = Some(filename);
         result.video_id = video_id.clone();
 
         // Reuse the existing S3 object as the primary artifact for this archive
-        primary_key = Some(existing_key.clone());
+        primary_key = Some(vf.s3_key.clone());
 
-        if let Some((size_bytes, content_type)) = existing_video_metadata.clone() {
-            if let Err(e) = insert_artifact(
-                db.pool(),
-                archive_id,
-                ArtifactKind::Video.as_str(),
-                &existing_key,
-                Some(&content_type),
-                Some(size_bytes),
-                None,
-            )
-            .await
-            {
-                warn!(archive_id, error = %e, "Failed to insert existing video artifact record");
-            } else {
-                debug!(
-                    archive_id,
-                    video_id = ?video_id,
-                    s3_key = %existing_key,
-                    size = size_bytes,
-                    "Created artifact record for existing video"
-                );
-            }
+        // Create artifact record with video_file_id reference
+        if let Err(e) = insert_artifact_with_video_file(
+            db.pool(),
+            archive_id,
+            ArtifactKind::Video.as_str(),
+            &vf.s3_key,
+            vf.content_type.as_deref(),
+            vf.size_bytes,
+            None, // sha256
+            vf.id,
+        )
+        .await
+        {
+            warn!(archive_id, error = %e, "Failed to insert existing video artifact record");
         } else {
-            warn!(
+            debug!(
                 archive_id,
                 video_id = ?video_id,
-                s3_key = %existing_key,
-                "Missing metadata for existing video; skipping artifact record"
+                video_file_id = vf.id,
+                s3_key = %vf.s3_key,
+                size = ?vf.size_bytes,
+                "Created artifact record referencing existing video file"
             );
         }
 
-        // Save metadata JSON alongside video at videos/<video_id>.json
+        // Save metadata JSON alongside video at videos/<video_id>.json (if we have new metadata)
         if let (Some(ref vid), Some(ref meta_json)) = (&video_id, &result.metadata_json) {
             let metadata_key = format!("videos/{vid}.json");
             match s3
@@ -555,6 +583,14 @@ async fn process_archive_inner(
                         s3_key = %metadata_key,
                         "Saved yt-dlp metadata JSON alongside video"
                     );
+                    // Update the video file's metadata key if not set
+                    if vf.metadata_s3_key.is_none() {
+                        if let Err(e) =
+                            update_video_file_metadata_key(db.pool(), vf.id, &metadata_key).await
+                        {
+                            warn!(archive_id, error = %e, "Failed to update video file metadata key");
+                        }
+                    }
                     // Also create artifact record for metadata
                     if let Err(e) = insert_artifact(
                         db.pool(),
@@ -709,47 +745,48 @@ async fn process_archive_inner(
                 primary_local_path = Some(local_path.clone());
             }
 
-            // Copy YouTube videos to predictable path for deduplication
+            // Register video in database and copy to predictable path for deduplication
             if let Some(ref vid) = result.video_id {
                 if result.content_type == "video" && duplicate_of.is_none() {
                     if let Some(ref uploaded_key) = primary_key {
-                        match copy_video_to_predictable_path(s3, uploaded_key, vid).await {
-                            Ok(predictable_key) => {
-                                debug!(
-                                    archive_id,
-                                    video_id = %vid,
-                                    predictable_key = %predictable_key,
-                                    "Copied video to predictable S3 path"
-                                );
-                            }
-                            Err(e) => {
-                                warn!(
-                                    archive_id,
-                                    video_id = %vid,
-                                    error = %e,
-                                    "Failed to copy video to predictable path"
-                                );
-                            }
-                        }
+                        // Copy video to predictable path
+                        let predictable_key =
+                            match copy_video_to_predictable_path(s3, uploaded_key, vid).await {
+                                Ok(key) => {
+                                    debug!(
+                                        archive_id,
+                                        video_id = %vid,
+                                        predictable_key = %key,
+                                        "Copied video to predictable S3 path"
+                                    );
+                                    Some(key)
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        archive_id,
+                                        video_id = %vid,
+                                        error = %e,
+                                        "Failed to copy video to predictable path"
+                                    );
+                                    None
+                                }
+                            };
 
                         // Save metadata JSON alongside video at videos/<video_id>.json
-                        if let Some(ref meta_json) = result.metadata_json {
-                            let metadata_key = format!("videos/{vid}.json");
+                        let metadata_key = if let Some(ref meta_json) = result.metadata_json {
+                            let meta_key = format!("videos/{vid}.json");
                             match s3
-                                .upload_bytes(
-                                    meta_json.as_bytes(),
-                                    &metadata_key,
-                                    "application/json",
-                                )
+                                .upload_bytes(meta_json.as_bytes(), &meta_key, "application/json")
                                 .await
                             {
                                 Ok(()) => {
                                     debug!(
                                         archive_id,
                                         video_id = %vid,
-                                        s3_key = %metadata_key,
+                                        s3_key = %meta_key,
                                         "Saved yt-dlp metadata JSON alongside video"
                                     );
+                                    Some(meta_key)
                                 }
                                 Err(e) => {
                                     warn!(
@@ -757,6 +794,43 @@ async fn process_archive_inner(
                                         video_id = %vid,
                                         error = %e,
                                         "Failed to save yt-dlp metadata JSON alongside video"
+                                    );
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        };
+
+                        // Register video in database (using predictable path as canonical)
+                        if let Some(ref canonical_key) = predictable_key {
+                            match get_or_create_video_file(
+                                db.pool(),
+                                vid,
+                                platform,
+                                canonical_key,
+                                metadata_key.as_deref(),
+                                size_bytes,
+                                Some(&content_type),
+                                None, // duration could be extracted from metadata if needed
+                            )
+                            .await
+                            {
+                                Ok(vf) => {
+                                    debug!(
+                                        archive_id,
+                                        video_id = %vid,
+                                        video_file_id = vf.id,
+                                        s3_key = %canonical_key,
+                                        "Registered video in database"
+                                    );
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        archive_id,
+                                        video_id = %vid,
+                                        error = %e,
+                                        "Failed to register video in database"
                                     );
                                 }
                             }
@@ -842,7 +916,8 @@ async fn process_archive_inner(
             let cookies_file = config.cookies_file_path.as_deref();
 
             let monolith_input = Url::from_file_path(&raw_html_path)
-                .ok().map_or_else(|| raw_html_path.display().to_string(), |u| u.to_string());
+                .ok()
+                .map_or_else(|| raw_html_path.display().to_string(), |u| u.to_string());
 
             let monolith_job = start_job(db.pool(), archive_id, ArchiveJobType::Monolith).await;
 

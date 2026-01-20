@@ -453,12 +453,19 @@ See STAGE2_STREAMING_UPLOAD.md for full details:
 - [x] Keep rust-s3 for metadata operations (head_object, list_objects, etc.)
 - [x] All existing tests pass with new implementation
 
+### Video Path Aliasing (Complete)
+Database-backed video deduplication system to store each video once and reference it from multiple archives:
+- [x] Add `video_files` table with platform, video_id, s3_key, metadata_s3_key, size, content_type, duration
+- [x] Add `video_file_id` column to `archive_artifacts` table (migration v10)
+- [x] Add `VideoFile` model and query functions (find, get_or_create, insert, update)
+- [x] Update worker to check database first for existing videos (with S3 fallback for migration)
+- [x] Register new videos in database after uploading to canonical path (videos/{video_id}.{ext})
+- [x] Create artifacts with `video_file_id` reference for deduplication tracking
+- [x] Add video_id extraction to handlers: YouTube, TikTok, Streamable, Twitter, Reddit
+- [x] Add comprehensive database tests for video file operations
+- [x] Eliminates redundant storage on S3 (same video from different posts stored once)
+
 ### Future Improvements
-- [ ] Replace video file duplication with database-backed reference system:
-  - [ ] Store one copy in S3 at archive path (e.g., archives/123/media/video.mp4)
-  - [ ] Add video_id → S3 path mapping table in database
-  - [ ] Look up existing S3 path when duplicate video_id encountered
-  - [ ] Eliminate redundant storage on S3 (like a symlink/hardlink system)
 - [x] Request largest RSS feed size via GET parameters (implemented via RSS_MAX_PAGES pagination)
 - [ ] Upgrade axum from 0.7 to 0.8 (breaking change: path syntax changes from `:param` to `{param}`)
 - [x] Archive failed log messages should include domain (e.g., `domain=old.reddit.com`) similar to `archive_id`

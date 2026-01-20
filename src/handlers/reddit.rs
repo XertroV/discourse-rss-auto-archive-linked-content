@@ -203,9 +203,7 @@ impl SiteHandler for RedditHandler {
 
         // Only run yt-dlp if we detected video content
         // This avoids unnecessary yt-dlp calls (and errors) for image/text-only posts
-        let has_video = media
-            .as_ref()
-            .is_some_and(|m| m.video_url.is_some());
+        let has_video = media.as_ref().is_some_and(|m| m.video_url.is_some());
         let ytdlp_result = if has_video {
             debug!(url = %archive_url, "Running yt-dlp for detected Reddit video");
             match ytdlp::download(archive_url, work_dir, cookies, config).await {
@@ -732,9 +730,10 @@ fn extract_media_from_html(doc: &Html) -> RedditMedia {
                     || href.ends_with(".png")
                     || href.ends_with(".gif")
                     || href.ends_with(".webp"))
-                    && !media.image_urls.contains(&href.to_string()) {
-                        media.image_urls.push(href.to_string());
-                    }
+                    && !media.image_urls.contains(&href.to_string())
+                {
+                    media.image_urls.push(href.to_string());
+                }
             }
         }
     }

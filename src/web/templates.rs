@@ -619,10 +619,9 @@ pub fn render_archive_detail(
     });
 
     let primary_key_opt = archive.s3_key_primary.as_deref();
-    let is_html_archive = primary_key_opt
-        .is_some_and(|primary_key| {
-            primary_key.ends_with(".html") || archive.content_type.as_deref() == Some("thread")
-        });
+    let is_html_archive = primary_key_opt.is_some_and(|primary_key| {
+        primary_key.ends_with(".html") || archive.content_type.as_deref() == Some("thread")
+    });
 
     // Show Media section for non-HTML archives (videos, images, etc.)
     // For HTML archives, we show the embedded preview instead
@@ -1337,9 +1336,7 @@ pub fn render_thread_detail(
         .min()
         .unwrap_or_else(|| "Unknown".to_string());
 
-    let discourse_url = posts
-        .first()
-        .map_or("", |p| p.discourse_url.as_str());
+    let discourse_url = posts.first().map_or("", |p| p.discourse_url.as_str());
 
     let last_activity = archives
         .iter()

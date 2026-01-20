@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use super::models::{
     Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, ArchiveJobType, Link, LinkOccurrence,
-    NewLink, NewLinkOccurrence, NewPost, NewSubmission, Post, Submission, ThreadDisplay,
+    NewLink, NewLinkOccurrence, NewPost, NewSubmission, Post, Submission, ThreadDisplay, VideoFile,
 };
 
 // ========== Posts ==========
@@ -188,7 +188,8 @@ pub fn thread_key_from_url(url: &str) -> String {
     if let Ok(parsed) = url::Url::parse(url) {
         let host = parsed.host_str().unwrap_or("");
         let segments: Vec<_> = parsed
-            .path_segments().map_or_else(Vec::new, std::iter::Iterator::collect);
+            .path_segments()
+            .map_or_else(Vec::new, std::iter::Iterator::collect);
 
         if segments.len() >= 3 && segments[0] == "t" {
             // /t/<slug>/<topic_id>/<post_no?>
@@ -1895,4 +1896,267 @@ pub async fn get_archives_with_artifacts_for_domain(
     }
 
     Ok(result)
+}
+
+// ========== Video Files ==========
+
+/// Find a video file by platform and video ID.
+pub async fn find_video_file(
+    pool: &SqlitePool,
+    platform: &str,
+    video_id: &str,
+) -> Result<Option<VideoFile>> {
+    sqlx::query_as(
+        r"
+        SELECT * FROM video_files
+        WHERE platform = ? AND video_id = ?
+        ",
+    )
+    .bind(platform)
+    .bind(video_id)
+    .fetch_optional(pool)
+    .await
+    .context("Failed to find video file")
+}
+
+/// Get a video file by ID.
+pub async fn get_video_file(pool: &SqlitePool, id: i64) -> Result<Option<VideoFile>> {
+    sqlx::query_as("SELECT * FROM video_files WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to get video file")
+}
+
+/// Get a video file by S3 key.
+pub async fn find_video_file_by_s3_key(
+    pool: &SqlitePool,
+    s3_key: &str,
+) -> Result<Option<VideoFile>> {
+    sqlx::query_as("SELECT * FROM video_files WHERE s3_key = ?")
+        .bind(s3_key)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to find video file by S3 key")
+}
+
+/// Insert a new video file record.
+///
+/// Uses INSERT OR IGNORE to handle race conditions where multiple archives
+/// try to insert the same video simultaneously. Returns the ID of either
+/// the newly inserted or existing record.
+pub async fn insert_video_file(
+    pool: &SqlitePool,
+    video_id: &str,
+    platform: &str,
+    s3_key: &str,
+    metadata_s3_key: Option<&str>,
+    size_bytes: Option<i64>,
+    content_type: Option<&str>,
+    duration_seconds: Option<i64>,
+) -> Result<i64> {
+    // First, try to insert (will be ignored if already exists due to UNIQUE constraint)
+    sqlx::query(
+        r"
+        INSERT OR IGNORE INTO video_files
+            (video_id, platform, s3_key, metadata_s3_key, size_bytes, content_type, duration_seconds)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ",
+    )
+    .bind(video_id)
+    .bind(platform)
+    .bind(s3_key)
+    .bind(metadata_s3_key)
+    .bind(size_bytes)
+    .bind(content_type)
+    .bind(duration_seconds)
+    .execute(pool)
+    .await
+    .context("Failed to insert video file")?;
+
+    // Now fetch the record (either newly inserted or existing)
+    let video_file: VideoFile =
+        sqlx::query_as("SELECT * FROM video_files WHERE platform = ? AND video_id = ?")
+            .bind(platform)
+            .bind(video_id)
+            .fetch_one(pool)
+            .await
+            .context("Failed to fetch video file after insert")?;
+
+    Ok(video_file.id)
+}
+
+/// Get or create a video file record (atomic upsert).
+///
+/// This is the preferred method for video deduplication as it handles
+/// race conditions safely using SQLite's INSERT OR IGNORE.
+pub async fn get_or_create_video_file(
+    pool: &SqlitePool,
+    video_id: &str,
+    platform: &str,
+    s3_key: &str,
+    metadata_s3_key: Option<&str>,
+    size_bytes: Option<i64>,
+    content_type: Option<&str>,
+    duration_seconds: Option<i64>,
+) -> Result<VideoFile> {
+    // Insert or ignore (handles race conditions)
+    sqlx::query(
+        r"
+        INSERT OR IGNORE INTO video_files
+            (video_id, platform, s3_key, metadata_s3_key, size_bytes, content_type, duration_seconds)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ",
+    )
+    .bind(video_id)
+    .bind(platform)
+    .bind(s3_key)
+    .bind(metadata_s3_key)
+    .bind(size_bytes)
+    .bind(content_type)
+    .bind(duration_seconds)
+    .execute(pool)
+    .await
+    .context("Failed to insert video file")?;
+
+    // Fetch the record (either newly inserted or existing)
+    sqlx::query_as("SELECT * FROM video_files WHERE platform = ? AND video_id = ?")
+        .bind(platform)
+        .bind(video_id)
+        .fetch_one(pool)
+        .await
+        .context("Failed to fetch video file")
+}
+
+/// Update video file metadata (size, content_type, duration).
+pub async fn update_video_file_metadata(
+    pool: &SqlitePool,
+    id: i64,
+    size_bytes: Option<i64>,
+    content_type: Option<&str>,
+    duration_seconds: Option<i64>,
+) -> Result<()> {
+    sqlx::query(
+        r"
+        UPDATE video_files
+        SET size_bytes = COALESCE(?, size_bytes),
+            content_type = COALESCE(?, content_type),
+            duration_seconds = COALESCE(?, duration_seconds)
+        WHERE id = ?
+        ",
+    )
+    .bind(size_bytes)
+    .bind(content_type)
+    .bind(duration_seconds)
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Failed to update video file metadata")?;
+
+    Ok(())
+}
+
+/// Update the metadata S3 key for a video file.
+pub async fn update_video_file_metadata_key(
+    pool: &SqlitePool,
+    id: i64,
+    metadata_s3_key: &str,
+) -> Result<()> {
+    sqlx::query("UPDATE video_files SET metadata_s3_key = ? WHERE id = ?")
+        .bind(metadata_s3_key)
+        .bind(id)
+        .execute(pool)
+        .await
+        .context("Failed to update video file metadata key")?;
+
+    Ok(())
+}
+
+/// Get all archives that reference a specific video file.
+pub async fn get_archives_for_video_file(
+    pool: &SqlitePool,
+    video_file_id: i64,
+) -> Result<Vec<Archive>> {
+    sqlx::query_as(
+        r"
+        SELECT DISTINCT a.* FROM archives a
+        INNER JOIN archive_artifacts aa ON a.id = aa.archive_id
+        WHERE aa.video_file_id = ?
+        ORDER BY a.archived_at DESC
+        ",
+    )
+    .bind(video_file_id)
+    .fetch_all(pool)
+    .await
+    .context("Failed to get archives for video file")
+}
+
+/// Insert an artifact with a video file reference.
+pub async fn insert_artifact_with_video_file(
+    pool: &SqlitePool,
+    archive_id: i64,
+    kind: &str,
+    s3_key: &str,
+    content_type: Option<&str>,
+    size_bytes: Option<i64>,
+    sha256: Option<&str>,
+    video_file_id: i64,
+) -> Result<i64> {
+    let result = sqlx::query(
+        r"
+        INSERT INTO archive_artifacts (archive_id, kind, s3_key, content_type, size_bytes, sha256, video_file_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ",
+    )
+    .bind(archive_id)
+    .bind(kind)
+    .bind(s3_key)
+    .bind(content_type)
+    .bind(size_bytes)
+    .bind(sha256)
+    .bind(video_file_id)
+    .execute(pool)
+    .await
+    .context("Failed to insert artifact with video file")?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Count how many archives reference a video file.
+pub async fn count_archives_for_video_file(pool: &SqlitePool, video_file_id: i64) -> Result<i64> {
+    let row: (i64,) = sqlx::query_as(
+        r"
+        SELECT COUNT(DISTINCT aa.archive_id) FROM archive_artifacts aa
+        WHERE aa.video_file_id = ?
+        ",
+    )
+    .bind(video_file_id)
+    .fetch_one(pool)
+    .await
+    .context("Failed to count archives for video file")?;
+
+    Ok(row.0)
+}
+
+/// Get all video files for a specific platform.
+pub async fn get_video_files_by_platform(
+    pool: &SqlitePool,
+    platform: &str,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<VideoFile>> {
+    sqlx::query_as(
+        r"
+        SELECT * FROM video_files
+        WHERE platform = ?
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        ",
+    )
+    .bind(platform)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .context("Failed to get video files by platform")
 }
