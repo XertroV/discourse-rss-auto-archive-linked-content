@@ -1,7 +1,7 @@
 use axum::extract::{ConnectInfo, Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::Form;
 use axum::Json;
 use axum::Router;
@@ -14,18 +14,21 @@ use super::export;
 use super::feeds;
 use super::templates;
 use super::AppState;
-use crate::auth::{MaybeUser, RequireAdmin, RequireApproved};
+use crate::auth::{MaybeUser, RequireAdmin, RequireApproved, RequireUser};
 use crate::db::{
-    count_archives_by_status, count_links, count_posts, count_submissions_from_ip_last_hour,
+    add_comment_reaction, can_user_edit_comment, count_archives_by_status, count_links,
+    count_posts, count_submissions_from_ip_last_hour, create_comment, create_comment_reply,
     create_pending_archive, delete_archive, get_all_threads, get_archive, get_archive_by_link_id,
     get_archives_by_domain_display, get_archives_for_post_display, get_archives_for_posts_display,
-    get_artifacts_for_archive, get_jobs_for_archive, get_link, get_link_by_normalized_url,
-    get_link_occurrences_with_posts, get_post_by_guid, get_posts_by_thread_key, get_queue_stats,
+    get_artifacts_for_archive, get_comment_edit_history, get_comment_with_author,
+    get_jobs_for_archive, get_link, get_link_by_normalized_url, get_link_occurrences_with_posts,
+    get_post_by_guid, get_posts_by_thread_key, get_queue_stats,
     get_recent_archives_display_filtered, get_recent_archives_filtered_full,
     get_recent_archives_with_filters, get_recent_failed_archives, insert_link, insert_submission,
-    reset_archive_for_rearchive, reset_single_skipped_archive, reset_skipped_archives,
-    search_archives_display_filtered, search_archives_filtered_full, submission_exists_for_url,
-    toggle_archive_nsfw, NewLink, NewSubmission,
+    pin_comment, remove_comment_reaction, reset_archive_for_rearchive,
+    reset_single_skipped_archive, reset_skipped_archives, search_archives_display_filtered,
+    search_archives_filtered_full, soft_delete_comment, submission_exists_for_url,
+    toggle_archive_nsfw, unpin_comment, update_comment, NewLink, NewSubmission,
 };
 use crate::handlers::normalize_url;
 
@@ -70,6 +73,31 @@ pub fn router() -> Router<AppState> {
         .route("/archive/:id/toggle-nsfw", post(toggle_nsfw))
         .route("/archive/:id/delete", post(delete_archive_handler))
         .route("/archive/:id/retry-skipped", post(retry_skipped))
+        .route("/archive/:id/comment", post(create_comment_handler))
+        .route(
+            "/archive/:id/comment/:comment_id/reply",
+            post(create_reply_handler),
+        )
+        .route(
+            "/archive/:id/comment/:comment_id",
+            put(edit_comment_handler).delete(delete_comment_handler),
+        )
+        .route(
+            "/archive/:id/comment/:comment_id/pin",
+            post(pin_comment_handler),
+        )
+        .route(
+            "/archive/:id/comment/:comment_id/unpin",
+            post(unpin_comment_handler),
+        )
+        .route(
+            "/archive/:id/comment/:comment_id/helpful",
+            post(add_reaction_handler).delete(remove_reaction_handler),
+        )
+        .route(
+            "/archive/:id/comment/:comment_id/history",
+            get(comment_history_handler),
+        )
         .route("/compare/:id1/:id2", get(compare_archives))
         .route("/post/:guid", get(post_detail))
         .route("/thread/:thread_key", get(thread_detail))
@@ -1248,4 +1276,353 @@ fn suggest_content_disposition_filename(s3_key: &str) -> Option<String> {
         .collect();
 
     Some(name)
+}
+
+// ========== Comment Handlers ==========
+
+#[derive(Debug, Deserialize)]
+struct CreateCommentForm {
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct EditCommentForm {
+    content: String,
+}
+
+async fn create_comment_handler(
+    State(state): State<AppState>,
+    Path(archive_id): Path<i64>,
+    RequireApproved(user): RequireApproved,
+    Form(form): Form<CreateCommentForm>,
+) -> Response {
+    let content = form.content.trim();
+
+    // Validate content length (max 5000 chars)
+    if content.is_empty() || content.len() > 5000 {
+        tracing::warn!(
+            "Invalid comment length from user {}: {} chars",
+            user.id,
+            content.len()
+        );
+        return (StatusCode::BAD_REQUEST, "Comment must be 1-5000 characters").into_response();
+    }
+
+    // Verify archive exists
+    if get_archive(state.db.pool(), archive_id)
+        .await
+        .ok()
+        .flatten()
+        .is_none()
+    {
+        return (StatusCode::NOT_FOUND, "Archive not found").into_response();
+    }
+
+    // Create comment
+    match create_comment(state.db.pool(), archive_id, user.id, content).await {
+        Ok(_comment_id) => {
+            tracing::debug!(
+                "Comment created by user {} on archive {}",
+                user.id,
+                archive_id
+            );
+            // Redirect back to archive page
+            (
+                StatusCode::SEE_OTHER,
+                [("Location", format!("/archive/{}", archive_id).as_str())],
+            )
+                .into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to create comment: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to create comment",
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn create_reply_handler(
+    State(state): State<AppState>,
+    Path((archive_id, parent_comment_id)): Path<(i64, i64)>,
+    RequireApproved(user): RequireApproved,
+    Form(form): Form<CreateCommentForm>,
+) -> Response {
+    let content = form.content.trim();
+
+    // Validate content length (max 5000 chars)
+    if content.is_empty() || content.len() > 5000 {
+        tracing::warn!(
+            "Invalid reply length from user {}: {} chars",
+            user.id,
+            content.len()
+        );
+        return (StatusCode::BAD_REQUEST, "Reply must be 1-5000 characters").into_response();
+    }
+
+    // Verify parent comment exists and belongs to the archive
+    match get_comment_with_author(state.db.pool(), parent_comment_id).await {
+        Ok(Some(parent)) => {
+            if parent.archive_id != archive_id {
+                return (StatusCode::BAD_REQUEST, "Comment not on this archive").into_response();
+            }
+        }
+        Ok(None) => return (StatusCode::NOT_FOUND, "Parent comment not found").into_response(),
+        Err(e) => {
+            tracing::error!("Failed to verify parent comment: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response();
+        }
+    }
+
+    // Create reply
+    match create_comment_reply(
+        state.db.pool(),
+        archive_id,
+        user.id,
+        parent_comment_id,
+        content,
+    )
+    .await
+    {
+        Ok(_comment_id) => {
+            tracing::debug!(
+                "Reply created by user {} on comment {}",
+                user.id,
+                parent_comment_id
+            );
+            (
+                StatusCode::SEE_OTHER,
+                [("Location", format!("/archive/{}", archive_id).as_str())],
+            )
+                .into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to create reply: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create reply").into_response()
+        }
+    }
+}
+
+async fn edit_comment_handler(
+    State(state): State<AppState>,
+    Path((archive_id, comment_id)): Path<(i64, i64)>,
+    RequireUser(user): RequireUser,
+    Form(form): Form<EditCommentForm>,
+) -> Response {
+    let content = form.content.trim();
+
+    // Validate content length
+    if content.is_empty() || content.len() > 5000 {
+        return (StatusCode::BAD_REQUEST, "Comment must be 1-5000 characters").into_response();
+    }
+
+    // Check if user can edit
+    match can_user_edit_comment(state.db.pool(), comment_id, user.id, user.is_admin).await {
+        Ok(true) => {}
+        Ok(false) => {
+            tracing::warn!(
+                "User {} attempted to edit comment {} but not allowed",
+                user.id,
+                comment_id
+            );
+            return (
+                StatusCode::FORBIDDEN,
+                "You can only edit your comments within 1 hour of creation",
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to check edit permission: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response();
+        }
+    }
+
+    // Update comment
+    match update_comment(state.db.pool(), comment_id, content, user.id).await {
+        Ok(()) => {
+            tracing::debug!("Comment {} edited by user {}", comment_id, user.id);
+            (
+                StatusCode::SEE_OTHER,
+                [("Location", format!("/archive/{}", archive_id).as_str())],
+            )
+                .into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to update comment: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to update comment",
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn delete_comment_handler(
+    State(state): State<AppState>,
+    Path((archive_id, comment_id)): Path<(i64, i64)>,
+    RequireUser(user): RequireUser,
+) -> Response {
+    // Get comment to verify ownership
+    let comment = match get_comment_with_author(state.db.pool(), comment_id).await {
+        Ok(Some(c)) => c,
+        Ok(None) => return (StatusCode::NOT_FOUND, "Comment not found").into_response(),
+        Err(e) => {
+            tracing::error!("Failed to fetch comment: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response();
+        }
+    };
+
+    // Check ownership or admin
+    if comment.user_id != Some(user.id) && !user.is_admin {
+        tracing::warn!(
+            "User {} attempted to delete comment {} they don't own",
+            user.id,
+            comment_id
+        );
+        return (
+            StatusCode::FORBIDDEN,
+            "You can only delete your own comments",
+        )
+            .into_response();
+    }
+
+    // Soft delete
+    match soft_delete_comment(state.db.pool(), comment_id, user.is_admin).await {
+        Ok(()) => {
+            tracing::debug!("Comment {} deleted by user {}", comment_id, user.id);
+            (
+                StatusCode::SEE_OTHER,
+                [("Location", format!("/archive/{}", archive_id).as_str())],
+            )
+                .into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to delete comment: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to delete comment",
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn pin_comment_handler(
+    State(state): State<AppState>,
+    Path((archive_id, comment_id)): Path<(i64, i64)>,
+    RequireAdmin(user): RequireAdmin,
+) -> Response {
+    match pin_comment(state.db.pool(), comment_id, user.id).await {
+        Ok(()) => {
+            tracing::debug!("Comment {} pinned by admin {}", comment_id, user.id);
+            (
+                StatusCode::SEE_OTHER,
+                [("Location", format!("/archive/{}", archive_id).as_str())],
+            )
+                .into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to pin comment: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to pin comment").into_response()
+        }
+    }
+}
+
+async fn unpin_comment_handler(
+    State(state): State<AppState>,
+    Path((archive_id, comment_id)): Path<(i64, i64)>,
+    RequireAdmin(_user): RequireAdmin,
+) -> Response {
+    match unpin_comment(state.db.pool(), comment_id).await {
+        Ok(()) => {
+            tracing::debug!("Comment {} unpinned", comment_id);
+            (
+                StatusCode::SEE_OTHER,
+                [("Location", format!("/archive/{}", archive_id).as_str())],
+            )
+                .into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to unpin comment: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to unpin comment").into_response()
+        }
+    }
+}
+
+async fn add_reaction_handler(
+    State(state): State<AppState>,
+    Path((archive_id, comment_id)): Path<(i64, i64)>,
+    RequireApproved(user): RequireApproved,
+) -> Response {
+    match add_comment_reaction(state.db.pool(), comment_id, user.id).await {
+        Ok(()) => {
+            tracing::debug!(
+                "User {} added helpful reaction to comment {}",
+                user.id,
+                comment_id
+            );
+            (
+                StatusCode::SEE_OTHER,
+                [("Location", format!("/archive/{}", archive_id).as_str())],
+            )
+                .into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to add reaction: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Failed to add reaction").into_response()
+        }
+    }
+}
+
+async fn remove_reaction_handler(
+    State(state): State<AppState>,
+    Path((archive_id, comment_id)): Path<(i64, i64)>,
+    RequireApproved(user): RequireApproved,
+) -> Response {
+    match remove_comment_reaction(state.db.pool(), comment_id, user.id).await {
+        Ok(()) => {
+            tracing::debug!(
+                "User {} removed helpful reaction from comment {}",
+                user.id,
+                comment_id
+            );
+            (
+                StatusCode::SEE_OTHER,
+                [("Location", format!("/archive/{}", archive_id).as_str())],
+            )
+                .into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to remove reaction: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to remove reaction",
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn comment_history_handler(
+    State(state): State<AppState>,
+    Path((_archive_id, comment_id)): Path<(i64, i64)>,
+    RequireUser(_user): RequireUser,
+) -> Response {
+    match get_comment_edit_history(state.db.pool(), comment_id).await {
+        Ok(edits) => {
+            let html = templates::render_comment_edit_history(&edits);
+            Html(html).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to get edit history: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to load edit history",
+            )
+                .into_response()
+        }
+    }
 }

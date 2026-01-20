@@ -3214,3 +3214,33 @@ pub fn admin_password_reset_result(username: &str, new_password: &str) -> String
 
     base_layout("Password Reset", &content)
 }
+
+/// Render comment edit history modal (called via AJAX).
+pub fn render_comment_edit_history(edits: &[crate::db::CommentEdit]) -> String {
+    if edits.is_empty() {
+        return r#"<div style="padding: 1rem; text-align: center; color: var(--text-secondary, #52525b);">No edit history available</div>"#.to_string();
+    }
+
+    let mut html = String::from(
+        r#"<div style="max-width: 600px;"><h3>Edit History</h3><div style="max-height: 400px; overflow-y: auto;">"#,
+    );
+
+    for (i, edit) in edits.iter().enumerate() {
+        html.push_str(&format!(
+            r#"<div style="padding: 0.75rem; margin-bottom: 0.75rem; background: var(--bg-secondary, #fafafa); border-radius: var(--radius, 0.375rem); border-left: 3px solid var(--primary, #ec4899);">
+            <p style="margin: 0 0 0.5rem 0; font-size: 0.875rem; color: var(--text-secondary, #52525b);">
+                <strong>Version {}</strong> — Edited on {}
+            </p>
+            <p style="margin: 0; padding: 0.5rem; background: white; border-radius: 4px; font-size: 0.875rem; word-break: break-word;">
+                {}
+            </p>
+            </div>"#,
+            edits.len() - i,
+            html_escape(&edit.edited_at),
+            html_escape(&edit.previous_content)
+        ));
+    }
+
+    html.push_str("</div></div>");
+    html
+}

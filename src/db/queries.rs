@@ -2841,3 +2841,294 @@ pub async fn delete_old_audit_events(pool: &SqlitePool, days: i64) -> Result<u64
     .context("Failed to delete old audit events")?;
     Ok(result.rows_affected())
 }
+
+// ==================== Comment Queries ====================
+
+/// Create a new top-level comment on an archive.
+pub async fn create_comment(
+    pool: &SqlitePool,
+    archive_id: i64,
+    user_id: i64,
+    content: &str,
+) -> Result<i64> {
+    let result = sqlx::query(
+        r"
+        INSERT INTO comments (archive_id, user_id, content)
+        VALUES (?, ?, ?)
+        ",
+    )
+    .bind(archive_id)
+    .bind(user_id)
+    .bind(content)
+    .execute(pool)
+    .await
+    .context("Failed to create comment")?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Create a reply to an existing comment.
+pub async fn create_comment_reply(
+    pool: &SqlitePool,
+    archive_id: i64,
+    user_id: i64,
+    parent_comment_id: i64,
+    content: &str,
+) -> Result<i64> {
+    let result = sqlx::query(
+        r"
+        INSERT INTO comments (archive_id, user_id, parent_comment_id, content)
+        VALUES (?, ?, ?, ?)
+        ",
+    )
+    .bind(archive_id)
+    .bind(user_id)
+    .bind(parent_comment_id)
+    .bind(content)
+    .execute(pool)
+    .await
+    .context("Failed to create comment reply")?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Get all non-deleted comments for an archive with author info.
+pub async fn get_comments_for_archive(
+    pool: &SqlitePool,
+    archive_id: i64,
+) -> Result<Vec<crate::db::models::CommentWithAuthor>> {
+    sqlx::query_as(
+        r"
+        SELECT
+            c.id, c.archive_id, c.user_id, c.parent_comment_id, c.content,
+            c.is_deleted, c.deleted_by_admin, c.is_pinned, c.pinned_by_user_id,
+            c.created_at, c.updated_at, c.deleted_at,
+            COALESCE(u.display_name, u.username) as author_display_name,
+            u.username as author_username,
+            (SELECT COUNT(*) FROM comment_edits WHERE comment_id = c.id) as edit_count,
+            (SELECT COUNT(*) FROM comment_reactions WHERE comment_id = c.id AND reaction_type = 'helpful') as helpful_count
+        FROM comments c
+        LEFT JOIN users u ON c.user_id = u.id
+        WHERE c.archive_id = ?
+        ORDER BY c.is_pinned DESC, c.created_at ASC
+        ",
+    )
+    .bind(archive_id)
+    .fetch_all(pool)
+    .await
+    .context("Failed to get comments for archive")
+}
+
+/// Get a specific comment with author info.
+pub async fn get_comment_with_author(
+    pool: &SqlitePool,
+    comment_id: i64,
+) -> Result<Option<crate::db::models::CommentWithAuthor>> {
+    sqlx::query_as(
+        r"
+        SELECT
+            c.id, c.archive_id, c.user_id, c.parent_comment_id, c.content,
+            c.is_deleted, c.deleted_by_admin, c.is_pinned, c.pinned_by_user_id,
+            c.created_at, c.updated_at, c.deleted_at,
+            COALESCE(u.display_name, u.username) as author_display_name,
+            u.username as author_username,
+            (SELECT COUNT(*) FROM comment_edits WHERE comment_id = c.id) as edit_count,
+            (SELECT COUNT(*) FROM comment_reactions WHERE comment_id = c.id AND reaction_type = 'helpful') as helpful_count
+        FROM comments c
+        LEFT JOIN users u ON c.user_id = u.id
+        WHERE c.id = ?
+        ",
+    )
+    .bind(comment_id)
+    .fetch_optional(pool)
+    .await
+    .context("Failed to get comment")
+}
+
+/// Update a comment's content and record edit history.
+pub async fn update_comment(
+    pool: &SqlitePool,
+    comment_id: i64,
+    new_content: &str,
+    edited_by_user_id: i64,
+) -> Result<()> {
+    let mut tx = pool.begin().await?;
+
+    // Get the old content for history
+    let old_content: (String,) = sqlx::query_as("SELECT content FROM comments WHERE id = ?")
+        .bind(comment_id)
+        .fetch_one(&mut *tx)
+        .await
+        .context("Failed to fetch comment for edit")?;
+
+    // Record edit history
+    sqlx::query(
+        r"
+        INSERT INTO comment_edits (comment_id, previous_content, edited_by_user_id)
+        VALUES (?, ?, ?)
+        ",
+    )
+    .bind(comment_id)
+    .bind(&old_content.0)
+    .bind(edited_by_user_id)
+    .execute(&mut *tx)
+    .await
+    .context("Failed to record comment edit history")?;
+
+    // Update the comment
+    sqlx::query("UPDATE comments SET content = ?, updated_at = datetime('now') WHERE id = ?")
+        .bind(new_content)
+        .bind(comment_id)
+        .execute(&mut *tx)
+        .await
+        .context("Failed to update comment")?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Soft-delete a comment (mark as deleted, keep content for history).
+pub async fn soft_delete_comment(pool: &SqlitePool, comment_id: i64, by_admin: bool) -> Result<()> {
+    sqlx::query(
+        "UPDATE comments SET is_deleted = 1, deleted_by_admin = ?, deleted_at = datetime('now') WHERE id = ?",
+    )
+    .bind(by_admin as i32)
+    .bind(comment_id)
+    .execute(pool)
+    .await
+    .context("Failed to delete comment")?;
+
+    Ok(())
+}
+
+/// Check if a user can edit a comment (owner within 1 hour, or admin).
+pub async fn can_user_edit_comment(
+    pool: &SqlitePool,
+    comment_id: i64,
+    user_id: i64,
+    is_admin: bool,
+) -> Result<bool> {
+    if is_admin {
+        return Ok(true);
+    }
+
+    let result: Option<(String,)> =
+        sqlx::query_as("SELECT created_at FROM comments WHERE id = ? AND user_id = ?")
+            .bind(comment_id)
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await
+            .context("Failed to check edit permission")?;
+
+    if let Some((created_at,)) = result {
+        // Parse the created_at timestamp and check if within 1 hour
+        // Using SQLite's datetime calculations
+        let within_hour: (i32,) =
+            sqlx::query_as("SELECT (julianday('now') - julianday(?)) * 24 < 1")
+                .bind(created_at)
+                .fetch_one(pool)
+                .await
+                .context("Failed to check time window")?;
+
+        Ok(within_hour.0 != 0)
+    } else {
+        Ok(false)
+    }
+}
+
+/// Get edit history for a comment.
+pub async fn get_comment_edit_history(
+    pool: &SqlitePool,
+    comment_id: i64,
+) -> Result<Vec<crate::db::models::CommentEdit>> {
+    sqlx::query_as("SELECT id, comment_id, previous_content, edited_by_user_id, edited_at FROM comment_edits WHERE comment_id = ? ORDER BY edited_at ASC")
+        .bind(comment_id)
+        .fetch_all(pool)
+        .await
+        .context("Failed to get comment edit history")
+}
+
+/// Pin a comment (admin only).
+pub async fn pin_comment(pool: &SqlitePool, comment_id: i64, admin_user_id: i64) -> Result<()> {
+    sqlx::query("UPDATE comments SET is_pinned = 1, pinned_by_user_id = ? WHERE id = ?")
+        .bind(admin_user_id)
+        .bind(comment_id)
+        .execute(pool)
+        .await
+        .context("Failed to pin comment")?;
+
+    Ok(())
+}
+
+/// Unpin a comment (admin only).
+pub async fn unpin_comment(pool: &SqlitePool, comment_id: i64) -> Result<()> {
+    sqlx::query("UPDATE comments SET is_pinned = 0, pinned_by_user_id = NULL WHERE id = ?")
+        .bind(comment_id)
+        .execute(pool)
+        .await
+        .context("Failed to unpin comment")?;
+
+    Ok(())
+}
+
+/// Add a helpful reaction to a comment.
+pub async fn add_comment_reaction(pool: &SqlitePool, comment_id: i64, user_id: i64) -> Result<()> {
+    sqlx::query(
+        r"
+        INSERT OR IGNORE INTO comment_reactions (comment_id, user_id, reaction_type)
+        VALUES (?, ?, 'helpful')
+        ",
+    )
+    .bind(comment_id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .context("Failed to add comment reaction")?;
+
+    Ok(())
+}
+
+/// Remove a helpful reaction from a comment.
+pub async fn remove_comment_reaction(
+    pool: &SqlitePool,
+    comment_id: i64,
+    user_id: i64,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM comment_reactions WHERE comment_id = ? AND user_id = ? AND reaction_type = 'helpful'",
+    )
+    .bind(comment_id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .context("Failed to remove comment reaction")?;
+
+    Ok(())
+}
+
+/// Get count of helpful reactions for a comment.
+pub async fn get_comment_reaction_count(pool: &SqlitePool, comment_id: i64) -> Result<i64> {
+    let result: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM comment_reactions WHERE comment_id = ? AND reaction_type = 'helpful'",
+    )
+    .bind(comment_id)
+    .fetch_one(pool)
+    .await
+    .context("Failed to get reaction count")?;
+
+    Ok(result.0)
+}
+
+/// Check if a user has reacted to a comment.
+pub async fn has_user_reacted(pool: &SqlitePool, comment_id: i64, user_id: i64) -> Result<bool> {
+    let result: Option<(i64,)> = sqlx::query_as(
+        "SELECT id FROM comment_reactions WHERE comment_id = ? AND user_id = ? AND reaction_type = 'helpful'",
+    )
+    .bind(comment_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .context("Failed to check user reaction")?;
+
+    Ok(result.is_some())
+}
