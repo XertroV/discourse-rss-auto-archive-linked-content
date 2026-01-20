@@ -3,13 +3,45 @@ use rand::{thread_rng, Rng};
 use sqlx::SqlitePool;
 
 const ADJECTIVES: &[&str] = &[
-    "Swift", "Silent", "Bold", "Bright", "Clever", "Wise", "Quick", "Calm", "Noble", "Brave",
-    "Keen", "Sharp", "Steady", "Nimble", "Fierce", "Gentle",
+    "Arcane", "Ancient", "Shadow", "Frost", "Fire", "Storm", "Iron", "Steel", "Golden", "Silver",
+    "Dark", "Crimson", "Scarlet", "Jade", "Sacred", "Wild", "Grim", "Cursed", "Eldritch",
+    "Spectral", "Runic", "Eternal", "Obsidian", "Bronze", "Oaken", "Stone", "Grey", "Black",
+    "Ivory", "Azure", "Feral", "Primal",
 ];
 
 const NOUNS: &[&str] = &[
-    "Tiger", "Eagle", "Wolf", "Bear", "Fox", "Hawk", "Lion", "Falcon", "Panther", "Raven",
-    "Dragon", "Phoenix", "Griffin", "Sphinx", "Hydra", "Kraken",
+    "Dragon",
+    "Wyrm",
+    "Basilisk",
+    "Hydra",
+    "Sphinx",
+    "Chimera",
+    "Manticore",
+    "Behemoth",
+    "Wizard",
+    "Ranger",
+    "Druid",
+    "Cleric",
+    "Paladin",
+    "Thief",
+    "Barbarian",
+    "Monk",
+    "Knight",
+    "Sorcerer",
+    "Bard",
+    "Giant",
+    "Golem",
+    "Lich",
+    "Demon",
+    "Wraith",
+    "Owlbear",
+    "Beholder",
+    "Cockatrice",
+    "Minotaur",
+    "Tarrasque",
+    "Troll",
+    "Orc",
+    "Kobold",
 ];
 
 /// Generate a random username in the format "AdjectiveNoun1234".
@@ -135,7 +167,7 @@ mod tests {
             seen.insert(username);
         }
 
-        // With 16*16*9000 = 2,304,000 possibilities,
+        // With 32*32*9000 = 9,216,000 possibilities,
         // 1000 generations should have near-zero collision probability.
         // Allow at most 1 collision (birthday paradox threshold is ~1500 for 50% chance).
         assert!(
