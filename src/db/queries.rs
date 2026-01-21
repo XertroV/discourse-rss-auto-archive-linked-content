@@ -1530,10 +1530,11 @@ pub async fn count_archives_by_content_type(pool: &SqlitePool) -> Result<Vec<(St
 /// Get top domains by completed archive count.
 pub async fn get_top_domains(pool: &SqlitePool, limit: i64) -> Result<Vec<(String, i64)>> {
     sqlx::query_as(
-        "SELECT domain, COUNT(*) as count
-         FROM archives
-         WHERE status = 'complete'
-         GROUP BY domain
+        "SELECT l.domain, COUNT(*) as count
+         FROM archives a
+         JOIN links l ON a.link_id = l.id
+         WHERE a.status = 'complete'
+         GROUP BY l.domain
          ORDER BY count DESC
          LIMIT ?",
     )
