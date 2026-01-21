@@ -3002,8 +3002,48 @@ pre {
 
 /* ==================== NSFW Filtering ==================== */
 
-/* Hide NSFW items when filter is active */
-body.nsfw-hidden [data-nsfw="true"] {
+/* Archive card NSFW placeholder - hidden by default */
+.archive-card-nsfw-placeholder {
+    display: none;
+    text-align: center;
+    padding: var(--spacing-xl);
+    color: var(--text-secondary);
+}
+
+.archive-card-nsfw-placeholder-icon {
+    font-size: 3rem;
+    margin-bottom: var(--spacing-md);
+    opacity: 0.5;
+}
+
+.archive-card-nsfw-placeholder h3 {
+    color: var(--text-muted);
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    margin-bottom: var(--spacing-sm);
+}
+
+.archive-card-nsfw-placeholder p {
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--spacing-xs);
+}
+
+.archive-card-nsfw-placeholder-hint {
+    font-size: var(--font-size-xs);
+}
+
+/* When NSFW filter is active on archive cards */
+body.nsfw-hidden .archive-card[data-nsfw="true"] .archive-card-content {
+    display: none !important;
+}
+
+body.nsfw-hidden .archive-card[data-nsfw="true"] .archive-card-nsfw-placeholder {
+    display: block !important;
+}
+
+/* Hide NSFW items on other pages (non-card elements) when filter is active */
+body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
     display: none !important;
 }
 

@@ -72,31 +72,50 @@ impl Render for ArchiveCard<'_> {
 
         html! {
             article class="archive-card" data-nsfw=[archive.is_nsfw.then_some("true")] {
-                h3 {
-                    a href=(format!("/archive/{}", archive.id)) { (title) }
-                    @if archive.is_nsfw {
-                        (NsfwBadge::new())
-                    }
-                }
-                p class="archive-url" {
-                    code class="url-display" title="Click to copy" onclick=(PreEscaped(copy_js)) {
-                        (archive.original_url)
-                    }
-                }
-                p class="meta" {
-                    (status_badge)
-                    (type_badge)
-                    (domain_badge)
-                    @if let Some(author) = &archive.content_author {
-                        span class="author" {
-                            "by " (author)
+                // Hidden NSFW placeholder - shown when NSFW filter is active
+                @if archive.is_nsfw {
+                    div class="archive-card-nsfw-placeholder" {
+                        div class="archive-card-nsfw-placeholder-icon" {
+                            "🔞"
+                        }
+                        h3 { "NSFW Content Hidden" }
+                        p { "This archive contains NSFW content." }
+                        p class="archive-card-nsfw-placeholder-hint" {
+                            "Click the "
+                            strong { "18+" }
+                            " button in the header to view."
                         }
                     }
-                    @if size_bytes > 0 {
-                        (SizeBadge::new(size_bytes))
-                    }
                 }
-                p class="archive-time" { (archived_time) }
+
+                // Main card content - hidden when NSFW filter is active
+                div class="archive-card-content" {
+                    h3 {
+                        a href=(format!("/archive/{}", archive.id)) { (title) }
+                        @if archive.is_nsfw {
+                            (NsfwBadge::new())
+                        }
+                    }
+                    p class="archive-url" {
+                        code class="url-display" title="Click to copy" onclick=(PreEscaped(copy_js)) {
+                            (archive.original_url)
+                        }
+                    }
+                    p class="meta" {
+                        (status_badge)
+                        (type_badge)
+                        (domain_badge)
+                        @if let Some(author) = &archive.content_author {
+                            span class="author" {
+                                "by " (author)
+                            }
+                        }
+                        @if size_bytes > 0 {
+                            (SizeBadge::new(size_bytes))
+                        }
+                    }
+                    p class="archive-time" { (archived_time) }
+                }
             }
         }
     }
@@ -236,34 +255,53 @@ impl Render for ArchiveCardWithThumb<'_> {
 
         html! {
             article class="archive-card" data-nsfw=[archive.is_nsfw.then_some("true")] {
-                @if let Some(thumb) = self.thumb_url {
-                    img class="archive-thumb" src=(thumb) alt=(title) loading="lazy";
-                }
-                h3 {
-                    a href=(format!("/archive/{}", archive.id)) { (title) }
-                    @if archive.is_nsfw {
-                        (NsfwBadge::new())
-                    }
-                }
-                p class="archive-url" {
-                    code class="url-display" title="Click to copy" onclick=(PreEscaped(copy_js)) {
-                        (archive.original_url)
-                    }
-                }
-                p class="meta" {
-                    (status_badge)
-                    (type_badge)
-                    (domain_badge)
-                    @if let Some(author) = &archive.content_author {
-                        span class="author" {
-                            "by " (author)
+                // Hidden NSFW placeholder - shown when NSFW filter is active
+                @if archive.is_nsfw {
+                    div class="archive-card-nsfw-placeholder" {
+                        div class="archive-card-nsfw-placeholder-icon" {
+                            "🔞"
+                        }
+                        h3 { "NSFW Content Hidden" }
+                        p { "This archive contains NSFW content." }
+                        p class="archive-card-nsfw-placeholder-hint" {
+                            "Click the "
+                            strong { "18+" }
+                            " button in the header to view."
                         }
                     }
-                    @if size_bytes > 0 {
-                        (SizeBadge::new(size_bytes))
-                    }
                 }
-                p class="archive-time" { (archived_time) }
+
+                // Main card content - hidden when NSFW filter is active
+                div class="archive-card-content" {
+                    @if let Some(thumb) = self.thumb_url {
+                        img class="archive-thumb" src=(thumb) alt=(title) loading="lazy";
+                    }
+                    h3 {
+                        a href=(format!("/archive/{}", archive.id)) { (title) }
+                        @if archive.is_nsfw {
+                            (NsfwBadge::new())
+                        }
+                    }
+                    p class="archive-url" {
+                        code class="url-display" title="Click to copy" onclick=(PreEscaped(copy_js)) {
+                            (archive.original_url)
+                        }
+                    }
+                    p class="meta" {
+                        (status_badge)
+                        (type_badge)
+                        (domain_badge)
+                        @if let Some(author) = &archive.content_author {
+                            span class="author" {
+                                "by " (author)
+                            }
+                        }
+                        @if size_bytes > 0 {
+                            (SizeBadge::new(size_bytes))
+                        }
+                    }
+                    p class="archive-time" { (archived_time) }
+                }
             }
         }
     }
