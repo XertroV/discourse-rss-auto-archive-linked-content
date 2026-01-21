@@ -626,6 +626,138 @@ fn parse_subtitle_info(sub: &ArchiveArtifact) -> String {
     filename.to_string()
 }
 
+/// Represents a video chapter with timestamp and title.
+#[derive(Debug, Clone)]
+struct VideoChapter {
+    /// Timestamp in seconds from start of video.
+    seconds: u32,
+    /// Chapter title/description.
+    title: String,
+    /// Original timestamp string for display (e.g., "04:25").
+    timestamp_display: String,
+}
+
+/// Parse video chapters from description text.
+///
+/// Recognizes chapter formats like:
+/// - `00:00 - Introduction`
+/// - `04:25 How It Works`
+/// - `1:30:45 - Final Chapter`
+///
+/// Returns empty vec if no valid chapters found.
+fn parse_chapters_from_description(description: &str) -> Vec<VideoChapter> {
+    let mut chapters = Vec::new();
+
+    // Regex to match timestamps at start of line with optional separator and title
+    // Matches: 00:00 - Title, 00:00 Title, 1:23:45 - Title, etc.
+    let re = regex::Regex::new(r"(?m)^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*[-–—]?\s*(.+?)$")
+        .expect("Invalid chapter regex");
+
+    for cap in re.captures_iter(description) {
+        let h_or_m: u32 = cap[1].parse().unwrap_or(0);
+        let m_or_s: u32 = cap[2].parse().unwrap_or(0);
+        let s_opt = cap.get(3).and_then(|m| m.as_str().parse::<u32>().ok());
+        let title = cap[4].trim().to_string();
+
+        // Skip if title is empty or looks like another timestamp
+        if title.is_empty() || title.chars().all(|c| c.is_ascii_digit() || c == ':') {
+            continue;
+        }
+
+        let (seconds, timestamp_display) = if let Some(s) = s_opt {
+            // Format: H:MM:SS
+            let secs = h_or_m * 3600 + m_or_s * 60 + s;
+            let display = format!("{}:{:02}:{:02}", h_or_m, m_or_s, s);
+            (secs, display)
+        } else {
+            // Format: M:SS or MM:SS
+            let secs = h_or_m * 60 + m_or_s;
+            let display = format!("{}:{:02}", h_or_m, m_or_s);
+            (secs, display)
+        };
+
+        chapters.push(VideoChapter {
+            seconds,
+            title,
+            timestamp_display,
+        });
+    }
+
+    // Sort by timestamp to ensure proper order
+    chapters.sort_by_key(|c| c.seconds);
+
+    // Only return if we found at least 2 chapters (a single timestamp is likely not a chapter list)
+    if chapters.len() >= 2 {
+        chapters
+    } else {
+        Vec::new()
+    }
+}
+
+/// Render the chapters UI dropdown.
+fn render_chapters_ui(chapters: &[VideoChapter]) -> Markup {
+    if chapters.is_empty() {
+        return html! {};
+    }
+
+    html! {
+        div class="chapters-dropdown" {
+            button class="chapters-toggle" type="button" onclick="toggleChaptersDropdown(this)" {
+                svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {
+                    rect x="2" y="3" width="20" height="4" rx="1" {}
+                    rect x="2" y="10" width="20" height="4" rx="1" {}
+                    rect x="2" y="17" width="20" height="4" rx="1" {}
+                }
+                span { "Chapters (" (chapters.len()) ")" }
+                svg class="chevron" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {
+                    polyline points="6 9 12 15 18 9" {}
+                }
+            }
+            div class="chapters-menu" {
+                @for chapter in chapters {
+                    button class="chapter-item" type="button"
+                        onclick=(format!("seekVideo({}); closeChaptersDropdown();", chapter.seconds)) {
+                        span class="chapter-timestamp" { (chapter.timestamp_display) }
+                        span class="chapter-title" { (&chapter.title) }
+                    }
+                }
+            }
+        }
+        script {
+            (PreEscaped(r#"
+                function toggleChaptersDropdown(btn) {
+                    const dropdown = btn.closest('.chapters-dropdown');
+                    dropdown.classList.toggle('open');
+                }
+                function closeChaptersDropdown() {
+                    document.querySelectorAll('.chapters-dropdown.open').forEach(d => d.classList.remove('open'));
+                }
+                // Close dropdown when clicking outside
+                document.addEventListener('click', function(e) {
+                    if (!e.target.closest('.chapters-dropdown')) {
+                        closeChaptersDropdown();
+                    }
+                });
+                // Define seekVideo if not already defined (transcript.js defines it)
+                if (typeof seekVideo === 'undefined') {
+                    window.seekVideo = function(seconds) {
+                        const video = document.querySelector('video');
+                        if (video) {
+                            video.currentTime = seconds;
+                            video.play();
+                            video.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            video.style.outline = '3px solid var(--primary, #3b82f6)';
+                            setTimeout(function() {
+                                video.style.outline = '';
+                            }, 1000);
+                        }
+                    };
+                }
+            "#))
+        }
+    }
+}
+
 /// Render playlist content from JSON metadata.
 fn render_playlist_content(metadata_json: &str) -> Markup {
     let playlist_info: Result<serde_json::Value, _> = serde_json::from_str(metadata_json);
@@ -730,6 +862,14 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
         return html! {};
     }
 
+    // Parse chapters from description if available (for video content)
+    let chapters = archive
+        .content_text
+        .as_deref()
+        .filter(|_| archive.content_type.as_deref() == Some("video"))
+        .map(parse_chapters_from_description)
+        .unwrap_or_default();
+
     // Show primary media if available
     if let Some(primary_key) = primary_key_opt {
         let download_name = suggested_download_filename(&link.domain, archive.id, primary_key);
@@ -743,13 +883,14 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
                     (type_badge)
                 }
                 (render_media_player_with_options(primary_key, archive.content_type.as_deref(), thumb_key, false))
-                p {
+                div class="media-actions" {
                     a href=(format!("/s3/{}", html_escape(primary_key)))
                       class="media-download"
                       download=(download_name)
                       target="_blank" rel="noopener" {
                         span { "Download" }
                     }
+                    (render_chapters_ui(&chapters))
                 }
             }
         };
@@ -768,13 +909,14 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
                     (type_badge)
                 }
                 (render_media_player_with_options(&video_artifact.s3_key, Some("video"), thumb_key, false))
-                p {
+                div class="media-actions" {
                     a href=(format!("/s3/{}", html_escape(&video_artifact.s3_key)))
                       class="media-download"
                       download=(download_name)
                       target="_blank" rel="noopener" {
                         span { "Download" }
                     }
+                    (render_chapters_ui(&chapters))
                 }
             }
         };
@@ -1885,5 +2027,141 @@ mod tests {
         archive.content_type = Some("pdf".to_string());
         let html = render_pdf_embed_section(&archive, &[]).into_string();
         assert!(html.is_empty());
+    }
+
+    #[test]
+    fn test_parse_chapters_basic() {
+        let description = r#"
+00:00 - PayPal's Cease and Desist
+00:58 - Intro
+04:25 - How Honey Exploited Small Businesses
+30:44 - Honey Tracked & Shared Your Data
+39:54 - Honey Knowingly Targeted Minors
+45:10 - Why Other Companies Are Being Sued
+50:20 - Why This Video was Delayed & Likely Censored
+"#;
+
+        let chapters = parse_chapters_from_description(description);
+
+        assert_eq!(chapters.len(), 7);
+        assert_eq!(chapters[0].seconds, 0);
+        assert_eq!(chapters[0].title, "PayPal's Cease and Desist");
+        assert_eq!(chapters[0].timestamp_display, "0:00");
+
+        assert_eq!(chapters[1].seconds, 58);
+        assert_eq!(chapters[1].title, "Intro");
+
+        assert_eq!(chapters[2].seconds, 4 * 60 + 25);
+        assert_eq!(chapters[2].title, "How Honey Exploited Small Businesses");
+
+        assert_eq!(chapters[3].seconds, 30 * 60 + 44);
+        assert_eq!(chapters[6].seconds, 50 * 60 + 20);
+    }
+
+    #[test]
+    fn test_parse_chapters_without_separator() {
+        let description = r#"
+0:00 Introduction
+2:30 Main Content
+5:45 Conclusion
+"#;
+
+        let chapters = parse_chapters_from_description(description);
+
+        assert_eq!(chapters.len(), 3);
+        assert_eq!(chapters[0].title, "Introduction");
+        assert_eq!(chapters[1].seconds, 2 * 60 + 30);
+        assert_eq!(chapters[2].seconds, 5 * 60 + 45);
+    }
+
+    #[test]
+    fn test_parse_chapters_with_hour_format() {
+        let description = r#"
+0:00:00 - Start
+1:30:45 - Middle Section
+2:15:00 - End
+"#;
+
+        let chapters = parse_chapters_from_description(description);
+
+        assert_eq!(chapters.len(), 3);
+        assert_eq!(chapters[0].seconds, 0);
+        assert_eq!(chapters[0].timestamp_display, "0:00:00");
+
+        assert_eq!(chapters[1].seconds, 1 * 3600 + 30 * 60 + 45);
+        assert_eq!(chapters[1].timestamp_display, "1:30:45");
+
+        assert_eq!(chapters[2].seconds, 2 * 3600 + 15 * 60);
+    }
+
+    #[test]
+    fn test_parse_chapters_minimum_count() {
+        // Single chapter should return empty (not a real chapter list)
+        let description = "0:00 - Only one timestamp";
+        let chapters = parse_chapters_from_description(description);
+        assert!(chapters.is_empty());
+    }
+
+    #[test]
+    fn test_parse_chapters_empty() {
+        let description = "This is a description without any timestamps.";
+        let chapters = parse_chapters_from_description(description);
+        assert!(chapters.is_empty());
+    }
+
+    #[test]
+    fn test_parse_chapters_mixed_content() {
+        let description = r#"
+Check out my video! Subscribe for more.
+
+00:00 - Intro
+Some random text here with a link https://example.com
+05:30 - Main Topic
+More text.
+10:45 - Outro
+
+Don't forget to like and share!
+"#;
+
+        let chapters = parse_chapters_from_description(description);
+
+        assert_eq!(chapters.len(), 3);
+        assert_eq!(chapters[0].title, "Intro");
+        assert_eq!(chapters[1].title, "Main Topic");
+        assert_eq!(chapters[2].title, "Outro");
+    }
+
+    #[test]
+    fn test_render_chapters_ui_empty() {
+        let chapters: Vec<VideoChapter> = vec![];
+        let html = render_chapters_ui(&chapters).into_string();
+        assert!(html.is_empty());
+    }
+
+    #[test]
+    fn test_render_chapters_ui_with_chapters() {
+        let chapters = vec![
+            VideoChapter {
+                seconds: 0,
+                title: "Introduction".to_string(),
+                timestamp_display: "0:00".to_string(),
+            },
+            VideoChapter {
+                seconds: 120,
+                title: "Main Content".to_string(),
+                timestamp_display: "2:00".to_string(),
+            },
+        ];
+
+        let html = render_chapters_ui(&chapters).into_string();
+
+        assert!(html.contains("chapters-dropdown"));
+        assert!(html.contains("Chapters (2)"));
+        assert!(html.contains("0:00"));
+        assert!(html.contains("Introduction"));
+        assert!(html.contains("2:00"));
+        assert!(html.contains("Main Content"));
+        assert!(html.contains("seekVideo(0)"));
+        assert!(html.contains("seekVideo(120)"));
     }
 }
