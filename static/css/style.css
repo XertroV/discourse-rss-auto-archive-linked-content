@@ -2012,7 +2012,7 @@ pre {
 }
 
 .twitter-grid-3 .twitter-image-item:not(:first-child) img {
-    height: 50%;
+    /* height: 50%; */
     max-height: 25vh;
 }
 
