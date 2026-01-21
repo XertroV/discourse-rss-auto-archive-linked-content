@@ -508,7 +508,7 @@ async fn process_account_link_command(
     // Check if this forum account is already linked
     match get_forum_link_by_forum_username(db.pool(), forum_username).await {
         Ok(Some(_)) => {
-            debug!(
+            trace!(
                 forum_username = %forum_username,
                 "Forum account already linked to an archive account, skipping"
             );
