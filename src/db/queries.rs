@@ -1896,6 +1896,7 @@ pub struct UserSubmissionDetail {
     pub processed_at: Option<String>,
     pub error_message: Option<String>,
     pub link_id: Option<i64>,
+    pub archive_id: Option<i64>,
 }
 
 pub async fn get_user_submissions(
@@ -1905,10 +1906,12 @@ pub async fn get_user_submissions(
 ) -> Result<Vec<UserSubmissionDetail>> {
     sqlx::query_as(
         r"
-        SELECT id, url, status, created_at, processed_at, error_message, link_id
-        FROM submissions
-        WHERE submitted_by_user_id = ?
-        ORDER BY created_at DESC
+        SELECT s.id, s.url, s.status, s.created_at, s.processed_at,
+               s.error_message, s.link_id, a.id as archive_id
+        FROM submissions s
+        LEFT JOIN archives a ON s.link_id = a.link_id
+        WHERE s.submitted_by_user_id = ?
+        ORDER BY s.created_at DESC
         LIMIT ?
         ",
     )

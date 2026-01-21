@@ -217,27 +217,35 @@ pub fn render_stats_page(
         (stats_grid)
 
         // Timeline Chart
-        section {
-            h2 { "Archive Timeline (Last 12 Months)" }
-            (render_timeline_chart(&stats.timeline))
+        section class="stats-card" {
+            h2 class="stats-card-title" { "Archive Timeline (Last 12 Months)" }
+            div class="stats-card-content" {
+                (render_timeline_chart(&stats.timeline))
+            }
         }
 
         // Top Domains
-        section {
-            h2 { "Top Domains" }
-            (render_domain_table(&stats.top_domains))
+        section class="stats-card" {
+            h2 class="stats-card-title" { "Top Domains" }
+            div class="stats-card-content" {
+                (render_domain_table(&stats.top_domains))
+            }
         }
 
         // Archives by content type section
-        section {
-            h2 { "Archives by Content Type" }
-            (render_content_type_table(&stats.content_type_counts))
+        section class="stats-card" {
+            h2 class="stats-card-title" { "Archives by Content Type" }
+            div class="stats-card-content" {
+                (render_content_type_table(&stats.content_type_counts))
+            }
         }
 
         // Archives by status section
-        section {
-            h2 { "Archives by Status" }
-            (render_status_table(&stats.status_counts))
+        section class="stats-card" {
+            h2 class="stats-card-title" { "Archives by Status" }
+            div class="stats-card-content" {
+                (render_status_table(&stats.status_counts))
+            }
         }
 
         // User-specific stats (if logged in)
@@ -356,12 +364,12 @@ fn render_user_stats_section(user_stats: &UserStats) -> Markup {
     html! {
         section class="user-stats-section" {
             details {
-                summary class="user-stats-summary" {
-                    h2 { "Your Stats" }
+                summary {
+                    h2 style="display: inline;" { "Your Stats" }
                 }
                 div class="user-stats-content" {
                     h3 { "Submission Summary" }
-                    div class="stats-grid" {
+                    div class="submission-stats-grid" {
                         div class="stat-item" {
                             strong { "Total Submissions:" }
                             " " (user_stats.total_submissions)
@@ -410,15 +418,26 @@ fn render_user_submissions_table(submissions: &[UserSubmissionDetail]) -> Markup
                 .cell_with_class(&submission.status, &status_class)
                 .cell(&format_datetime(&submission.created_at))
                 .cell_markup(html! {
+                    @if let Some(archive_id) = submission.archive_id {
+                        a href=(format!("/archive/{}", archive_id)) class="btn btn-small" {
+                            "View"
+                        }
+                    } @else {
+                        span class="text-muted" { "—" }
+                    }
+                })
+                .cell_markup(html! {
                     @if let Some(error) = &submission.error_message {
-                        span title=(error) { "View error" }
+                        span title=(error) class="text-muted" { "Error" }
+                    } @else {
+                        span { "" }
                     }
                 })
                 .render()
         })
         .collect();
 
-    Table::new(vec!["URL", "Status", "Submitted", "Error"])
+    Table::new(vec!["URL", "Status", "Submitted", "Archive", "Error"])
         .variant(TableVariant::Stats)
         .rows(rows)
         .render()
@@ -568,11 +587,14 @@ mod tests {
         assert!(html.contains("Storage"));
         assert!(html.contains("Archive Quality"));
 
-        // Check archives by content type section
-        assert!(html.contains("<h2>Archives by Content Type</h2>"));
+        // Check section cards with titles
+        assert!(html.contains("Archive Timeline (Last 12 Months)"));
+        assert!(html.contains("Top Domains"));
+        assert!(html.contains("Archives by Content Type"));
+        assert!(html.contains("Archives by Status"));
 
-        // Check archives by status section
-        assert!(html.contains("<h2>Archives by Status</h2>"));
+        // Check for card structure
+        assert!(html.contains("stats-card-title"));
     }
 
     #[test]
