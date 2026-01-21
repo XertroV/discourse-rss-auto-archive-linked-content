@@ -8,6 +8,52 @@ use super::models::{
     SubtitleLanguage, ThreadArchiveJob, ThreadDisplay, User, VideoFile,
 };
 
+// ========== Source Filter Helpers ==========
+
+/// Represents a domain filter condition with its SQL clause and bind values.
+struct DomainFilter {
+    /// SQL WHERE clause fragment (e.g., "(l.domain = ? OR l.domain LIKE ?)")
+    sql: String,
+    /// Values to bind in order
+    values: Vec<String>,
+}
+
+/// Get domain filter SQL and bind values for a source name.
+/// Returns a proper domain match that handles exact domain and subdomains.
+fn get_domain_filter(source: &str) -> DomainFilter {
+    // Map source names to their domains
+    // For most sources, match exact domain or subdomains (e.g., "reddit.com" or "*.reddit.com")
+    // For twitter, match both x.com and twitter.com for backwards compatibility
+    match source {
+        "twitter" => DomainFilter {
+            sql: "(l.domain = ? OR l.domain LIKE ? OR l.domain = ? OR l.domain LIKE ?)".to_string(),
+            values: vec![
+                "x.com".to_string(),
+                "%.x.com".to_string(),
+                "twitter.com".to_string(),
+                "%.twitter.com".to_string(),
+            ],
+        },
+        "reddit" => DomainFilter {
+            sql: "(l.domain = ? OR l.domain LIKE ?)".to_string(),
+            values: vec!["reddit.com".to_string(), "%.reddit.com".to_string()],
+        },
+        "youtube" => DomainFilter {
+            sql: "(l.domain = ? OR l.domain LIKE ?)".to_string(),
+            values: vec!["youtube.com".to_string(), "%.youtube.com".to_string()],
+        },
+        "tiktok" => DomainFilter {
+            sql: "(l.domain = ? OR l.domain LIKE ?)".to_string(),
+            values: vec!["tiktok.com".to_string(), "%.tiktok.com".to_string()],
+        },
+        // For unknown sources, try to match as a domain directly
+        _ => DomainFilter {
+            sql: "(l.domain = ? OR l.domain LIKE ?)".to_string(),
+            values: vec![source.to_string(), format!("%.{}", source)],
+        },
+    }
+}
+
 // ========== Posts ==========
 
 /// Get a post by its GUID.
@@ -823,14 +869,15 @@ pub async fn get_recent_archives_display_filtered(
     source: Option<&str>,
 ) -> Result<Vec<ArchiveDisplay>> {
     // Build WHERE clause dynamically based on filters
-    let mut where_clauses = Vec::new();
+    let mut where_clauses: Vec<String> = Vec::new();
+    let domain_filter = source.map(get_domain_filter);
 
     if content_type.is_some() {
-        where_clauses.push("a.content_type = ?");
+        where_clauses.push("a.content_type = ?".to_string());
     }
 
-    if source.is_some() {
-        where_clauses.push("l.domain LIKE ?");
+    if let Some(ref df) = domain_filter {
+        where_clauses.push(df.sql.clone());
     }
 
     if where_clauses.is_empty() {
@@ -867,16 +914,10 @@ pub async fn get_recent_archives_display_filtered(
         query = query.bind(ct);
     }
 
-    if let Some(src) = source {
-        // Convert source name to domain pattern
-        let domain_pattern = match src {
-            "reddit" => "%reddit.com%",
-            "youtube" => "%youtube.com%",
-            "tiktok" => "%tiktok.com%",
-            "twitter" => "%twitter.com%",
-            _ => src,
-        };
-        query = query.bind(domain_pattern);
+    if let Some(ref df) = domain_filter {
+        for value in &df.values {
+            query = query.bind(value);
+        }
     }
 
     query
@@ -896,14 +937,15 @@ pub async fn get_all_archives_table_view(
     source: Option<&str>,
 ) -> Result<Vec<ArchiveDisplay>> {
     // Build WHERE clause dynamically based on filters
-    let mut where_clauses = Vec::new();
+    let mut where_clauses: Vec<String> = Vec::new();
+    let domain_filter = source.map(get_domain_filter);
 
     if content_type.is_some() {
-        where_clauses.push("a.content_type = ?");
+        where_clauses.push("a.content_type = ?".to_string());
     }
 
-    if source.is_some() {
-        where_clauses.push("l.domain LIKE ?");
+    if let Some(ref df) = domain_filter {
+        where_clauses.push(df.sql.clone());
     }
 
     let where_clause = if where_clauses.is_empty() {
@@ -941,16 +983,10 @@ pub async fn get_all_archives_table_view(
         query = query.bind(ct);
     }
 
-    if let Some(src) = source {
-        // Convert source name to domain pattern
-        let domain_pattern = match src {
-            "reddit" => "%reddit.com%",
-            "youtube" => "%youtube.com%",
-            "tiktok" => "%tiktok.com%",
-            "twitter" => "%twitter.com%",
-            _ => src,
-        };
-        query = query.bind(domain_pattern);
+    if let Some(ref df) = domain_filter {
+        for value in &df.values {
+            query = query.bind(value);
+        }
     }
 
     query
@@ -968,14 +1004,15 @@ pub async fn count_all_archives_filtered(
     source: Option<&str>,
 ) -> Result<i64> {
     // Build WHERE clause dynamically based on filters
-    let mut where_clauses = Vec::new();
+    let mut where_clauses: Vec<String> = Vec::new();
+    let domain_filter = source.map(get_domain_filter);
 
     if content_type.is_some() {
-        where_clauses.push("a.content_type = ?");
+        where_clauses.push("a.content_type = ?".to_string());
     }
 
-    if source.is_some() {
-        where_clauses.push("l.domain LIKE ?");
+    if let Some(ref df) = domain_filter {
+        where_clauses.push(df.sql.clone());
     }
 
     let where_clause = if where_clauses.is_empty() {
@@ -1001,16 +1038,10 @@ pub async fn count_all_archives_filtered(
         query = query.bind(ct);
     }
 
-    if let Some(src) = source {
-        // Convert source name to domain pattern
-        let domain_pattern = match src {
-            "reddit" => "%reddit.com%",
-            "youtube" => "%youtube.com%",
-            "tiktok" => "%tiktok.com%",
-            "twitter" => "%twitter.com%",
-            _ => src,
-        };
-        query = query.bind(domain_pattern);
+    if let Some(ref df) = domain_filter {
+        for value in &df.values {
+            query = query.bind(value);
+        }
     }
 
     query
@@ -1033,14 +1064,15 @@ pub async fn search_archives_display_filtered(
     }
 
     // Build WHERE clause dynamically based on filters
-    let mut where_clauses = vec!["archives_fts MATCH ?"];
+    let mut where_clauses: Vec<String> = vec!["archives_fts MATCH ?".to_string()];
+    let domain_filter = source.map(get_domain_filter);
 
     if content_type.is_some() {
-        where_clauses.push("a.content_type = ?");
+        where_clauses.push("a.content_type = ?".to_string());
     }
 
-    if source.is_some() {
-        where_clauses.push("l.domain LIKE ?");
+    if let Some(ref df) = domain_filter {
+        where_clauses.push(df.sql.clone());
     }
 
     if where_clauses.len() == 1 {
@@ -1081,16 +1113,10 @@ pub async fn search_archives_display_filtered(
         sql_query = sql_query.bind(ct);
     }
 
-    if let Some(src) = source {
-        // Convert source name to domain pattern
-        let domain_pattern = match src {
-            "reddit" => "%reddit.com%",
-            "youtube" => "%youtube.com%",
-            "tiktok" => "%tiktok.com%",
-            "twitter" => "%twitter.com%",
-            _ => src,
-        };
-        sql_query = sql_query.bind(domain_pattern);
+    if let Some(ref df) = domain_filter {
+        for value in &df.values {
+            sql_query = sql_query.bind(value);
+        }
     }
 
     sql_query
