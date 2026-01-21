@@ -464,6 +464,12 @@ fn render_content_sections(
     artifacts: &[ArchiveArtifact],
     subtitle_languages: &std::collections::HashMap<i64, SubtitleLanguage>,
 ) -> Markup {
+    // Twitter archives should show plaintext expanded since we skip HTML embed
+    let is_twitter = link.domain == "x.com"
+        || link.domain == "twitter.com"
+        || link.domain.ends_with(".x.com")
+        || link.domain.ends_with(".twitter.com");
+
     html! {
         // Playlist content
         @if archive.content_type.as_deref() == Some("playlist") {
@@ -471,8 +477,8 @@ fn render_content_sections(
                 (render_playlist_content(metadata_json))
             }
         } @else if let Some(ref text) = archive.content_text {
-            // Plaintext content (collapsible)
-            (render_plaintext_section(text))
+            // Plaintext content - expanded for Twitter, collapsible for others
+            (render_plaintext_section(text, is_twitter))
         }
 
         // Transcript section (for videos with subtitles)
@@ -483,7 +489,9 @@ fn render_content_sections(
 }
 
 /// Render plaintext content section.
-fn render_plaintext_section(text: &str) -> Markup {
+///
+/// If `expanded` is true, the content is shown expanded by default (for tweets).
+fn render_plaintext_section(text: &str, expanded: bool) -> Markup {
     let text_size = text.len();
     let size_display = if text_size >= 1024 {
         format!("{:.1} KB", text_size as f64 / 1024.0)
@@ -491,15 +499,41 @@ fn render_plaintext_section(text: &str) -> Markup {
         format!("{} bytes", text_size)
     };
 
+    // For tweets/short content, use a nicer display with larger text
+    let is_short = text_size < 1000;
+    let section_title = if expanded {
+        "Tweet Content"
+    } else {
+        "Plaintext Content"
+    };
+
     html! {
         section class="content-text-section" {
-            details {
-                summary {
-                    h2 style="display: inline;" { "Plaintext Content" }
-                    " "
-                    span class="text-size" { "(" (size_display) ")" }
+            @if expanded {
+                details open {
+                    summary {
+                        h2 style="display: inline;" { (section_title) }
+                        " "
+                        span class="text-size" { "(" (size_display) ")" }
+                    }
+                    @if is_short {
+                        // For short content like tweets, display with larger text
+                        div class="tweet-content" {
+                            p class="tweet-text" { (text) }
+                        }
+                    } @else {
+                        pre class="content-text" { (text) }
+                    }
                 }
-                pre class="content-text" { (text) }
+            } @else {
+                details {
+                    summary {
+                        h2 style="display: inline;" { (section_title) }
+                        " "
+                        span class="text-size" { "(" (size_display) ")" }
+                    }
+                    pre class="content-text" { (text) }
+                }
             }
         }
     }
@@ -1082,24 +1116,55 @@ fn render_captures_section(
     let mhtml = artifacts.iter().find(|a| a.kind == "mhtml");
     let nsfw_attr = if archive.is_nsfw { Some("true") } else { None };
 
+    // Twitter archives use screenshot as primary view, so make it larger
+    let is_twitter = link.domain == "x.com"
+        || link.domain == "twitter.com"
+        || link.domain.ends_with(".x.com")
+        || link.domain.ends_with(".twitter.com");
+
+    let section_class = if is_twitter {
+        "captures-section twitter-captures"
+    } else {
+        "captures-section"
+    };
+
     // Show captures section if any capture artifacts exist
     if screenshot.is_some() || pdf.is_some() || mhtml.is_some() {
         html! {
-            section class="captures-section" data-nsfw=[nsfw_attr] {
-                h2 { "Page Captures" }
+            section class=(section_class) data-nsfw=[nsfw_attr] {
+                @if is_twitter {
+                    h2 { "Tweet Screenshot" }
+                } @else {
+                    h2 { "Page Captures" }
+                }
                 div class="captures-grid" {
-                    // Screenshot preview
+                    // Screenshot preview - larger for Twitter
                     @if let Some(ss) = screenshot {
-                        div class="capture-item" {
-                            h4 { "Screenshot" }
-                            a href=(format!("/s3/{}", ss.s3_key)) target="_blank" rel="noopener" {
-                                img src=(format!("/s3/{}", ss.s3_key))
-                                    alt="Page screenshot"
-                                    class="screenshot-preview"
-                                    loading="lazy";
+                        @if is_twitter {
+                            div class="capture-item twitter-screenshot" {
+                                a href=(format!("/s3/{}", ss.s3_key)) target="_blank" rel="noopener" {
+                                    img src=(format!("/s3/{}", ss.s3_key))
+                                        alt="Tweet screenshot"
+                                        class="screenshot-preview-large"
+                                        loading="lazy";
+                                }
+                                p class="capture-meta" {
+                                    (ss.size_bytes.map(format_bytes).unwrap_or_else(|| "Unknown size".to_string()))
+                                    " - Click to view full size"
+                                }
                             }
-                            p class="capture-meta" {
-                                (ss.size_bytes.map(format_bytes).unwrap_or_else(|| "Unknown size".to_string()))
+                        } @else {
+                            div class="capture-item" {
+                                h4 { "Screenshot" }
+                                a href=(format!("/s3/{}", ss.s3_key)) target="_blank" rel="noopener" {
+                                    img src=(format!("/s3/{}", ss.s3_key))
+                                        alt="Page screenshot"
+                                        class="screenshot-preview"
+                                        loading="lazy";
+                                }
+                                p class="capture-meta" {
+                                    (ss.size_bytes.map(format_bytes).unwrap_or_else(|| "Unknown size".to_string()))
+                                }
                             }
                         }
                     }
@@ -2027,12 +2092,25 @@ mod tests {
 
     #[test]
     fn test_render_plaintext_section() {
-        let html = render_plaintext_section("Hello, world!").into_string();
+        // Test collapsed mode (non-Twitter)
+        let html = render_plaintext_section("Hello, world!", false).into_string();
 
         assert!(html.contains("content-text-section"));
         assert!(html.contains("Plaintext Content"));
         assert!(html.contains("Hello, world!"));
         assert!(html.contains("13 bytes"));
+    }
+
+    #[test]
+    fn test_render_plaintext_section_expanded() {
+        // Test expanded mode (Twitter)
+        let html = render_plaintext_section("This is a tweet!", true).into_string();
+
+        assert!(html.contains("content-text-section"));
+        assert!(html.contains("Tweet Content"));
+        assert!(html.contains("This is a tweet!"));
+        assert!(html.contains("tweet-content")); // Special styling for tweets
+        assert!(html.contains("details open")); // Should be expanded
     }
 
     #[test]

@@ -1894,6 +1894,49 @@ pre {
     font-size: var(--font-size-sm);
 }
 
+/* Twitter-specific captures - larger screenshots as primary view */
+.twitter-captures .captures-grid {
+    grid-template-columns: 1fr;
+    max-width: 800px;
+}
+
+.twitter-screenshot {
+    text-align: center;
+}
+
+.screenshot-preview-large {
+    max-width: 100%;
+    max-height: 800px;
+    width: auto;
+    height: auto;
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    box-shadow: var(--box-shadow);
+}
+
+.screenshot-preview-large:hover {
+    transform: scale(1.01);
+    box-shadow: var(--box-shadow-hover);
+}
+
+/* Tweet content display */
+.tweet-content {
+    padding: var(--spacing-md);
+    background-color: var(--bg-secondary);
+    border-left: 4px solid var(--primary);
+    margin-bottom: var(--spacing-md);
+}
+
+.tweet-text {
+    font-size: 1.25rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    margin: 0;
+}
+
 /* HTTP Status Code display */
 .http-status-success {
     color: var(--success-fg);
