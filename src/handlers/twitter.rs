@@ -341,7 +341,8 @@ async fn archive_with_gallerydl(
             if result.text.is_none() {
                 if metadata.quoted_tweet_url.is_some() {
                     // This is a quote tweet - format with both outer and quoted content
-                    result.text = format_quote_tweet_text(&metadata).or_else(|| metadata.text.clone());
+                    result.text =
+                        format_quote_tweet_text(&metadata).or_else(|| metadata.text.clone());
                 } else {
                     result.text = metadata.text.clone();
                 }
@@ -707,6 +708,7 @@ fn detect_nsfw_from_html(html: &str) -> bool {
 /// Detect if a quoted tweet has been deleted from HTML snapshot.
 ///
 /// Looks for indicators that a quoted tweet is unavailable or deleted.
+#[allow(dead_code)] // Reserved for future HTML-based detection
 fn detect_deleted_quoted_tweet_from_html(html: &str) -> bool {
     let html_lower = html.to_ascii_lowercase();
 
@@ -1818,7 +1820,10 @@ mod tests {
             metadata.quoted_tweet_url,
             Some("https://x.com/deleteduser/status/9876543210".to_string())
         );
-        assert_eq!(metadata.quoted_tweet_author, Some("deleteduser".to_string()));
+        assert_eq!(
+            metadata.quoted_tweet_author,
+            Some("deleteduser".to_string())
+        );
     }
 
     #[test]
@@ -1858,7 +1863,10 @@ mod tests {
             metadata.quoted_tweet_text,
             Some("Original quoted content".to_string())
         );
-        assert_eq!(metadata.quoted_tweet_date, Some("2024-01-15T12:00:00".to_string()));
+        assert_eq!(
+            metadata.quoted_tweet_date,
+            Some("2024-01-15T12:00:00".to_string())
+        );
         assert_eq!(metadata.quoted_tweet_author, Some("quoteduser".to_string()));
     }
 }
