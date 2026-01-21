@@ -224,27 +224,27 @@ pub fn render_stats_page(
             }
         }
 
-        // Top Domains
-        section class="stats-card" {
-            h2 class="stats-card-title" { "Top Domains" }
-            div class="stats-card-content" {
-                (render_domain_table(&stats.top_domains))
+        // Tables grid - Top Domains, Content Type, Status
+        div class="stats-card-grid" {
+            section class="stats-card" {
+                h2 class="stats-card-title" { "Top Domains" }
+                div class="stats-card-content" {
+                    (render_domain_table(&stats.top_domains))
+                }
             }
-        }
 
-        // Archives by content type section
-        section class="stats-card" {
-            h2 class="stats-card-title" { "Archives by Content Type" }
-            div class="stats-card-content" {
-                (render_content_type_table(&stats.content_type_counts))
+            section class="stats-card" {
+                h2 class="stats-card-title" { "Archives by Content Type" }
+                div class="stats-card-content" {
+                    (render_content_type_table(&stats.content_type_counts))
+                }
             }
-        }
 
-        // Archives by status section
-        section class="stats-card" {
-            h2 class="stats-card-title" { "Archives by Status" }
-            div class="stats-card-content" {
-                (render_status_table(&stats.status_counts))
+            section class="stats-card" {
+                h2 class="stats-card-title" { "Archives by Status" }
+                div class="stats-card-content" {
+                    (render_status_table(&stats.status_counts))
+                }
             }
         }
 

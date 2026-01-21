@@ -3,8 +3,8 @@
 use discourse_link_archiver::db::{
     count_archives_for_video_file, create_pending_archive, find_video_file, get_archive,
     get_archive_by_link_id, get_link_by_normalized_url, get_or_create_video_file, get_post_by_guid,
-    get_recent_archives, get_video_file, insert_artifact_with_video_file, insert_link,
-    insert_link_occurrence, insert_post, insert_video_file, link_occurrence_exists,
+    get_recent_archives, get_top_domains, get_video_file, insert_artifact_with_video_file,
+    insert_link, insert_link_occurrence, insert_post, insert_video_file, link_occurrence_exists,
     search_archives, set_archive_complete, update_video_file_metadata,
     update_video_file_metadata_key, Database, NewLink, NewLinkOccurrence, NewPost,
 };
@@ -515,4 +515,64 @@ async fn test_count_archives_for_video_file() {
         .await
         .unwrap();
     assert_eq!(count, 2);
+}
+
+#[tokio::test]
+async fn test_get_top_domains() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Create links with different domains
+    let domains = vec![
+        ("reddit.com", 3),  // 3 archives
+        ("youtube.com", 2), // 2 archives
+        ("twitter.com", 1), // 1 archive
+    ];
+
+    for (domain, count) in domains {
+        for i in 0..count {
+            let new_link = NewLink {
+                original_url: format!("https://{}/test/{}", domain, i),
+                normalized_url: format!("https://{}/test/{}", domain, i),
+                canonical_url: None,
+                domain: domain.to_string(),
+            };
+            let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+
+            // Create archive and mark as complete
+            let archive_id = create_pending_archive(db.pool(), link_id, None)
+                .await
+                .unwrap();
+
+            set_archive_complete(
+                db.pool(),
+                archive_id,
+                Some("Test Title"),
+                Some("Test Author"),
+                Some("Test content"),
+                Some("text"),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        }
+    }
+
+    // Get top 3 domains
+    let top_domains = get_top_domains(db.pool(), 3).await.unwrap();
+
+    // Should return domains in order: reddit.com (3), youtube.com (2), twitter.com (1)
+    assert_eq!(top_domains.len(), 3);
+    assert_eq!(top_domains[0].0, "reddit.com");
+    assert_eq!(top_domains[0].1, 3);
+    assert_eq!(top_domains[1].0, "youtube.com");
+    assert_eq!(top_domains[1].1, 2);
+    assert_eq!(top_domains[2].0, "twitter.com");
+    assert_eq!(top_domains[2].1, 1);
+
+    // Test limit
+    let top_2_domains = get_top_domains(db.pool(), 2).await.unwrap();
+    assert_eq!(top_2_domains.len(), 2);
+    assert_eq!(top_2_domains[0].0, "reddit.com");
+    assert_eq!(top_2_domains[1].0, "youtube.com");
 }
