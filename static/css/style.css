@@ -614,6 +614,11 @@ tr:hover {
     color: white;
 }
 
+.media-type-mixed {
+    background-color: #8b5cf6;
+    color: white;
+}
+
 /* Language pill for subtitle files */
 .language-pill {
     display: inline-block;

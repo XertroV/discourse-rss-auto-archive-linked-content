@@ -246,6 +246,11 @@ async fn archive_twitter_media(
             debug!(url = %url, "Using gallery-dl for image-only tweet");
             archive_with_gallerydl(url, work_dir, cookies).await
         }
+        TweetMediaType::Mixed => {
+            // Mixed media: both video/GIF AND images - use both tools
+            debug!(url = %url, "Mixed media detected, using both yt-dlp and gallery-dl");
+            archive_mixed_media(url, work_dir, cookies, config).await
+        }
         TweetMediaType::Card => {
             // Cards might be videos or images, try yt-dlp first
             debug!(url = %url, "Card detected, trying yt-dlp first");
@@ -375,6 +380,73 @@ async fn archive_with_gallerydl(
     }
 
     Ok(result)
+}
+
+/// Archive mixed media tweet (video + images).
+///
+/// Runs yt-dlp for video first, then gallery-dl for images.
+/// Merges results with video as primary_file and images in extra_files.
+async fn archive_mixed_media(
+    url: &str,
+    work_dir: &Path,
+    cookies: &CookieOptions<'_>,
+    config: &crate::config::Config,
+) -> Result<ArchiveResult> {
+    debug!(url = %url, "Archiving mixed media tweet (video + images)");
+
+    // Step 1: Download video with yt-dlp
+    let video_result = archive_with_ytdlp(url, work_dir, cookies, config).await?;
+
+    // Step 2: Download images with gallery-dl
+    let image_result = match archive_with_gallerydl(url, work_dir, cookies).await {
+        Ok(result) => result,
+        Err(e) => {
+            warn!(url = %url, error = %e, "gallery-dl failed for mixed media, continuing with video only");
+            return Ok(ArchiveResult {
+                content_type: "video".to_string(),
+                ..video_result
+            });
+        }
+    };
+
+    // Step 3: Merge results - video as primary, images in extra_files
+    let mut merged = video_result;
+
+    // Add images to extra_files (primary image + any extra images)
+    if let Some(ref primary_image) = image_result.primary_file {
+        merged.extra_files.push(primary_image.clone());
+    }
+    merged.extra_files.extend(image_result.extra_files);
+
+    // Set content type to mixed
+    merged.content_type = "mixed".to_string();
+
+    // Merge metadata - keep both video and image metadata
+    if merged.metadata_json.is_some() && image_result.metadata_json.is_some() {
+        if let (Some(video_meta), Some(image_meta)) =
+            (&merged.metadata_json, &image_result.metadata_json)
+        {
+            if let (Ok(v), Ok(i)) = (
+                serde_json::from_str::<serde_json::Value>(video_meta),
+                serde_json::from_str::<serde_json::Value>(image_meta),
+            ) {
+                let combined = serde_json::json!({
+                    "video_metadata": v,
+                    "image_metadata": i,
+                });
+                merged.metadata_json = Some(combined.to_string());
+            }
+        }
+    }
+
+    debug!(
+        url = %url,
+        primary_file = ?merged.primary_file,
+        extra_files_count = merged.extra_files.len(),
+        "Successfully archived mixed media tweet"
+    );
+
+    Ok(merged)
 }
 
 /// Try to archive via nitter instances.
@@ -783,6 +855,8 @@ pub enum TweetMediaType {
     Images,
     /// Card with media preview
     Card,
+    /// Mixed media: both video/GIF AND images (use both tools)
+    Mixed,
 }
 
 /// Detect the type of media in Twitter HTML.
@@ -794,7 +868,7 @@ pub enum TweetMediaType {
 fn detect_media_type_in_html(html: &str) -> TweetMediaType {
     let html_lower = html.to_ascii_lowercase();
 
-    // Video indicators - check first since videos take priority
+    // Video indicators
     let has_video = html_lower.contains("data-testid=\"videoplayer\"")
         || html_lower.contains("data-testid=\"videocomponent\"")
         || html_lower.contains("<video")
@@ -802,24 +876,29 @@ fn detect_media_type_in_html(html: &str) -> TweetMediaType {
         || html_lower.contains("ext_tw_video")
         || html_lower.contains("amplify_video");
 
-    if has_video {
-        return TweetMediaType::Video;
-    }
-
     // GIF indicators - Twitter GIFs are actually MP4 videos
     // pbs.twimg.com/tweet_video/ is used for GIF thumbnails
     let has_gif = html_lower.contains("data-testid=\"tweetgif\"")
         || html_lower.contains("tweet_video_thumb")
         || html_lower.contains("pbs.twimg.com/tweet_video");
 
-    if has_gif {
-        return TweetMediaType::Gif;
-    }
-
     // Image indicators (excluding profile pictures and icons)
     // Twitter uses data-testid="tweetPhoto" for tweet images
     let has_images = html_lower.contains("data-testid=\"tweetphoto\"")
         || html_lower.contains("pbs.twimg.com/media/");
+
+    // Check for mixed media first (video/GIF AND images)
+    if (has_video || has_gif) && has_images {
+        return TweetMediaType::Mixed;
+    }
+
+    if has_video {
+        return TweetMediaType::Video;
+    }
+
+    if has_gif {
+        return TweetMediaType::Gif;
+    }
 
     if has_images {
         return TweetMediaType::Images;
@@ -1540,6 +1619,54 @@ mod tests {
             </html>
         "#;
         assert!(!detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_detect_media_type_mixed_video_and_images() {
+        // Tweet with both video player and images
+        let html = r#"
+            <article>
+                <div data-testid="videoPlayer">Video content</div>
+                <div data-testid="tweetPhoto"><img src="photo.jpg"></div>
+            </article>
+        "#;
+        assert_eq!(detect_media_type_in_html(html), TweetMediaType::Mixed);
+    }
+
+    #[test]
+    fn test_detect_media_type_mixed_video_and_twimg_media() {
+        // Tweet with video and pbs.twimg.com/media/ images
+        let html = r#"
+            <article>
+                <div data-testid="videoPlayer">Video content</div>
+                <img src="https://pbs.twimg.com/media/ABC123.jpg">
+            </article>
+        "#;
+        assert_eq!(detect_media_type_in_html(html), TweetMediaType::Mixed);
+    }
+
+    #[test]
+    fn test_detect_media_type_video_only_no_images() {
+        let html = r#"<div data-testid="videoPlayer">Video only</div>"#;
+        assert_eq!(detect_media_type_in_html(html), TweetMediaType::Video);
+    }
+
+    #[test]
+    fn test_detect_media_type_images_only_no_video() {
+        let html = r#"<div data-testid="tweetPhoto"><img src="photo.jpg"></div>"#;
+        assert_eq!(detect_media_type_in_html(html), TweetMediaType::Images);
+    }
+
+    #[test]
+    fn test_detect_media_type_gif_and_images_is_mixed() {
+        // GIF (tweet_video) plus images should be Mixed
+        let html = r#"
+            <article>
+                <img src="https://pbs.twimg.com/tweet_video/ABC123.jpg">
+                <div data-testid="tweetPhoto"><img src="photo.jpg"></div>
+            </article>
+        "#;
+        assert_eq!(detect_media_type_in_html(html), TweetMediaType::Mixed);
     }
 
     #[test]

@@ -940,6 +940,70 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
         || link.domain.ends_with(".x.com")
         || link.domain.ends_with(".twitter.com");
 
+    // Handle Twitter mixed media (video + images)
+    let is_twitter_mixed = is_twitter && archive.content_type.as_deref() == Some("mixed");
+
+    if is_twitter_mixed {
+        // Collect video artifacts
+        let video_artifact = artifacts.iter().find(|a| a.kind == "video");
+
+        // Collect image artifacts
+        let mut image_artifacts: Vec<_> = artifacts.iter().filter(|a| a.kind == "image").collect();
+        image_artifacts.sort_by(|a, b| a.s3_key.cmp(&b.s3_key));
+
+        let type_badge = MediaTypeBadge::from_content_type("mixed");
+
+        return html! {
+            section {
+                div class="section-header-with-badge" {
+                    h2 { "Media" }
+                    (type_badge)
+                }
+
+                // Video player (if video artifact exists)
+                @if let Some(video_art) = video_artifact {
+                    div class="mixed-media-video" {
+                        (render_media_player_with_options(&video_art.s3_key, Some("video"), thumb_key, false))
+                        div class="media-actions" {
+                            @let download_name = suggested_download_filename(&link.domain, archive.id, &video_art.s3_key);
+                            a href=(format!("/s3/{}", html_escape(&video_art.s3_key)))
+                              class="media-download"
+                              download=(download_name)
+                              target="_blank" rel="noopener" {
+                                span { "Download Video" }
+                            }
+                        }
+                    }
+                }
+
+                // Image gallery (if images exist)
+                @if !image_artifacts.is_empty() {
+                    div class="mixed-media-images" style="margin-top: 1rem;" {
+                        h3 { "Images (" (image_artifacts.len()) ")" }
+                        @let image_count = image_artifacts.len();
+                        @let grid_class = match image_count {
+                            1 => "twitter-image-grid twitter-grid-1",
+                            2 => "twitter-image-grid twitter-grid-2",
+                            3 => "twitter-image-grid twitter-grid-3",
+                            _ => "twitter-image-grid twitter-grid-4",
+                        };
+                        div class=(grid_class) {
+                            @for artifact in &image_artifacts {
+                                a href=(format!("/s3/{}", html_escape(&artifact.s3_key)))
+                                  target="_blank" rel="noopener"
+                                  class="twitter-image-item" {
+                                    img src=(format!("/s3/{}", html_escape(&artifact.s3_key)))
+                                        alt="Tweet image"
+                                        loading="lazy";
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+    }
+
     let is_twitter_gallery = is_twitter
         && matches!(
             archive.content_type.as_deref(),

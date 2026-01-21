@@ -42,6 +42,7 @@ impl CachedStats {
                 "thread" => "threads",
                 "playlist" => "playlists",
                 "pdf" => "PDFs",
+                "mixed" => "mixed media",
                 _ => continue, // Skip unknown types
             };
             parts.push(format!("{} {}", count, type_name));
