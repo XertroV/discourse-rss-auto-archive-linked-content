@@ -107,6 +107,7 @@ impl<'a> BaseLayout<'a> {
                     // External scripts for interactive functionality
                     script src="/static/js/theme.js" {}
                     script src="/static/js/nsfw.js" {}
+                    script src="/static/js/video-volume.js" {}
                 }
             }
         }
@@ -332,6 +333,7 @@ mod tests {
         // Check external script tags
         assert!(html.contains(r#"<script src="/static/js/theme.js">"#));
         assert!(html.contains(r#"<script src="/static/js/nsfw.js">"#));
+        assert!(html.contains(r#"<script src="/static/js/video-volume.js">"#));
     }
 
     #[test]
