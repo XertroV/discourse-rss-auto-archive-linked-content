@@ -864,30 +864,59 @@ pub async fn search_archives_display(
         .context("Failed to search archives by URL");
     }
 
-    // Search both FTS and URLs
+    // Search both FTS and URLs using UNION to combine results
     sqlx::query_as(
         r"
+        WITH combined_results AS (
+            SELECT
+                a.id, a.link_id, a.status, a.archived_at,
+                a.content_title, a.content_author, a.content_type,
+                a.is_nsfw, a.error_message, a.retry_count,
+                l.original_url, l.domain,
+                COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes,
+                COALESCE(rank, 0) as search_rank
+            FROM archives a
+            JOIN links l ON a.link_id = l.id
+            JOIN archives_fts ON a.id = archives_fts.rowid
+            LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
+            WHERE archives_fts MATCH ?
+            GROUP BY a.id, a.link_id, a.status, a.archived_at,
+                     a.content_title, a.content_author, a.content_type,
+                     a.is_nsfw, a.error_message, a.retry_count,
+                     l.original_url, l.domain
+            UNION
+            SELECT
+                a.id, a.link_id, a.status, a.archived_at,
+                a.content_title, a.content_author, a.content_type,
+                a.is_nsfw, a.error_message, a.retry_count,
+                l.original_url, l.domain,
+                COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes,
+                0 as search_rank
+            FROM archives a
+            JOIN links l ON a.link_id = l.id
+            LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
+            WHERE l.original_url LIKE ?
+            AND NOT EXISTS (
+                SELECT 1 FROM archives_fts WHERE archives_fts.rowid = a.id AND archives_fts MATCH ?
+            )
+            GROUP BY a.id, a.link_id, a.status, a.archived_at,
+                     a.content_title, a.content_author, a.content_type,
+                     a.is_nsfw, a.error_message, a.retry_count,
+                     l.original_url, l.domain
+        )
         SELECT
-            a.id, a.link_id, a.status, a.archived_at,
-            a.content_title, a.content_author, a.content_type,
-            a.is_nsfw, a.error_message, a.retry_count,
-            l.original_url, l.domain,
-            COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
-        FROM archives a
-        JOIN links l ON a.link_id = l.id
-        LEFT JOIN archives_fts ON a.id = archives_fts.rowid
-        LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
-        WHERE (archives_fts MATCH ? OR l.original_url LIKE ?)
-        GROUP BY a.id, a.link_id, a.status, a.archived_at,
-                 a.content_title, a.content_author, a.content_type,
-                 a.is_nsfw, a.error_message, a.retry_count,
-                 l.original_url, l.domain
-        ORDER BY COALESCE(rank, 0) DESC
+            id, link_id, status, archived_at,
+            content_title, content_author, content_type,
+            is_nsfw, error_message, retry_count,
+            original_url, domain, total_size_bytes
+        FROM combined_results
+        ORDER BY search_rank DESC
         LIMIT ?
         ",
     )
-    .bind(sanitized)
-    .bind(url_pattern)
+    .bind(&sanitized)
+    .bind(&url_pattern)
+    .bind(&sanitized)
     .bind(limit)
     .fetch_all(pool)
     .await
@@ -1098,76 +1127,143 @@ pub async fn search_archives_display_filtered(
 
     let url_pattern = format!("%{}%", query.trim());
 
-    // Build WHERE clause dynamically based on filters
-    let mut where_clauses: Vec<String> = Vec::new();
-
-    // Add search clause (FTS + URL or just URL if FTS sanitization failed)
-    if sanitized.is_empty() {
-        where_clauses.push("l.original_url LIKE ?".to_string());
-    } else {
-        where_clauses.push("(archives_fts MATCH ? OR l.original_url LIKE ?)".to_string());
-    }
-
+    // Build additional filter clauses
     let domain_filter = source.map(get_domain_filter);
+    let mut additional_filters = Vec::new();
 
     if content_type.is_some() {
-        where_clauses.push("a.content_type = ?".to_string());
+        additional_filters.push("a.content_type = ?".to_string());
     }
 
     if let Some(ref df) = domain_filter {
-        where_clauses.push(df.sql.clone());
+        additional_filters.push(df.sql.clone());
     }
 
-    if where_clauses.len() == 1 && !sanitized.is_empty() {
-        // Only MATCH clause, no additional filters
-        return search_archives_display(pool, query, limit).await;
-    }
-
-    let where_clause = where_clauses.join(" AND ");
-    let order_clause = if sanitized.is_empty() {
-        "ORDER BY a.archived_at DESC"
+    let additional_where = if additional_filters.is_empty() {
+        String::new()
     } else {
-        "ORDER BY COALESCE(rank, 0) DESC"
+        format!("AND {}", additional_filters.join(" AND "))
     };
 
-    let sql = format!(
-        r"
-        SELECT
-            a.id, a.link_id, a.status, a.archived_at,
-            a.content_title, a.content_author, a.content_type,
-            a.is_nsfw, a.error_message, a.retry_count,
-            l.original_url, l.domain,
-            COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
-        FROM archives a
-        JOIN links l ON a.link_id = l.id
-        LEFT JOIN archives_fts ON a.id = archives_fts.rowid
-        LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
-        WHERE {}
-        GROUP BY a.id, a.link_id, a.status, a.archived_at,
-                 a.content_title, a.content_author, a.content_type,
-                 a.is_nsfw, a.error_message, a.retry_count,
-                 l.original_url, l.domain
-        {}
-        LIMIT ?
-        ",
-        where_clause, order_clause
-    );
+    // Use UNION for FTS + URL search, or simple query for URL-only
+    let sql = if sanitized.is_empty() {
+        // URL-only search with filters
+        format!(
+            r"
+            SELECT
+                a.id, a.link_id, a.status, a.archived_at,
+                a.content_title, a.content_author, a.content_type,
+                a.is_nsfw, a.error_message, a.retry_count,
+                l.original_url, l.domain,
+                COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
+            FROM archives a
+            JOIN links l ON a.link_id = l.id
+            LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
+            WHERE l.original_url LIKE ? {}
+            GROUP BY a.id, a.link_id, a.status, a.archived_at,
+                     a.content_title, a.content_author, a.content_type,
+                     a.is_nsfw, a.error_message, a.retry_count,
+                     l.original_url, l.domain
+            ORDER BY a.archived_at DESC
+            LIMIT ?
+            ",
+            additional_where
+        )
+    } else {
+        // FTS + URL search with filters using UNION
+        format!(
+            r"
+            WITH combined_results AS (
+                SELECT
+                    a.id, a.link_id, a.status, a.archived_at,
+                    a.content_title, a.content_author, a.content_type,
+                    a.is_nsfw, a.error_message, a.retry_count,
+                    l.original_url, l.domain,
+                    COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes,
+                    COALESCE(rank, 0) as search_rank
+                FROM archives a
+                JOIN links l ON a.link_id = l.id
+                JOIN archives_fts ON a.id = archives_fts.rowid
+                LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
+                WHERE archives_fts MATCH ? {}
+                GROUP BY a.id, a.link_id, a.status, a.archived_at,
+                         a.content_title, a.content_author, a.content_type,
+                         a.is_nsfw, a.error_message, a.retry_count,
+                         l.original_url, l.domain
+                UNION
+                SELECT
+                    a.id, a.link_id, a.status, a.archived_at,
+                    a.content_title, a.content_author, a.content_type,
+                    a.is_nsfw, a.error_message, a.retry_count,
+                    l.original_url, l.domain,
+                    COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes,
+                    0 as search_rank
+                FROM archives a
+                JOIN links l ON a.link_id = l.id
+                LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
+                WHERE l.original_url LIKE ? {}
+                AND NOT EXISTS (
+                    SELECT 1 FROM archives_fts WHERE archives_fts.rowid = a.id AND archives_fts MATCH ?
+                )
+                GROUP BY a.id, a.link_id, a.status, a.archived_at,
+                         a.content_title, a.content_author, a.content_type,
+                         a.is_nsfw, a.error_message, a.retry_count,
+                         l.original_url, l.domain
+            )
+            SELECT
+                id, link_id, status, archived_at,
+                content_title, content_author, content_type,
+                is_nsfw, error_message, retry_count,
+                original_url, domain, total_size_bytes
+            FROM combined_results
+            ORDER BY search_rank DESC
+            LIMIT ?
+            ",
+            additional_where, additional_where
+        )
+    };
 
     let mut sql_query = sqlx::query_as(&sql);
 
     // Bind parameters in order
     if !sanitized.is_empty() {
-        sql_query = sql_query.bind(sanitized);
-    }
-    sql_query = sql_query.bind(&url_pattern);
+        // For UNION query: sanitized, url_pattern, content_type, domain_filter, sanitized (for NOT EXISTS), limit
+        sql_query = sql_query.bind(&sanitized);
+        sql_query = sql_query.bind(&url_pattern);
 
-    if let Some(ct) = content_type {
-        sql_query = sql_query.bind(ct);
-    }
+        // Bind filter parameters for first part of UNION
+        if let Some(ct) = content_type {
+            sql_query = sql_query.bind(ct);
+        }
+        if let Some(ref df) = domain_filter {
+            for value in &df.values {
+                sql_query = sql_query.bind(value);
+            }
+        }
 
-    if let Some(ref df) = domain_filter {
-        for value in &df.values {
-            sql_query = sql_query.bind(value);
+        // Bind filter parameters for second part of UNION
+        if let Some(ct) = content_type {
+            sql_query = sql_query.bind(ct);
+        }
+        if let Some(ref df) = domain_filter {
+            for value in &df.values {
+                sql_query = sql_query.bind(value);
+            }
+        }
+
+        // Bind sanitized again for NOT EXISTS clause
+        sql_query = sql_query.bind(&sanitized);
+    } else {
+        // For URL-only query: url_pattern, content_type, domain_filter, limit
+        sql_query = sql_query.bind(&url_pattern);
+
+        if let Some(ct) = content_type {
+            sql_query = sql_query.bind(ct);
+        }
+        if let Some(ref df) = domain_filter {
+            for value in &df.values {
+                sql_query = sql_query.bind(value);
+            }
         }
     }
 
@@ -1318,18 +1414,28 @@ pub async fn search_archives(pool: &SqlitePool, query: &str, limit: i64) -> Resu
         .context("Failed to search archives by URL");
     }
 
+    // Search both FTS and URLs using UNION
     sqlx::query_as(
         r"
-        SELECT archives.* FROM archives
-        JOIN links l ON archives.link_id = l.id
-        LEFT JOIN archives_fts ON archives.id = archives_fts.rowid
-        WHERE (archives_fts MATCH ? OR l.original_url LIKE ?)
-        ORDER BY COALESCE(rank, 0) DESC
+        SELECT * FROM (
+            SELECT archives.* FROM archives
+            JOIN links l ON archives.link_id = l.id
+            JOIN archives_fts ON archives.id = archives_fts.rowid
+            WHERE archives_fts MATCH ?
+            UNION
+            SELECT archives.* FROM archives
+            JOIN links l ON archives.link_id = l.id
+            WHERE l.original_url LIKE ?
+            AND NOT EXISTS (
+                SELECT 1 FROM archives_fts WHERE archives_fts.rowid = archives.id AND archives_fts MATCH ?
+            )
+        )
         LIMIT ?
         ",
     )
-    .bind(sanitized)
-    .bind(url_pattern)
+    .bind(&sanitized)
+    .bind(&url_pattern)
+    .bind(&sanitized)
     .bind(limit)
     .fetch_all(pool)
     .await
@@ -1361,50 +1467,59 @@ pub async fn search_archives_filtered_full(
 
     let url_pattern = format!("%{}%", query.trim());
 
-    // Build WHERE clause dynamically based on filters
-    let mut where_clauses = Vec::new();
-
-    // Add search clause (FTS + URL or just URL if FTS sanitization failed)
-    if sanitized.is_empty() {
-        where_clauses.push("l.original_url LIKE ?".to_string());
-    } else {
-        where_clauses.push("(archives_fts MATCH ? OR l.original_url LIKE ?)".to_string());
-    }
+    // Build additional filter clauses
+    let mut additional_filters = Vec::new();
 
     match nsfw_filter {
-        Some(true) => where_clauses.push("archives.is_nsfw = 1".to_string()),
-        Some(false) => {
-            where_clauses.push("(archives.is_nsfw = 0 OR archives.is_nsfw IS NULL)".to_string())
-        }
+        Some(true) => additional_filters.push("archives.is_nsfw = 1".to_string()),
+        Some(false) => additional_filters
+            .push("(archives.is_nsfw = 0 OR archives.is_nsfw IS NULL)".to_string()),
         None => {}
     }
 
     if content_type.is_some() {
-        where_clauses.push("archives.content_type = ?".to_string());
+        additional_filters.push("archives.content_type = ?".to_string());
     }
 
-    let where_clause = where_clauses.join(" AND ");
-    let order_clause = if sanitized.is_empty() {
-        "ORDER BY archives.archived_at DESC"
+    let additional_where = if additional_filters.is_empty() {
+        String::new()
     } else {
-        "ORDER BY COALESCE(rank, 0) DESC"
+        format!("AND {}", additional_filters.join(" AND "))
     };
 
-    let sql = format!(
-        "SELECT archives.* FROM archives JOIN links l ON archives.link_id = l.id LEFT JOIN archives_fts ON archives.id = archives_fts.rowid WHERE {} {} LIMIT ?",
-        where_clause,
-        order_clause
-    );
+    // Use UNION for FTS + URL search, or simple query for URL-only
+    let sql = if sanitized.is_empty() {
+        // URL-only search with filters
+        format!(
+            "SELECT archives.* FROM archives JOIN links l ON archives.link_id = l.id WHERE l.original_url LIKE ? {} ORDER BY archives.archived_at DESC LIMIT ?",
+            additional_where
+        )
+    } else {
+        // FTS + URL search with filters using UNION
+        format!(
+            "SELECT * FROM (SELECT archives.* FROM archives JOIN links l ON archives.link_id = l.id JOIN archives_fts ON archives.id = archives_fts.rowid WHERE archives_fts MATCH ? {} UNION SELECT archives.* FROM archives JOIN links l ON archives.link_id = l.id WHERE l.original_url LIKE ? {} AND NOT EXISTS (SELECT 1 FROM archives_fts WHERE archives_fts.rowid = archives.id AND archives_fts MATCH ?)) LIMIT ?",
+            additional_where, additional_where
+        )
+    };
 
     let mut q = sqlx::query_as(&sql);
-    if !sanitized.is_empty() {
-        q = q.bind(sanitized);
-    }
-    q = q.bind(&url_pattern);
 
-    // Bind content_type if present (bind in order of ? placeholders)
-    if let Some(ct) = content_type {
-        q = q.bind(ct);
+    // Bind parameters in order
+    if !sanitized.is_empty() {
+        q = q.bind(&sanitized);
+        if let Some(ct) = content_type {
+            q = q.bind(ct);
+        }
+        q = q.bind(&url_pattern);
+        if let Some(ct) = content_type {
+            q = q.bind(ct);
+        }
+        q = q.bind(&sanitized);
+    } else {
+        q = q.bind(&url_pattern);
+        if let Some(ct) = content_type {
+            q = q.bind(ct);
+        }
     }
 
     q.bind(limit)
