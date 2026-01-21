@@ -1199,10 +1199,11 @@ fn render_captures_section(
                 } @else {
                     h2 { "Page Captures" }
                 }
-                div class="captures-grid" {
-                    // Screenshot preview - larger for Twitter text-only tweets
-                    @if let Some(ss) = screenshot {
-                        @if is_twitter_text_only {
+
+                @if is_twitter_text_only {
+                    // Text-only tweets: big screenshot on top
+                    div class="captures-grid" {
+                        @if let Some(ss) = screenshot {
                             div class="capture-item twitter-screenshot" {
                                 a href=(format!("/s3/{}", ss.s3_key)) target="_blank" rel="noopener" {
                                     img src=(format!("/s3/{}", ss.s3_key))
@@ -1215,7 +1216,48 @@ fn render_captures_section(
                                     " - Click to view full size"
                                 }
                             }
-                        } @else {
+                        }
+                    }
+                    // PDF and MHTML in a separate row beneath screenshot
+                    @if pdf.is_some() || mhtml.is_some() {
+                        div class="captures-secondary-row" {
+                            @if let Some(pdf_artifact) = pdf {
+                                @if archive.content_type.as_deref() != Some("pdf") {
+                                    div class="capture-item" {
+                                        h4 { "PDF Document" }
+                                        a href=(format!("/s3/{}", pdf_artifact.s3_key))
+                                          target="_blank" rel="noopener"
+                                          class="capture-link" {
+                                            span class="capture-icon" { "\u{1F4C4}" }  // 📄
+                                            span { "View PDF" }
+                                        }
+                                        p class="capture-meta" {
+                                            (pdf_artifact.size_bytes.map(format_bytes).unwrap_or_else(|| "Unknown size".to_string()))
+                                        }
+                                    }
+                                }
+                            }
+                            @if let Some(mhtml_artifact) = mhtml {
+                                @let download_name = suggested_download_filename(&link.domain, archive.id, &mhtml_artifact.s3_key);
+                                div class="capture-item" {
+                                    h4 { "MHTML Archive" }
+                                    a href=(format!("/s3/{}", mhtml_artifact.s3_key))
+                                      download=(download_name)
+                                      class="capture-link" {
+                                        span class="capture-icon" { "\u{1F4E6}" }  // 📦
+                                        span { "Download MHTML" }
+                                    }
+                                    p class="capture-meta" {
+                                        (mhtml_artifact.size_bytes.map(format_bytes).unwrap_or_else(|| "Unknown size".to_string()))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } @else {
+                    // Tweets with media or non-Twitter: all captures in one row
+                    div class="captures-grid" {
+                        @if let Some(ss) = screenshot {
                             div class="capture-item" {
                                 h4 { "Screenshot" }
                                 a href=(format!("/s3/{}", ss.s3_key)) target="_blank" rel="noopener" {
@@ -1229,49 +1271,7 @@ fn render_captures_section(
                                 }
                             }
                         }
-                    }
-                }
-                // For Twitter text-only: PDF and MHTML in a separate row beneath screenshot
-                @if is_twitter_text_only && (pdf.is_some() || mhtml.is_some()) {
-                    div class="captures-secondary-row" {
-                        // PDF link
-                        @if let Some(pdf_artifact) = pdf {
-                            @if archive.content_type.as_deref() != Some("pdf") {
-                                div class="capture-item" {
-                                    h4 { "PDF Document" }
-                                    a href=(format!("/s3/{}", pdf_artifact.s3_key))
-                                      target="_blank" rel="noopener"
-                                      class="capture-link" {
-                                        span class="capture-icon" { "\u{1F4C4}" }  // 📄
-                                        span { "View PDF" }
-                                    }
-                                    p class="capture-meta" {
-                                        (pdf_artifact.size_bytes.map(format_bytes).unwrap_or_else(|| "Unknown size".to_string()))
-                                    }
-                                }
-                            }
-                        }
-                        // MHTML link
-                        @if let Some(mhtml_artifact) = mhtml {
-                            @let download_name = suggested_download_filename(&link.domain, archive.id, &mhtml_artifact.s3_key);
-                            div class="capture-item" {
-                                h4 { "MHTML Archive" }
-                                a href=(format!("/s3/{}", mhtml_artifact.s3_key))
-                                  download=(download_name)
-                                  class="capture-link" {
-                                    span class="capture-icon" { "\u{1F4E6}" }  // 📦
-                                    span { "Download MHTML" }
-                                }
-                                p class="capture-meta" {
-                                    (mhtml_artifact.size_bytes.map(format_bytes).unwrap_or_else(|| "Unknown size".to_string()))
-                                }
-                            }
-                        }
-                    }
-                } @else {
-                    // Non-Twitter or Twitter with media: PDF and MHTML in main grid
-                    div class="captures-grid" {
-                        // PDF link (only show if not primary content - primary PDFs shown in embed section)
+
                         @if let Some(pdf_artifact) = pdf {
                             @if archive.content_type.as_deref() != Some("pdf") {
                                 div class="capture-item" {
@@ -1289,7 +1289,6 @@ fn render_captures_section(
                             }
                         }
 
-                        // MHTML link
                         @if let Some(mhtml_artifact) = mhtml {
                             @let download_name = suggested_download_filename(&link.domain, archive.id, &mhtml_artifact.s3_key);
                             div class="capture-item" {
