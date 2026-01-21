@@ -188,6 +188,49 @@ fn render_users_table(users: &[User], current_user: &User) -> Markup {
     ResponsiveTable::new(table.render()).render()
 }
 
+/// Render the target cell for an audit event, making it a link when possible.
+fn render_audit_target(event: &AuditEvent) -> Markup {
+    match (&event.target_type, event.target_id) {
+        (Some(target_type), Some(id)) => {
+            let label = format!("{target_type} #{id}");
+            match target_type.as_str() {
+                "user" => html! {
+                    a href=(format!("/admin/user/{}", id)) { (label) }
+                },
+                "forum_link" => {
+                    // Try to extract forum_username from metadata for a better link
+                    if let Some(metadata) = &event.metadata {
+                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(metadata) {
+                            if let Some(forum_username) =
+                                parsed.get("forum_username").and_then(|v| v.as_str())
+                            {
+                                return html! {
+                                    a href=(format!("/admin/forum-user/{}", forum_username)) {
+                                        "forum_link: " code { (forum_username) }
+                                    }
+                                };
+                            }
+                        }
+                    }
+                    // Fallback to plain text if we can't extract the username
+                    html! { (label) }
+                }
+                _ => html! { (label) },
+            }
+        }
+        (Some(target_type), None) => {
+            // Handle targets without IDs (like excluded_domain)
+            match target_type.as_str() {
+                "excluded_domain" => html! {
+                    a href="/admin/excluded-domains" { "excluded domains" }
+                },
+                _ => html! { (target_type) },
+            }
+        }
+        _ => html! { "\u{2014}" },
+    }
+}
+
 /// Render a single audit event row.
 fn render_audit_row(event: &AuditEvent, user_lookup: &HashMap<i64, &User>) -> Markup {
     // Determine user display
@@ -206,12 +249,6 @@ fn render_audit_row(event: &AuditEvent, user_lookup: &HashMap<i64, &User>) -> Ma
         },
     );
 
-    // Determine target display
-    let target_str = match (&event.target_type, event.target_id) {
-        (Some(t), Some(id)) => format!("{t} #{id}"),
-        _ => "\u{2014}".to_string(),
-    };
-
     html! {
         tr {
             td class="audit-cell" { (event.created_at) }
@@ -225,7 +262,7 @@ fn render_audit_row(event: &AuditEvent, user_lookup: &HashMap<i64, &User>) -> Ma
                 }
             }
             td class="audit-cell" { (event.event_type) }
-            td class="audit-cell" { (target_str) }
+            td class="audit-cell" { (render_audit_target(event)) }
             td class="audit-cell" { (event.ip_address.as_deref().unwrap_or("\u{2014}")) }
         }
     }
@@ -890,16 +927,11 @@ fn render_user_audit_table(audit_events: &[AuditEvent]) -> Markup {
     let rows: Vec<Markup> = audit_events
         .iter()
         .map(|event| {
-            let target_str = match (&event.target_type, event.target_id) {
-                (Some(t), Some(id)) => format!("{t} #{id}"),
-                _ => "\u{2014}".to_string(),
-            };
-
             html! {
                 tr {
                     td class="audit-cell" { (event.created_at) }
                     td class="audit-cell" { (event.event_type) }
-                    td class="audit-cell" { (target_str) }
+                    td class="audit-cell" { (render_audit_target(event)) }
                     td class="audit-cell" { (event.ip_address.as_deref().unwrap_or("\u{2014}")) }
                 }
             }
