@@ -1322,6 +1322,58 @@ async fn process_archive_inner(
             }
         }
 
+        // Upload method-specific HTML files (raw_cdp.html, raw_dump_dom.html, etc.)
+        // These are created by Twitter archiving to allow comparison between methods
+        for method_file in &[
+            "raw_cdp.html",
+            "raw_dump_dom.html",
+            "raw_http.html",
+            "raw_http_cookies.html",
+        ] {
+            let method_path = work_dir.join(method_file);
+            if method_path.exists() {
+                let metadata = tokio::fs::metadata(&method_path).await.ok();
+                let size_bytes = metadata.as_ref().map(|m| m.len() as i64);
+
+                if let Some(0) = size_bytes {
+                    debug!(archive_id, file = %method_file, "Skipping upload of empty method-specific HTML file");
+                    continue;
+                }
+
+                let method_key = format!("{s3_prefix}media/{method_file}");
+                // Derive artifact kind from filename (e.g., "raw_cdp.html" -> "raw_html_cdp")
+                let artifact_kind = method_file
+                    .strip_suffix(".html")
+                    .unwrap_or(method_file)
+                    .replace("raw_", "raw_html_");
+
+                match s3
+                    .upload_file(&method_path, &method_key, Some(archive_id))
+                    .await
+                {
+                    Ok(()) => {
+                        debug!(archive_id, file = %method_file, key = %method_key, "Uploaded method-specific HTML");
+                        if let Err(e) = insert_artifact(
+                            db.pool(),
+                            archive_id,
+                            &artifact_kind,
+                            &method_key,
+                            Some("text/html"),
+                            size_bytes,
+                            None,
+                        )
+                        .await
+                        {
+                            warn!(archive_id, file = %method_file, error = %e, "Failed to insert artifact record");
+                        }
+                    }
+                    Err(e) => {
+                        warn!(archive_id, file = %method_file, error = %e, "Failed to upload method-specific HTML");
+                    }
+                }
+            }
+        }
+
         match create_view_html(
             db,
             archive_id,
