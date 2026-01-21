@@ -614,6 +614,19 @@ tr:hover {
     color: white;
 }
 
+/* Language pill for subtitle files */
+.language-pill {
+    display: inline-block;
+    padding: 1px 6px;
+    margin-left: 0.5em;
+    font-size: var(--font-size-xs);
+    font-family: var(--font-mono);
+    background-color: var(--muted);
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    vertical-align: middle;
+}
+
 /* Section header with inline badge */
 .section-header-with-badge {
     display: flex;

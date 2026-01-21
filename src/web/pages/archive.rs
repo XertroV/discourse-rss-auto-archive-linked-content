@@ -1190,13 +1190,39 @@ fn render_artifact_row(artifact: &ArchiveArtifact, link: &Link, archive_id: i64)
         }
     };
 
+    // For subtitles, extract language info from metadata to display as a pill
+    let language_pill = if artifact.kind == "subtitles" {
+        if let Some(ref metadata) = artifact.metadata {
+            if let Ok(meta_json) = serde_json::from_str::<serde_json::Value>(metadata) {
+                let lang = meta_json["language"].as_str().unwrap_or("unknown");
+                let is_auto = meta_json["is_auto"].as_bool().unwrap_or(false);
+                let auto_suffix = if is_auto { " (auto)" } else { "" };
+                let display_lang = format!("{}{}", lang, auto_suffix);
+                Some(html! {
+                    span class="language-pill" { (display_lang) }
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     TableRow::new()
         .cell_markup(html! {
             span class=(format!("artifact-kind artifact-kind-{}", artifact.kind)) {
                 (kind_display)
             }
         })
-        .cell_markup(html! { code { (filename) } })
+        .cell_markup(html! {
+            code { (filename) }
+            @if let Some(pill) = language_pill {
+                " " (pill)
+            }
+        })
         .cell(&size_display)
         .cell_markup(dedup_markup)
         .cell_markup(actions_markup)
