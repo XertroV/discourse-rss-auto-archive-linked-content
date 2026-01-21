@@ -1638,7 +1638,7 @@ pub async fn get_quality_metrics(pool: &SqlitePool) -> Result<(i64, i64, i64)> {
 pub async fn get_nsfw_count(pool: &SqlitePool) -> Result<i64> {
     let row: (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM archives
-         WHERE status = 'complete' AND nsfw = 1",
+         WHERE status = 'complete' AND is_nsfw = 1",
     )
     .fetch_one(pool)
     .await?;

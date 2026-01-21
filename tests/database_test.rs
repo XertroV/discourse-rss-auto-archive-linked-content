@@ -2,11 +2,12 @@
 
 use discourse_link_archiver::db::{
     count_archives_for_video_file, create_pending_archive, find_video_file, get_archive,
-    get_archive_by_link_id, get_link_by_normalized_url, get_or_create_video_file, get_post_by_guid,
-    get_recent_archives, get_top_domains, get_video_file, insert_artifact_with_video_file,
-    insert_link, insert_link_occurrence, insert_post, insert_video_file, link_occurrence_exists,
-    search_archives, set_archive_complete, update_video_file_metadata,
-    update_video_file_metadata_key, Database, NewLink, NewLinkOccurrence, NewPost,
+    get_archive_by_link_id, get_link_by_normalized_url, get_nsfw_count, get_or_create_video_file,
+    get_post_by_guid, get_recent_archives, get_top_domains, get_video_file,
+    insert_artifact_with_video_file, insert_link, insert_link_occurrence, insert_post,
+    insert_video_file, link_occurrence_exists, search_archives, set_archive_complete,
+    set_archive_nsfw, update_video_file_metadata, update_video_file_metadata_key, Database,
+    NewLink, NewLinkOccurrence, NewPost,
 };
 use tempfile::TempDir;
 
@@ -575,4 +576,72 @@ async fn test_get_top_domains() {
     assert_eq!(top_2_domains.len(), 2);
     assert_eq!(top_2_domains[0].0, "reddit.com");
     assert_eq!(top_2_domains[1].0, "youtube.com");
+}
+
+#[tokio::test]
+async fn test_get_nsfw_count() {
+    let (db, _temp_dir) = setup_db().await;
+
+    // Initially should be 0
+    let count = get_nsfw_count(db.pool()).await.unwrap();
+    assert_eq!(count, 0);
+
+    // Create 3 completed archives, 2 NSFW and 1 non-NSFW
+    for i in 0..3 {
+        let new_link = NewLink {
+            original_url: format!("https://example.com/test/{}", i),
+            normalized_url: format!("https://example.com/test/{}", i),
+            canonical_url: None,
+            domain: "example.com".to_string(),
+        };
+        let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+
+        let archive_id = create_pending_archive(db.pool(), link_id, None)
+            .await
+            .unwrap();
+
+        // Mark as complete
+        set_archive_complete(
+            db.pool(),
+            archive_id,
+            Some("Test Title"),
+            Some("Test Author"),
+            Some("Test content"),
+            Some("text"),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        // Set first two as NSFW
+        if i < 2 {
+            set_archive_nsfw(db.pool(), archive_id, true, Some("test"))
+                .await
+                .unwrap();
+        }
+    }
+
+    // Should now have 2 NSFW archives
+    let count = get_nsfw_count(db.pool()).await.unwrap();
+    assert_eq!(count, 2);
+
+    // Create a pending archive that's marked NSFW (should not be counted)
+    let new_link = NewLink {
+        original_url: "https://example.com/pending".to_string(),
+        normalized_url: "https://example.com/pending".to_string(),
+        canonical_url: None,
+        domain: "example.com".to_string(),
+    };
+    let link_id = insert_link(db.pool(), &new_link).await.unwrap();
+    let archive_id = create_pending_archive(db.pool(), link_id, None)
+        .await
+        .unwrap();
+    set_archive_nsfw(db.pool(), archive_id, true, Some("test"))
+        .await
+        .unwrap();
+
+    // Count should still be 2 (only completed archives)
+    let count = get_nsfw_count(db.pool()).await.unwrap();
+    assert_eq!(count, 2);
 }
