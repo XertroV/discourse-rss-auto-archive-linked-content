@@ -408,9 +408,9 @@ fn render_user_submissions_table(submissions: &[UserSubmissionDetail]) -> Markup
             TableRow::new()
                 .cell_markup(html! {
                     @if let Some(archive_id) = submission.archive_id {
-                        a href=(format!("/archive/{}", archive_id)) { (submission.id) }
+                        a href=(format!("/archive/{}", archive_id)) { "#" (submission.id) }
                     } @else {
-                        (submission.id)
+                        "#" (submission.id)
                     }
                 })
                 .cell_markup(html! {
