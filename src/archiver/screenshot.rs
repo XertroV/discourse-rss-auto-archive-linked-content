@@ -13,7 +13,8 @@ use chromiumoxide::cdp::browser_protocol::network::{
     CookieParam, SetCookiesParams, TimeSinceEpoch,
 };
 use chromiumoxide::cdp::browser_protocol::page::{
-    CaptureScreenshotFormat, CaptureSnapshotFormat, CaptureSnapshotParams, PrintToPdfParams,
+    AddScriptToEvaluateOnNewDocumentParams, CaptureScreenshotFormat, CaptureSnapshotFormat,
+    CaptureSnapshotParams, PrintToPdfParams,
 };
 use chromiumoxide::page::ScreenshotParams;
 use futures_util::StreamExt;
@@ -24,6 +25,16 @@ use url::Url;
 use crate::chromium_profile::chromium_user_data_and_profile_from_spec;
 use crate::constants::ARCHIVAL_USER_AGENT;
 use crate::fs_utils::copy_dir_best_effort;
+
+/// JavaScript to inject before page load to evade headless Chrome detection.
+///
+/// Headless Chrome sets `navigator.webdriver = true`, which sites like Twitter
+/// use to detect automated browsers. This script overrides it to `undefined`.
+const STEALTH_SCRIPT: &str = r#"
+Object.defineProperty(navigator, 'webdriver', {
+    get: () => undefined
+});
+"#;
 
 /// Default viewport width in pixels.
 pub const DEFAULT_VIEWPORT_WIDTH: u32 = 1280;
@@ -304,6 +315,14 @@ impl ScreenshotService {
             .await
             .context("Failed to create new page")?;
 
+        // Inject stealth script to evade headless detection (must be before navigation)
+        if let Err(e) = page
+            .execute(AddScriptToEvaluateOnNewDocumentParams::new(STEALTH_SCRIPT))
+            .await
+        {
+            warn!(url = %url, error = %e, "Failed to inject stealth script");
+        }
+
         // Inject cookies if configured
         if let Some(ref cookies_path) = self.config.cookies_file_path {
             if cookies_path.exists() {
@@ -405,6 +424,14 @@ impl ScreenshotService {
             .await
             .context("Failed to create new page")?;
 
+        // Inject stealth script to evade headless detection (must be before navigation)
+        if let Err(e) = page
+            .execute(AddScriptToEvaluateOnNewDocumentParams::new(STEALTH_SCRIPT))
+            .await
+        {
+            warn!(url = %url, error = %e, "Failed to inject stealth script for PDF");
+        }
+
         // Inject cookies if configured
         if let Some(ref cookies_path) = self.config.cookies_file_path {
             if cookies_path.exists() {
@@ -502,6 +529,14 @@ impl ScreenshotService {
             .await
             .context("Failed to create new page")?;
 
+        // Inject stealth script to evade headless detection (must be before navigation)
+        if let Err(e) = page
+            .execute(AddScriptToEvaluateOnNewDocumentParams::new(STEALTH_SCRIPT))
+            .await
+        {
+            warn!(url = %url, error = %e, "Failed to inject stealth script for MHTML");
+        }
+
         // Inject cookies if configured
         if let Some(ref cookies_path) = self.config.cookies_file_path {
             if cookies_path.exists() {
@@ -591,6 +626,14 @@ impl ScreenshotService {
             .new_page("about:blank")
             .await
             .context("Failed to create new page")?;
+
+        // Inject stealth script to evade headless detection (must be before navigation)
+        if let Err(e) = page
+            .execute(AddScriptToEvaluateOnNewDocumentParams::new(STEALTH_SCRIPT))
+            .await
+        {
+            warn!(url = %url, error = %e, "Failed to inject stealth script for HTML capture");
+        }
 
         // Inject cookies if configured
         if let Some(ref cookies_path) = self.config.cookies_file_path {
@@ -796,21 +839,47 @@ async fn load_cookies_for_url(cookies_file: &Path, url: &str) -> Result<Vec<Cook
         // Domain matching rules:
         // 1. If cookie domain starts with dot (.reddit.com), it matches that domain and all subdomains
         // 2. If cookie domain has no dot (reddit.com), it matches only exact domain
+        // 3. Special case: twitter.com and x.com are equivalent domains
+        let cookie_domain_without_dot = cookie_domain.trim_start_matches('.');
+
+        // Handle Twitter/X domain equivalence
+        let is_twitter_domain = |d: &str| {
+            d == "twitter.com"
+                || d == "x.com"
+                || d.ends_with(".twitter.com")
+                || d.ends_with(".x.com")
+        };
+        let twitter_equivalent =
+            is_twitter_domain(domain) && is_twitter_domain(cookie_domain_without_dot);
+
         let domain_matches = if cookie_domain.starts_with('.') {
             // Cookie with leading dot: matches domain and all subdomains
-            let cookie_domain_without_dot = cookie_domain.trim_start_matches('.');
             domain == cookie_domain_without_dot
                 || domain.ends_with(&format!(".{cookie_domain_without_dot}"))
+                || twitter_equivalent
         } else {
             // Cookie without leading dot: exact match only
-            domain == cookie_domain
+            domain == cookie_domain || twitter_equivalent
         };
 
         if domain_matches {
+            // For Twitter/X cookies, map the domain to the actual target domain
+            // so cookies set for .twitter.com work when navigating to x.com
+            let effective_domain = if twitter_equivalent && cookie_domain_without_dot != domain {
+                // Preserve leading dot if present
+                if cookie_domain.starts_with('.') {
+                    format!(".{domain}")
+                } else {
+                    domain.to_string()
+                }
+            } else {
+                cookie_domain.to_string()
+            };
+
             let mut builder = CookieParam::builder()
                 .name(name.to_string())
                 .value(value.to_string())
-                .domain(cookie_domain.to_string())
+                .domain(effective_domain)
                 .path(path.to_string())
                 .secure(secure)
                 .http_only(http_only);
