@@ -106,7 +106,8 @@ impl SiteHandler for TwitterHandler {
         debug!(url = %normalized_url, tweet_id = ?tweet_id, "Archiving Twitter/X content");
 
         // Determine archival strategy based on config
-        let prefer_nitter = config.twitter_prefer_nitter;
+        // mark as always false here to forcably disable nitter (not working)
+        let prefer_nitter = false && config.twitter_prefer_nitter;
         let nitter_instances = &config.twitter_nitter_instances;
 
         // Try to archive media
@@ -167,7 +168,7 @@ impl SiteHandler for TwitterHandler {
         // Fetch HTML snapshot if enabled (for monolith processing)
         // Use chromium --dump-dom to get rendered HTML after JS execution
         if config.twitter_html_snapshot {
-            if let Err(e) = fetch_html_snapshot(&normalized_url, work_dir, cookies).await {
+            if let Err(e) = fetch_html_snapshot_cdp(&normalized_url, work_dir, cookies).await {
                 warn!(url = %normalized_url, error = %e, "Failed to fetch HTML snapshot for Twitter");
                 // Non-fatal: continue with media archive even if HTML fails
             } else {
@@ -186,65 +187,33 @@ impl SiteHandler for TwitterHandler {
     }
 }
 
-/// Archive Twitter content directly (via gallery-dl then yt-dlp fallback).
+/// Archive Twitter content directly (via yt-dlp, with gallery-dl fallback for images).
+///
+/// We use yt-dlp first because:
+/// - It handles videos reliably
+/// - It provides good metadata for text-only tweets
+/// - gallery-dl can cause issues and is only needed for image galleries
 async fn archive_twitter_direct(
     url: &str,
     work_dir: &Path,
     cookies: &CookieOptions<'_>,
     config: &crate::config::Config,
 ) -> Result<ArchiveResult> {
-    // Try gallery-dl first - better for images and galleries
-    debug!(url = %url, "Trying gallery-dl for Twitter content");
-    match gallerydl::download(url, work_dir, cookies).await {
+    // Try yt-dlp first - handles videos and provides metadata
+    debug!(url = %url, "Trying yt-dlp for Twitter content");
+    match ytdlp::download(url, work_dir, cookies, config, None, None).await {
         Ok(mut result) => {
-            debug!("gallery-dl succeeded for Twitter");
+            debug!("yt-dlp succeeded for Twitter");
 
-            // Extract Twitter-specific metadata from gallery-dl JSON
-            if let Some(ref json_str) = result.metadata_json {
-                if let Ok(metadata) = extract_twitter_metadata_from_json(json_str) {
-                    // Update result with extracted metadata
-                    if result.title.is_none() && metadata.text.is_some() {
-                        // Use first 100 chars of tweet text as title
-                        result.title = metadata.text.as_ref().map(|t| {
-                            if t.len() > 100 {
-                                format!("{}...", &t[..97])
-                            } else {
-                                t.clone()
-                            }
-                        });
-                    }
-                    if result.author.is_none() {
-                        result.author = metadata.author.clone();
-                    }
-                    if result.text.is_none() {
-                        result.text = metadata.text.clone();
-                    }
-
-                    // Fix content_type based on actual media count
-                    // gallery-dl often returns "image" even for text-only tweets
-                    if metadata.media_count == 0 {
-                        result.content_type = "text".to_string();
-                    } else if metadata.media_count == 1 {
-                        // Keep as "image" if that's what gallery-dl set, or default to image
-                        if result.content_type.is_empty() {
-                            result.content_type = "image".to_string();
-                        }
-                    } else if metadata.media_count > 1 {
-                        result.content_type = "gallery".to_string();
-                    }
-
-                    // Store enhanced metadata
-                    let enhanced_metadata = serde_json::json!({
-                        "twitter": metadata,
-                        "original_metadata": serde_json::from_str::<serde_json::Value>(json_str).ok(),
-                    });
-                    result.metadata_json = Some(enhanced_metadata.to_string());
-                }
+            // Extract tweet ID for deduplication
+            if let Some(tweet_id) = extract_tweet_id(url) {
+                debug!(tweet_id = %tweet_id, "Extracted Twitter tweet ID");
+                result.video_id = Some(format!("twitter_{tweet_id}"));
             }
 
-            // Default to "text" if content_type wasn't set and no primary file
+            // Default to "thread" for text-only tweets (not "image")
             if result.content_type.is_empty() && result.primary_file.is_none() {
-                result.content_type = "text".to_string();
+                result.content_type = "thread".to_string();
             }
 
             return Ok(result);
@@ -252,23 +221,65 @@ async fn archive_twitter_direct(
         Err(e) => {
             let err_str = e.to_string();
             if is_rate_limit_error(&err_str) {
-                debug!("gallery-dl rate-limited for Twitter: {e}");
+                debug!("yt-dlp rate-limited for Twitter: {e}");
                 return Err(e);
             }
-            debug!("gallery-dl failed for Twitter, trying yt-dlp: {e}");
+            // yt-dlp failed - might be an image-only tweet, try gallery-dl
+            debug!("yt-dlp failed for Twitter, trying gallery-dl for images: {e}");
         }
     }
 
-    // Fall back to yt-dlp for videos
-    debug!(url = %url, "Trying yt-dlp for Twitter content");
-    let mut result = ytdlp::download(url, work_dir, cookies, config, None, None).await?;
+    // Fall back to gallery-dl for image-only tweets
+    debug!(url = %url, "Trying gallery-dl for Twitter images");
+    let mut result = gallerydl::download(url, work_dir, cookies).await?;
+
+    // Extract Twitter-specific metadata from gallery-dl JSON
+    if let Some(ref json_str) = result.metadata_json {
+        if let Ok(metadata) = extract_twitter_metadata_from_json(json_str) {
+            // Update result with extracted metadata
+            if result.title.is_none() && metadata.text.is_some() {
+                // Use first 100 chars of tweet text as title
+                result.title = metadata.text.as_ref().map(|t| {
+                    if t.len() > 100 {
+                        format!("{}...", &t[..97])
+                    } else {
+                        t.clone()
+                    }
+                });
+            }
+            if result.author.is_none() {
+                result.author = metadata.author.clone();
+            }
+            if result.text.is_none() {
+                result.text = metadata.text.clone();
+            }
+
+            // Set content_type based on actual media count
+            if metadata.media_count == 0 {
+                result.content_type = "thread".to_string();
+            } else if metadata.media_count == 1 {
+                result.content_type = "image".to_string();
+            } else if metadata.media_count > 1 {
+                result.content_type = "gallery".to_string();
+            }
+
+            // Store enhanced metadata
+            let enhanced_metadata = serde_json::json!({
+                "twitter": metadata,
+                "original_metadata": serde_json::from_str::<serde_json::Value>(json_str).ok(),
+            });
+            result.metadata_json = Some(enhanced_metadata.to_string());
+        }
+    }
+
+    // Default to "thread" if content_type wasn't set (not "image")
+    if result.content_type.is_empty() {
+        result.content_type = "thread".to_string();
+    }
 
     // Extract tweet ID for deduplication
-    if result.content_type == "video" {
-        if let Some(tweet_id) = extract_tweet_id(url) {
-            debug!(tweet_id = %tweet_id, "Extracted Twitter tweet ID for video");
-            result.video_id = Some(format!("twitter_{tweet_id}"));
-        }
+    if let Some(tweet_id) = extract_tweet_id(url) {
+        result.video_id = Some(format!("twitter_{tweet_id}"));
     }
 
     Ok(result)
@@ -320,19 +331,19 @@ async fn archive_nitter(
     cookies: &CookieOptions<'_>,
     config: &crate::config::Config,
 ) -> Result<ArchiveResult> {
-    // Try gallery-dl on nitter URL
-    match gallerydl::download(nitter_url, work_dir, cookies).await {
+    // Try yt-dlp first (consistent with direct Twitter archiving)
+    match ytdlp::download(nitter_url, work_dir, cookies, config, None, None).await {
         Ok(result) => {
-            debug!("gallery-dl succeeded for nitter");
+            debug!("yt-dlp succeeded for nitter");
             return Ok(result);
         }
         Err(e) => {
-            debug!("gallery-dl failed for nitter: {e}");
+            debug!("yt-dlp failed for nitter: {e}");
         }
     }
 
-    // Fall back to yt-dlp
-    ytdlp::download(nitter_url, work_dir, cookies, config, None, None).await
+    // Fall back to gallery-dl for images
+    gallerydl::download(nitter_url, work_dir, cookies).await
 }
 
 /// Convert Twitter/X URL to nitter URL.
@@ -563,7 +574,9 @@ fn build_cookie_header_for_domain(cookies_path: &Path, domain: &str) -> Result<S
 /// 1. ScreenshotService CDP (best - uses persistent browser with proper waiting)
 /// 2. Chromium --dump-dom CLI (fallback - may not wait long enough for JS)
 /// 3. HTTP fetch (last resort - no JS rendering)
-async fn fetch_html_snapshot(
+///
+/// Note: keep this function around even if we don't use it so that we can swap to it quickly if need be.
+async fn fetch_html_snapshot_cdp(
     twitter_url: &str,
     work_dir: &Path,
     cookies: &CookieOptions<'_>,

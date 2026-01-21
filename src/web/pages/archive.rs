@@ -100,7 +100,7 @@ pub fn render_archive_detail_page(params: &ArchiveDetailParams<'_>) -> Markup {
             }
 
             // Content display sections
-            (render_content_sections(archive, link, params.artifacts))
+            (render_content_sections(archive, link, params.artifacts, params.subtitle_languages))
 
             // Media section (for non-HTML archives)
             (render_media_section(archive, link, params.artifacts))
@@ -461,6 +461,7 @@ fn render_content_sections(
     archive: &Archive,
     link: &Link,
     artifacts: &[ArchiveArtifact],
+    subtitle_languages: &std::collections::HashMap<i64, SubtitleLanguage>,
 ) -> Markup {
     html! {
         // Playlist content
@@ -475,7 +476,7 @@ fn render_content_sections(
 
         // Transcript section (for videos with subtitles)
         @if let Some(transcript) = artifacts.iter().find(|a| a.kind == "transcript") {
-            (render_transcript_section(transcript, artifacts, link, archive.id))
+            (render_transcript_section(transcript, artifacts, link, archive.id, subtitle_languages))
         }
     }
 }
@@ -509,6 +510,7 @@ fn render_transcript_section(
     artifacts: &[ArchiveArtifact],
     link: &Link,
     archive_id: i64,
+    subtitle_languages: &std::collections::HashMap<i64, SubtitleLanguage>,
 ) -> Markup {
     let transcript_size = transcript.size_bytes.map_or_else(
         || "Unknown".to_string(),
@@ -563,7 +565,7 @@ fn render_transcript_section(
                                 " \u{2022} "  // •
                             }
                             @let sub_download = suggested_download_filename(&link.domain, archive_id, &sub.s3_key);
-                            @let lang_info = parse_subtitle_info(sub);
+                            @let lang_info = parse_subtitle_info_with_db(sub, subtitle_languages);
                             a href=(format!("/s3/{}", sub.s3_key))
                               download=(sub_download)
                               title="Download subtitle file" {
@@ -613,7 +615,8 @@ fn render_transcript_section(
     }
 }
 
-/// Parse subtitle metadata for display.
+/// Parse subtitle metadata for display (legacy, metadata only).
+#[allow(dead_code)]
 fn parse_subtitle_info(sub: &ArchiveArtifact) -> String {
     let filename = sub.s3_key.rsplit('/').next().unwrap_or(&sub.s3_key);
 
@@ -624,6 +627,36 @@ fn parse_subtitle_info(sub: &ArchiveArtifact) -> String {
             let format = meta_json["format"].as_str().unwrap_or("vtt");
             let auto_label = if is_auto { " (auto)" } else { "" };
             return format!("{}{} ({})", lang, auto_label, format);
+        }
+    }
+
+    filename.to_string()
+}
+
+/// Parse subtitle metadata for display, checking subtitle_languages table first.
+fn parse_subtitle_info_with_db(
+    sub: &ArchiveArtifact,
+    subtitle_languages: &std::collections::HashMap<i64, SubtitleLanguage>,
+) -> String {
+    let filename = sub.s3_key.rsplit('/').next().unwrap_or(&sub.s3_key);
+
+    // Get format from filename extension
+    let format = filename.rsplit('.').next().unwrap_or("vtt").to_lowercase();
+
+    // First check subtitle_languages table
+    if let Some(lang_info) = subtitle_languages.get(&sub.id) {
+        let auto_label = if lang_info.is_auto { " (auto)" } else { "" };
+        return format!("{}{} ({})", lang_info.language, auto_label, format);
+    }
+
+    // Fallback to artifact metadata
+    if let Some(ref metadata) = sub.metadata {
+        if let Ok(meta_json) = serde_json::from_str::<serde_json::Value>(metadata) {
+            let lang = meta_json["language"].as_str().unwrap_or("unknown");
+            let is_auto = meta_json["is_auto"].as_bool().unwrap_or(false);
+            let meta_format = meta_json["format"].as_str().unwrap_or(&format);
+            let auto_label = if is_auto { " (auto)" } else { "" };
+            return format!("{}{} ({})", lang, auto_label, meta_format);
         }
     }
 

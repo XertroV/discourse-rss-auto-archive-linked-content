@@ -705,7 +705,7 @@ impl Config {
                         "youtube".to_string(),
                         "reddit".to_string(),
                         "tiktok".to_string(),
-                        "twitter".to_string(),
+                        // Note: Twitter comment extraction disabled - causes account locks
                     ]
                 }),
             comments_max_depth: parse_env_usize(

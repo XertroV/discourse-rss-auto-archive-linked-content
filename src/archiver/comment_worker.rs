@@ -113,6 +113,17 @@ fn is_tiktok_url(url: &str) -> bool {
         || url.contains("://vt.tiktok.com/")
 }
 
+/// Check if URL is a Twitter/X URL.
+/// Twitter comment extraction via yt-dlp is disabled because it causes account locks.
+fn is_twitter_url(url: &str) -> bool {
+    url.contains("://twitter.com/")
+        || url.contains("://www.twitter.com/")
+        || url.contains("://mobile.twitter.com/")
+        || url.contains("://x.com/")
+        || url.contains("://www.x.com/")
+        || url.contains("://mobile.x.com/")
+}
+
 /// Extract comments for a single archive.
 async fn extract_comments_for_archive(
     config: &Config,
@@ -140,7 +151,21 @@ async fn extract_comments_for_archive(
     let comment_count: usize;
 
     // Extract comments based on platform
-    if is_tiktok_url(url) {
+    if is_twitter_url(url) {
+        // Twitter/X: Skip comment extraction - causes account locks when using yt-dlp
+        info!(
+            archive_id = archive.id,
+            url = %url,
+            "Skipping Twitter comment extraction (disabled to prevent account locks)"
+        );
+
+        // Clean up work directory
+        if let Err(e) = tokio::fs::remove_dir_all(&work_dir).await {
+            warn!(work_dir = %work_dir.display(), error = %e, "Failed to clean up work directory");
+        }
+
+        return Ok(0);
+    } else if is_tiktok_url(url) {
         // TikTok: Use direct API extraction
         info!(
             archive_id = archive.id,
