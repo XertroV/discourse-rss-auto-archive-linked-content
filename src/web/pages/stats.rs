@@ -404,7 +404,19 @@ fn render_user_submissions_table(submissions: &[UserSubmissionDetail]) -> Markup
     let rows: Vec<Markup> = submissions
         .iter()
         .map(|submission| {
-            let status_class = format!("status-{}", submission.status);
+            // Use archive status if available, otherwise fall back to submission status
+            let display_status = submission
+                .archive_status
+                .as_deref()
+                .unwrap_or(&submission.status);
+            let status_class = format!("status-{}", display_status);
+
+            // Use archive error if available, otherwise fall back to submission error
+            let display_error = submission
+                .archive_error
+                .as_ref()
+                .or(submission.error_message.as_ref());
+
             TableRow::new()
                 .cell_markup(html! {
                     @if let Some(archive_id) = submission.archive_id {
@@ -420,10 +432,10 @@ fn render_user_submissions_table(submissions: &[UserSubmissionDetail]) -> Markup
                         (truncate_url(&submission.url, 60))
                     }
                 })
-                .cell_with_class(&submission.status, &status_class)
+                .cell_with_class(display_status, &status_class)
                 .cell(&format_datetime(&submission.created_at))
                 .cell_markup(html! {
-                    @if let Some(error) = &submission.error_message {
+                    @if let Some(error) = display_error {
                         span title=(error) class="text-muted" { "Error" }
                     } @else {
                         span { "" }

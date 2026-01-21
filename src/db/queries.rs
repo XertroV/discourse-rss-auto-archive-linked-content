@@ -1898,6 +1898,10 @@ pub struct UserSubmissionDetail {
     pub error_message: Option<String>,
     pub link_id: Option<i64>,
     pub archive_id: Option<i64>,
+    /// The archive status (if an archive exists for this submission).
+    pub archive_status: Option<String>,
+    /// The archive error message (if the archive failed).
+    pub archive_error: Option<String>,
 }
 
 pub async fn get_user_submissions(
@@ -1908,7 +1912,8 @@ pub async fn get_user_submissions(
     sqlx::query_as(
         r"
         SELECT s.id, s.url, s.status, s.created_at, s.processed_at,
-               s.error_message, s.link_id, a.id as archive_id
+               s.error_message, s.link_id, a.id as archive_id,
+               a.status as archive_status, a.error_message as archive_error
         FROM submissions s
         LEFT JOIN archives a ON s.link_id = a.link_id
         WHERE s.submitted_by_user_id = ?
