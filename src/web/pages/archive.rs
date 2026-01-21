@@ -948,7 +948,9 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
 
     // For Twitter galleries, collect all image artifacts and display in a grid
     if is_twitter_gallery {
-        let image_artifacts: Vec<_> = artifacts.iter().filter(|a| a.kind == "image").collect();
+        let mut image_artifacts: Vec<_> = artifacts.iter().filter(|a| a.kind == "image").collect();
+        // Sort by S3 key for deterministic ordering (preserves gallery-dl download order)
+        image_artifacts.sort_by(|a, b| a.s3_key.cmp(&b.s3_key));
 
         if !image_artifacts.is_empty() {
             let image_count = image_artifacts.len();

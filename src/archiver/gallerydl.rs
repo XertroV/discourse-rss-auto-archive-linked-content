@@ -145,8 +145,9 @@ async fn find_and_parse_files(work_dir: &Path) -> Result<ArchiveResult> {
     }
 
     // Sanitize and rename primary file if found
+    // Use preserve_length version to keep gallery-dl's deterministic media IDs
     if let Some(ref orig_name) = primary_file {
-        let sanitized = crate::archiver::sanitize_filename(orig_name);
+        let sanitized = crate::archiver::sanitize_filename_preserve_length(orig_name);
         if sanitized != *orig_name {
             let orig_path = work_dir.join(orig_name);
             let new_path = work_dir.join(&sanitized);
@@ -169,9 +170,10 @@ async fn find_and_parse_files(work_dir: &Path) -> Result<ArchiveResult> {
     }
 
     // Sanitize and rename extra files
+    // Use preserve_length version to keep gallery-dl's deterministic media IDs
     let mut sanitized_extra_files = Vec::new();
     for orig_name in extra_files {
-        let sanitized = crate::archiver::sanitize_filename(&orig_name);
+        let sanitized = crate::archiver::sanitize_filename_preserve_length(&orig_name);
         if sanitized != orig_name {
             let orig_path = work_dir.join(&orig_name);
             let new_path = work_dir.join(&sanitized);

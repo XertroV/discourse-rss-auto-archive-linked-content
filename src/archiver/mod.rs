@@ -86,6 +86,54 @@ pub fn sanitize_filename(filename: &str) -> String {
     format!("{final_name}{ext}")
 }
 
+/// Sanitize a filename without truncating.
+///
+/// This is useful for gallery-dl output files where the original filename
+/// contains a unique media ID that should be preserved for deduplication.
+///
+/// Unlike `sanitize_filename`, this function:
+/// - Does NOT truncate long filenames
+/// - Preserves the full sanitized name
+///
+/// Use this for files where the filename is already deterministic (e.g., Twitter media IDs).
+pub fn sanitize_filename_preserve_length(filename: &str) -> String {
+    // Split filename into name and extension
+    let (name, ext) = if let Some(dot_pos) = filename.rfind('.') {
+        let (n, e) = filename.split_at(dot_pos);
+        (n, e) // ext includes the dot
+    } else {
+        (filename, "")
+    };
+
+    // Sanitize the name part
+    let sanitized_name: String =
+        name.chars()
+            .map(|c| match c {
+                // Replace spaces with underscores
+                ' ' => '_',
+                // Remove problematic URL characters and periods
+                '#' | '?' | '&' | '%' | '"' | '\'' | '<' | '>' | '|' | '*' | ':' | '\\' | '/'
+                | '.' => '_',
+                // Keep parentheses, brackets, hyphens, underscores, and alphanumerics
+                '(' | ')' | '[' | ']' | '-' | '_' => c,
+                // Keep alphanumerics
+                c if c.is_alphanumeric() => c,
+                // Replace everything else with underscore
+                _ => '_',
+            })
+            .collect();
+
+    // Remove consecutive underscores and trim underscores from edges
+    let sanitized_name = sanitized_name
+        .split('_')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("_");
+
+    // Recombine with extension (no truncation)
+    format!("{sanitized_name}{ext}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,6 +243,33 @@ mod tests {
         assert!(!sanitized.contains('#'));
         assert!(!sanitized.contains('\u{2019}')); // Right single quotation mark
         assert!(sanitized.ends_with(".mp4"));
+    }
+
+    #[test]
+    fn test_sanitize_filename_preserve_length_no_truncation() {
+        // Twitter media ID filenames should NOT be truncated
+        let twitter_file = "twitter_G-VPn9IWQAAeSIV.jpg";
+        let result = sanitize_filename_preserve_length(twitter_file);
+        // Should preserve the full media ID
+        assert_eq!(result, "twitter_G-VPn9IWQAAeSIV.jpg");
+    }
+
+    #[test]
+    fn test_sanitize_filename_preserve_length_long_name() {
+        // Even very long names should not be truncated
+        let long_name = "twitter_very_long_media_id_that_exceeds_twenty_characters.jpg";
+        let result = sanitize_filename_preserve_length(long_name);
+        // Should NOT have a hash suffix, should preserve full name
+        assert_eq!(result, long_name);
+        assert!(!result.contains("_7")); // No hash suffix pattern
+    }
+
+    #[test]
+    fn test_sanitize_filename_preserve_length_still_sanitizes_chars() {
+        // Should still remove problematic characters
+        let with_special = "twitter_media#id?.jpg";
+        let result = sanitize_filename_preserve_length(with_special);
+        assert_eq!(result, "twitter_media_id.jpg");
     }
 }
 
