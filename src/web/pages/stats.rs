@@ -4,7 +4,7 @@
 
 use maud::{html, Markup, Render};
 
-use crate::components::{BaseLayout, Table, TableRow, TableVariant};
+use crate::components::{BaseLayout, StatsCard, StatsCardGrid, Table, TableRow, TableVariant};
 use crate::db::{User, UserSubmissionDetail};
 
 /// Data for the statistics page.

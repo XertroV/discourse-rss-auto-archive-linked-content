@@ -269,6 +269,107 @@ impl Render for ArchiveCardWithThumb<'_> {
     }
 }
 
+/// A stats card component for displaying statistics sections.
+///
+/// This is used to organize stats sections into card containers
+/// that can be laid out in a grid.
+///
+/// # Example
+///
+/// ```ignore
+/// use crate::components::card::StatsCard;
+///
+/// let card = StatsCard::new("Overview")
+///     .with_items(vec![
+///         ("Total Posts", "100"),
+///         ("Total Links", "500"),
+///     ]);
+/// ```
+#[derive(Debug, Clone)]
+pub struct StatsCard<'a> {
+    pub title: &'a str,
+    pub items: Vec<(&'a str, String)>,
+}
+
+impl<'a> StatsCard<'a> {
+    /// Create a new stats card with a title.
+    #[must_use]
+    pub fn new(title: &'a str) -> Self {
+        Self {
+            title,
+            items: Vec::new(),
+        }
+    }
+
+    /// Add a stat item to the card.
+    #[must_use]
+    pub fn item(mut self, label: &'a str, value: impl Into<String>) -> Self {
+        self.items.push((label, value.into()));
+        self
+    }
+}
+
+impl Render for StatsCard<'_> {
+    fn render(&self) -> Markup {
+        html! {
+            div class="stats-card" {
+                h3 class="stats-card-title" { (self.title) }
+                div class="stats-card-content" {
+                    @for (label, value) in &self.items {
+                        div class="stats-card-item" {
+                            span class="stats-card-label" { (label) ":" }
+                            span class="stats-card-value" { (value) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A grid container for displaying multiple stats cards.
+///
+/// # Example
+///
+/// ```ignore
+/// use crate::components::card::StatsCardGrid;
+///
+/// let grid = StatsCardGrid::new()
+///     .card(overview_card)
+///     .card(activity_card);
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct StatsCardGrid {
+    pub cards: Vec<Markup>,
+}
+
+impl StatsCardGrid {
+    /// Create a new empty stats card grid.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { cards: Vec::new() }
+    }
+
+    /// Add a card to the grid.
+    #[must_use]
+    pub fn card(mut self, card: impl Render) -> Self {
+        self.cards.push(card.render());
+        self
+    }
+}
+
+impl Render for StatsCardGrid {
+    fn render(&self) -> Markup {
+        html! {
+            div class="stats-card-grid" {
+                @for card in &self.cards {
+                    (card)
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -392,5 +493,54 @@ mod tests {
 
         assert!(html.contains("navigator.clipboard.writeText"));
         assert!(html.contains("Click to copy"));
+    }
+
+    #[test]
+    fn test_stats_card_basic() {
+        let card = StatsCard::new("Overview")
+            .item("Total Posts", "100")
+            .item("Total Links", "500");
+        let html = card.render().into_string();
+
+        assert!(html.contains("stats-card"));
+        assert!(html.contains("stats-card-title"));
+        assert!(html.contains("Overview"));
+        assert!(html.contains("Total Posts"));
+        assert!(html.contains("100"));
+        assert!(html.contains("Total Links"));
+        assert!(html.contains("500"));
+    }
+
+    #[test]
+    fn test_stats_card_empty() {
+        let card = StatsCard::new("Empty Section");
+        let html = card.render().into_string();
+
+        assert!(html.contains("stats-card"));
+        assert!(html.contains("Empty Section"));
+        assert!(html.contains("stats-card-content"));
+    }
+
+    #[test]
+    fn test_stats_card_grid() {
+        let card1 = StatsCard::new("Card 1").item("Stat", "10");
+        let card2 = StatsCard::new("Card 2").item("Other", "20");
+        let grid = StatsCardGrid::new().card(card1).card(card2);
+        let html = grid.render().into_string();
+
+        assert!(html.contains("stats-card-grid"));
+        assert!(html.contains("Card 1"));
+        assert!(html.contains("Card 2"));
+        assert!(html.contains("Stat"));
+        assert!(html.contains("Other"));
+    }
+
+    #[test]
+    fn test_stats_card_grid_empty() {
+        let grid = StatsCardGrid::new();
+        let html = grid.render().into_string();
+
+        assert!(html.contains("stats-card-grid"));
+        assert!(!html.contains("stats-card-title"));
     }
 }

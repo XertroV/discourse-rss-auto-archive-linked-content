@@ -968,6 +968,66 @@ article.error,
     text-align: left;
 }
 
+/* Stats Cards Grid */
+.stats-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.stats-card {
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    padding: var(--spacing-md);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.stats-card:hover {
+    box-shadow: var(--box-shadow-hover);
+    border-color: var(--border-dark);
+}
+
+.stats-card-title {
+    margin: 0 0 var(--spacing-sm) 0;
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--text-primary);
+    padding-bottom: var(--spacing-xs);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.stats-card-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.stats-card-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: var(--spacing-xs) 0;
+}
+
+.stats-card-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+.stats-card-value {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Responsive adjustments for stats cards */
+@media (max-width: 768px) {
+    .stats-card-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* Diff styles */
 .diff-container {
     font-family: "Consolas", "Monaco", "Courier New", monospace;

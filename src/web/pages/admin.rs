@@ -828,9 +828,16 @@ pub fn render_admin_forum_user_profile(
                         &format!("This forum user is linked to user account: {}", linked_user.username)
                     ).render())
 
-                    div class="action-buttons" {
+                    div class="action-buttons" style="display: flex; gap: var(--spacing-sm); align-items: center;" {
                         (Button::primary("View User Profile")
                             .href(&format!("/admin/user/{}", linked_user.id)))
+
+                        (Form::post("/admin/forum-link/delete", html! {
+                            (HiddenInput::new("link_id", &forum_link.id.to_string()))
+                            (Button::danger("Remove Link & Reset Display Name")
+                                .r#type("submit")
+                                .onclick("return confirm('Are you sure you want to remove this forum link? The user\\'s display name will be reset to allow them to set a new one.')"))
+                        }).class("inline-form"))
                     }
                 }
             } @else {

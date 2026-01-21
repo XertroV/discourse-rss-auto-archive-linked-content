@@ -60,7 +60,9 @@ pub use button::{Button, ButtonVariant};
 pub use alert::{Alert, AlertVariant, Message, NsfwWarning, StatusBox};
 
 // Re-export card components
-pub use card::{ArchiveCard, ArchiveCardWithThumb, ArchiveGrid, EmptyState};
+pub use card::{
+    ArchiveCard, ArchiveCardWithThumb, ArchiveGrid, EmptyState, StatsCard, StatsCardGrid,
+};
 
 // Re-export form components
 pub use form::{
