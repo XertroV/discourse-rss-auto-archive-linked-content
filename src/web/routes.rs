@@ -706,7 +706,7 @@ async fn get_missing_artifacts(
     // Spawn background task to fetch artifacts
     let state_clone = state.clone();
     tokio::spawn(async move {
-        process_supplementary_artifacts_job(state_clone, id, job_id).await;
+        process_supplementary_artifacts_job(state_clone, id, job_id, needs_transcript).await;
     });
 
     // Redirect back to archive detail page immediately
@@ -714,7 +714,12 @@ async fn get_missing_artifacts(
 }
 
 /// Background task to fetch supplementary artifacts for a video archive.
-async fn process_supplementary_artifacts_job(state: AppState, archive_id: i64, job_id: i64) {
+async fn process_supplementary_artifacts_job(
+    state: AppState,
+    archive_id: i64,
+    job_id: i64,
+    needs_transcript_fallback: bool,
+) {
     use crate::archiver::ytdlp;
     use crate::archiver::CookieOptions;
     use crate::db::{set_job_completed, set_job_failed, set_job_running, ArtifactKind};
@@ -970,6 +975,158 @@ async fn process_supplementary_artifacts_job(state: AppState, archive_id: i64, j
             count = artifacts_count,
             "Successfully fetched missing artifacts"
         );
+    } else if needs_transcript_fallback {
+        // No new subtitle files were downloaded, but we need a transcript
+        // Try to generate it from existing subtitle artifacts in S3
+        use crate::archiver::transcript::build_transcript_from_file;
+        use crate::db::get_artifacts_for_archive;
+
+        tracing::info!(
+            archive_id,
+            "No new subtitle files downloaded, attempting to generate transcript from existing subtitles in S3"
+        );
+
+        // Fetch existing subtitle artifacts
+        match get_artifacts_for_archive(state.db.pool(), archive_id).await {
+            Ok(all_artifacts) => {
+                let subtitle_artifacts: Vec<_> = all_artifacts
+                    .into_iter()
+                    .filter(|a| a.kind == ArtifactKind::Subtitles.as_str())
+                    .collect();
+
+                if !subtitle_artifacts.is_empty() {
+                    // Find the best subtitle to use (prefer English manual)
+                    let best_subtitle = find_best_subtitle_artifact(&subtitle_artifacts);
+
+                    if let Some(subtitle_artifact) = best_subtitle {
+                        tracing::debug!(
+                            archive_id,
+                            s3_key = %subtitle_artifact.s3_key,
+                            "Selected subtitle for transcript generation"
+                        );
+
+                        // Download subtitle file from S3 to temp directory
+                        let filename = subtitle_artifact
+                            .s3_key
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or("subtitle.vtt");
+                        let local_subtitle_path = work_dir.join(filename);
+
+                        match state.s3.download_file(&subtitle_artifact.s3_key).await {
+                            Ok((subtitle_bytes, _content_type)) => {
+                                // Write bytes to local file
+                                if let Err(e) =
+                                    tokio::fs::write(&local_subtitle_path, subtitle_bytes).await
+                                {
+                                    tracing::warn!(archive_id, error = %e, "Failed to write subtitle file to disk");
+                                } else {
+                                    // Generate transcript from downloaded subtitle
+                                    match build_transcript_from_file(&local_subtitle_path).await {
+                                        Ok(transcript) if !transcript.is_empty() => {
+                                            let s3_prefix = format!("archives/{}/", archive_id);
+                                            let transcript_key =
+                                                format!("{s3_prefix}subtitles/transcript.txt");
+                                            let size_bytes = transcript.len() as i64;
+
+                                            // Upload transcript to S3
+                                            if let Err(e) = state
+                                                .s3
+                                                .upload_bytes(
+                                                    transcript.as_bytes(),
+                                                    &transcript_key,
+                                                    "text/plain",
+                                                )
+                                                .await
+                                            {
+                                                tracing::warn!(archive_id, error = %e, "Failed to upload transcript");
+                                            } else {
+                                                // Extract metadata from subtitle artifact
+                                                let source = if let Some(ref meta) =
+                                                    subtitle_artifact.metadata
+                                                {
+                                                    if let Ok(meta_json) =
+                                                        serde_json::from_str::<serde_json::Value>(
+                                                            meta,
+                                                        )
+                                                    {
+                                                        if meta_json
+                                                            .get("is_auto")
+                                                            .and_then(|v| v.as_bool())
+                                                            .unwrap_or(false)
+                                                        {
+                                                            "auto_subtitles"
+                                                        } else {
+                                                            "manual_subtitles"
+                                                        }
+                                                    } else {
+                                                        "unknown_subtitles"
+                                                    }
+                                                } else {
+                                                    "unknown_subtitles"
+                                                };
+
+                                                let transcript_metadata = serde_json::json!({
+                                                    "source": source,
+                                                    "source_file": filename,
+                                                });
+
+                                                // Insert transcript artifact
+                                                if let Err(e) =
+                                                    crate::db::insert_artifact_with_metadata(
+                                                        state.db.pool(),
+                                                        archive_id,
+                                                        ArtifactKind::Transcript.as_str(),
+                                                        &transcript_key,
+                                                        Some("text/plain"),
+                                                        Some(size_bytes),
+                                                        None, // sha256
+                                                        Some(&transcript_metadata.to_string()),
+                                                    )
+                                                    .await
+                                                {
+                                                    tracing::warn!(archive_id, error = %e, "Failed to insert transcript artifact");
+                                                } else {
+                                                    tracing::info!(
+                                                        archive_id,
+                                                        s3_key = %subtitle_artifact.s3_key,
+                                                        size_bytes,
+                                                        "Generated transcript from existing subtitle file in S3"
+                                                    );
+                                                    artifacts_count += 1;
+                                                }
+                                            }
+                                        }
+                                        Ok(_) => {
+                                            tracing::warn!(
+                                                archive_id,
+                                                "Generated transcript is empty"
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(archive_id, error = %e, "Failed to generate transcript from subtitle file");
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(archive_id, error = %e, "Failed to download subtitle file from S3");
+                            }
+                        }
+                    } else {
+                        tracing::warn!(
+                            archive_id,
+                            "No suitable subtitle found for transcript generation"
+                        );
+                    }
+                } else {
+                    tracing::warn!(archive_id, "No subtitle artifacts found in database");
+                }
+            }
+            Err(e) => {
+                tracing::error!(archive_id, error = %e, "Failed to fetch subtitle artifacts");
+            }
+        }
     }
 
     // Clean up temp directory
@@ -982,6 +1139,56 @@ async fn process_supplementary_artifacts_job(state: AppState, archive_id: i64, j
     if let Err(e) = set_job_completed(state.db.pool(), job_id, metadata.as_deref()).await {
         tracing::error!(archive_id, job_id, error = ?e, "Failed to mark job as completed");
     }
+}
+
+/// Find the best subtitle artifact for transcript generation.
+///
+/// Priority: English manual > English auto > any manual > any auto
+fn find_best_subtitle_artifact(
+    artifacts: &[crate::db::ArchiveArtifact],
+) -> Option<&crate::db::ArchiveArtifact> {
+    let mut best: Option<&crate::db::ArchiveArtifact> = None;
+    let mut best_is_english_manual = false;
+    let mut best_is_english = false;
+    let mut best_is_manual = false;
+
+    for artifact in artifacts {
+        let (is_english, is_manual) = if let Some(ref metadata) = artifact.metadata {
+            if let Ok(meta_json) = serde_json::from_str::<serde_json::Value>(metadata) {
+                let language = meta_json
+                    .get("language")
+                    .and_then(|l| l.as_str())
+                    .unwrap_or("");
+                let is_auto = meta_json
+                    .get("is_auto")
+                    .and_then(|a| a.as_bool())
+                    .unwrap_or(false);
+                (language.starts_with("en"), !is_auto)
+            } else {
+                (false, false)
+            }
+        } else {
+            (false, false)
+        };
+
+        let is_better = match (best, is_english, is_manual) {
+            (None, _, _) => true,
+            (Some(_), true, true) if !best_is_english_manual => true,
+            (Some(_), true, _) if !best_is_english && is_manual => true,
+            (Some(_), true, _) if !best_is_english => true,
+            (Some(_), _, true) if !best_is_manual && !best_is_english => true,
+            _ => false,
+        };
+
+        if is_better {
+            best = Some(artifact);
+            best_is_english_manual = is_english && is_manual;
+            best_is_english = is_english;
+            best_is_manual = is_manual;
+        }
+    }
+
+    best
 }
 
 /// Handler for toggling NSFW status (POST /archive/:id/toggle-nsfw).

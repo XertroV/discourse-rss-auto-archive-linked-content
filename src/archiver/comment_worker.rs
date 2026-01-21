@@ -210,8 +210,19 @@ async fn extract_comments_for_archive(
         let metadata = match tokio::fs::read_to_string(&comments_json_path).await {
             Ok(content) => {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    // Extract stats for the artifact metadata
-                    json.get("stats").map(|stats| stats.to_string())
+                    // Extract stats and platform for the artifact metadata
+                    // Wrap in container to match format from worker.rs
+                    json.get("stats").map(|stats| {
+                        let platform = json
+                            .get("platform")
+                            .and_then(|p| p.as_str())
+                            .unwrap_or("unknown");
+                        serde_json::json!({
+                            "stats": stats,
+                            "platform": platform,
+                        })
+                        .to_string()
+                    })
                 } else {
                     None
                 }
