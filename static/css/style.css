@@ -2089,6 +2089,7 @@ pre {
     cursor: pointer;
     display: flex;
     align-items: center;
+    gap: var(--spacing-xs);
 }
 
 .user-stats-section summary:hover {

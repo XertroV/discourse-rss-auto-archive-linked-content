@@ -1887,6 +1887,23 @@ async fn thread_job_status(
         }
     };
 
+    // Authorization: user must own the job or be an admin
+    match &user {
+        Some(u) if u.id == job.user_id || u.is_admin => {
+            // User is authorized
+        }
+        Some(_) => {
+            return (
+                StatusCode::FORBIDDEN,
+                "You don't have permission to view this job",
+            )
+                .into_response();
+        }
+        None => {
+            return (StatusCode::UNAUTHORIZED, "Please log in to view this job").into_response();
+        }
+    }
+
     // Fetch archives for processing/completed jobs
     let archives = if matches!(job.status.as_str(), "processing" | "complete") {
         match get_archives_for_thread_job(state.db.pool(), &job).await {

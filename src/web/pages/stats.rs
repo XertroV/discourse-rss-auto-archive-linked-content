@@ -409,6 +409,13 @@ fn render_user_submissions_table(submissions: &[UserSubmissionDetail]) -> Markup
             let status_class = format!("status-{}", submission.status);
             TableRow::new()
                 .cell_markup(html! {
+                    @if let Some(archive_id) = submission.archive_id {
+                        a href=(format!("/archive/{}", archive_id)) { (submission.id) }
+                    } @else {
+                        (submission.id)
+                    }
+                })
+                .cell_markup(html! {
                     @if let Some(link_id) = submission.link_id {
                         a href=(format!("/link/{}", link_id)) { (truncate_url(&submission.url, 60)) }
                     } @else {
@@ -417,15 +424,6 @@ fn render_user_submissions_table(submissions: &[UserSubmissionDetail]) -> Markup
                 })
                 .cell_with_class(&submission.status, &status_class)
                 .cell(&format_datetime(&submission.created_at))
-                .cell_markup(html! {
-                    @if let Some(archive_id) = submission.archive_id {
-                        a href=(format!("/archive/{}", archive_id)) class="btn btn-small" {
-                            "View"
-                        }
-                    } @else {
-                        span class="text-muted" { "—" }
-                    }
-                })
                 .cell_markup(html! {
                     @if let Some(error) = &submission.error_message {
                         span title=(error) class="text-muted" { "Error" }
@@ -437,7 +435,7 @@ fn render_user_submissions_table(submissions: &[UserSubmissionDetail]) -> Markup
         })
         .collect();
 
-    Table::new(vec!["URL", "Status", "Submitted", "Archive", "Error"])
+    Table::new(vec!["ID", "URL", "Status", "Submitted", "Error"])
         .variant(TableVariant::Stats)
         .rows(rows)
         .render()
