@@ -34,10 +34,10 @@ use crate::db::{
     get_video_file, has_missing_artifacts, insert_link, insert_submission,
     insert_thread_archive_job, mark_og_extraction_attempted, pin_comment, remove_comment_reaction,
     reset_archive_for_rearchive, reset_single_skipped_archive, reset_skipped_archives,
-    search_archives_display_filtered, search_archives_filtered_full, soft_delete_comment,
-    submission_exists_for_url, thread_archive_job_exists_recent, toggle_archive_nsfw,
-    unpin_comment, update_archive_og_metadata, update_comment, upsert_subtitle_language, NewLink,
-    NewSubmission, NewThreadArchiveJob,
+    search_archives_display_filtered, search_archives_filtered_full, set_archive_nsfw,
+    soft_delete_comment, submission_exists_for_url, thread_archive_job_exists_recent,
+    toggle_archive_nsfw, unpin_comment, update_archive_og_metadata, update_comment,
+    upsert_subtitle_language, NewLink, NewSubmission, NewThreadArchiveJob,
 };
 use crate::handlers::normalize_url;
 use crate::og_extractor;
@@ -1829,6 +1829,8 @@ async fn submit_form(State(state): State<AppState>, MaybeUser(user): MaybeUser) 
 #[derive(Debug, Deserialize)]
 pub struct SubmitForm {
     url: String,
+    #[serde(default)]
+    nsfw: bool,
 }
 
 async fn submit_url(
@@ -1994,10 +1996,24 @@ async fn submit_url(
         }
     };
 
+    // Mark as NSFW if checkbox was checked
+    if form.nsfw {
+        if let Err(e) = set_archive_nsfw(state.db.pool(), archive_id, true, Some("manual")).await {
+            tracing::error!(archive_id = archive_id, error = ?e, "Failed to set NSFW status");
+            // Don't fail the submission, just log the error
+        } else {
+            tracing::info!(
+                archive_id = archive_id,
+                "Archive marked as NSFW by user submission"
+            );
+        }
+    }
+
     tracing::info!(
         submission_id = submission_id,
         archive_id = archive_id,
         url = %normalized,
+        nsfw = form.nsfw,
         "URL submitted for archiving, redirecting to archive detail page"
     );
 

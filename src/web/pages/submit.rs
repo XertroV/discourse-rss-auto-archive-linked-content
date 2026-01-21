@@ -7,7 +7,9 @@
 
 use maud::{html, Markup, Render};
 
-use crate::components::{Alert, BaseLayout, Button, ContentTabs, Form, FormHelp, Input, Label};
+use crate::components::{
+    Alert, BaseLayout, Button, Checkbox, ContentTabs, Form, FormHelp, Input, Label,
+};
 use crate::db::User;
 
 /// Parameters for rendering the submit form page.
@@ -305,10 +307,25 @@ impl Render for UrlSubmissionTab {
                 .disabled()
         };
 
+        let nsfw_checkbox = if self.can_submit {
+            Checkbox::new("nsfw").id("nsfw").label("Mark as NSFW")
+        } else {
+            Checkbox::new("nsfw")
+                .id("nsfw")
+                .label("Mark as NSFW")
+                .disabled()
+        };
+
         let form_content = html! {
             (Label::new("url", "URL to Archive"))
             (url_input)
             (FormHelp::new("Enter the full URL including https://"))
+
+            div style="margin-top: 1rem;" {
+                (nsfw_checkbox)
+                (FormHelp::new("Check this if the content is Not Safe For Work"))
+            }
+
             (submit_button)
         };
 
@@ -604,5 +621,27 @@ mod tests {
         assert_eq!(params.success, Some("success msg"));
         assert_eq!(params.auth_warning, Some("warning msg"));
         assert!(!params.can_submit);
+    }
+
+    #[test]
+    fn test_url_tab_has_nsfw_checkbox() {
+        let tab = UrlSubmissionTab { can_submit: true };
+        let html = tab.render().into_string();
+
+        // Check that NSFW checkbox is present
+        assert!(html.contains(r#"name="nsfw""#));
+        assert!(html.contains(r#"id="nsfw""#));
+        assert!(html.contains("Mark as NSFW"));
+        assert!(html.contains("Not Safe For Work"));
+    }
+
+    #[test]
+    fn test_url_tab_nsfw_checkbox_disabled() {
+        let tab = UrlSubmissionTab { can_submit: false };
+        let html = tab.render().into_string();
+
+        // Check that NSFW checkbox is present but disabled
+        assert!(html.contains(r#"name="nsfw""#));
+        assert!(html.contains("disabled"));
     }
 }
