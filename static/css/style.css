@@ -3034,6 +3034,11 @@ pre {
     font-size: var(--font-size-xs);
 }
 
+/* Archive cards should always remain visible - we only toggle their content */
+body.nsfw-hidden .archive-card[data-nsfw="true"] {
+    display: block !important;
+}
+
 /* When NSFW filter is active on archive cards */
 body.nsfw-hidden .archive-card[data-nsfw="true"] .archive-card-content {
     display: none !important;
