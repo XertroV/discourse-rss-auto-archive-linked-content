@@ -77,7 +77,8 @@ pub use table::{
 
 // Re-export media components
 pub use media::{
-    render_media_player, AudioPlayer, ImageViewer, MediaContainer, MediaGallery, VideoPlayer,
+    render_media_player, render_media_player_with_options, AudioPlayer, ImageViewer,
+    MediaContainer, MediaGallery, VideoPlayer,
 };
 
 // Re-export pagination components

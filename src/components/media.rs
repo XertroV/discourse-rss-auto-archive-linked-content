@@ -282,9 +282,30 @@ pub fn render_media_player(
     content_type: Option<&str>,
     thumbnail: Option<&str>,
 ) -> Markup {
+    render_media_player_with_options(s3_key, content_type, thumbnail, true)
+}
+
+/// Render a complete media player with options for badge display.
+///
+/// This function determines the appropriate player type based on the S3 key
+/// extension and optional content type hint. The `show_badge` parameter controls
+/// whether to render the media type badge inside the player.
+#[must_use]
+pub fn render_media_player_with_options(
+    s3_key: &str,
+    content_type: Option<&str>,
+    thumbnail: Option<&str>,
+    show_badge: bool,
+) -> Markup {
     let extension = s3_key.rsplit('.').next().unwrap_or("").to_lowercase();
     let media_url = format!("/s3/{}", html_escape(s3_key));
-    let type_badge = MediaTypeBadge::from_content_type(content_type.unwrap_or("unknown"));
+    let type_badge = if show_badge {
+        Some(MediaTypeBadge::from_content_type(
+            content_type.unwrap_or("unknown"),
+        ))
+    } else {
+        None
+    };
 
     // Video formats
     if matches!(
@@ -295,7 +316,9 @@ pub fn render_media_player(
         let poster_url = thumbnail.map(|t| format!("/s3/{}", html_escape(t)));
         return html! {
             div class="media-container" {
-                (type_badge)
+                @if let Some(badge) = type_badge {
+                    (badge)
+                }
                 div class="video-wrapper" {
                     video controls preload="metadata" poster=[poster_url] {
                         source src=(media_url) type=(video_mime_type(&extension));
@@ -314,7 +337,9 @@ pub fn render_media_player(
     {
         return html! {
             div class="media-container" {
-                (type_badge)
+                @if let Some(badge) = type_badge {
+                    (badge)
+                }
                 div class="audio-wrapper" {
                     audio controls preload="metadata" {
                         source src=(media_url) type=(audio_mime_type(&extension));
@@ -334,7 +359,9 @@ pub fn render_media_player(
     {
         return html! {
             div class="media-container" {
-                (type_badge)
+                @if let Some(badge) = type_badge {
+                    (badge)
+                }
                 img src=(media_url) alt="Archived media" loading="lazy";
             }
         };
@@ -345,7 +372,9 @@ pub fn render_media_player(
         let thumb_url = format!("/s3/{}", html_escape(thumb));
         html! {
             div class="media-container" {
-                (type_badge)
+                @if let Some(badge) = type_badge {
+                    (badge)
+                }
                 img src=(thumb_url) alt="Thumbnail" class="archive-thumb";
                 p {
                     small { "Preview image shown. Full media available for download." }
@@ -355,7 +384,9 @@ pub fn render_media_player(
     } else {
         html! {
             div class="media-container" {
-                (type_badge)
+                @if let Some(badge) = type_badge {
+                    (badge)
+                }
                 p { "Media preview not available." }
             }
         }

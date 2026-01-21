@@ -18,8 +18,8 @@
 use maud::{html, Markup, PreEscaped, Render};
 
 use crate::components::{
-    render_media_player, BaseLayout, Button, KeyValueTable, NsfwBadge, NsfwWarning,
-    OpenGraphMetadata, StatusBadge, Table, TableRow, TableVariant,
+    render_media_player_with_options, BaseLayout, Button, KeyValueTable, MediaTypeBadge, NsfwBadge,
+    NsfwWarning, OpenGraphMetadata, StatusBadge, Table, TableRow, TableVariant,
 };
 use crate::db::{Archive, ArchiveArtifact, ArchiveJob, Link, LinkOccurrenceWithPost, User};
 
@@ -733,10 +733,16 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
     // Show primary media if available
     if let Some(primary_key) = primary_key_opt {
         let download_name = suggested_download_filename(&link.domain, archive.id, primary_key);
+        let content_type = archive.content_type.as_deref().unwrap_or("unknown");
+        let type_badge = MediaTypeBadge::from_content_type(content_type);
+
         return html! {
             section {
-                h2 { "Media" }
-                (render_media_player(primary_key, archive.content_type.as_deref(), thumb_key))
+                div class="section-header-with-badge" {
+                    h2 { "Media" }
+                    (type_badge)
+                }
+                (render_media_player_with_options(primary_key, archive.content_type.as_deref(), thumb_key, false))
                 p {
                     a href=(format!("/s3/{}", html_escape(primary_key)))
                       class="media-download"
@@ -753,10 +759,15 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
     if let Some(video_artifact) = artifacts.iter().find(|a| a.kind == "video") {
         let download_name =
             suggested_download_filename(&link.domain, archive.id, &video_artifact.s3_key);
+        let type_badge = MediaTypeBadge::from_content_type("video");
+
         return html! {
             section {
-                h2 { "Media" }
-                (render_media_player(&video_artifact.s3_key, Some("video"), thumb_key))
+                div class="section-header-with-badge" {
+                    h2 { "Media" }
+                    (type_badge)
+                }
+                (render_media_player_with_options(&video_artifact.s3_key, Some("video"), thumb_key, false))
                 p {
                     a href=(format!("/s3/{}", html_escape(&video_artifact.s3_key)))
                       class="media-download"

@@ -614,6 +614,18 @@ tr:hover {
     color: white;
 }
 
+/* Section header with inline badge */
+.section-header-with-badge {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.section-header-with-badge h2 {
+    margin: 0;
+}
+
 /* NSFW badge */
 .nsfw-badge {
     background-color: var(--danger);
