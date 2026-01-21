@@ -69,9 +69,7 @@ pub fn render_all_archives_table_page(params: &AllArchivesPageParams) -> Markup 
         }
     };
 
-    BaseLayout::new("All Archives")
-        .with_user(params.user)
-        .render(content)
+    BaseLayout::new("All Archives", params.user).render(content)
 }
 
 /// Render a single archive table row.

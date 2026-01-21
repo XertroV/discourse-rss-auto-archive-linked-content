@@ -144,6 +144,7 @@ pub enum MediaTypeVariant {
     Gallery,
     Thread,
     Playlist,
+    Pdf,
     Unknown,
 }
 
@@ -157,6 +158,7 @@ impl MediaTypeVariant {
             Self::Image | Self::Gallery => "media-type-badge media-type-image",
             Self::Text | Self::Thread => "media-type-badge media-type-text",
             Self::Playlist => "media-type-badge media-type-video",
+            Self::Pdf => "media-type-badge media-type-pdf",
             Self::Unknown => "media-type-badge",
         }
     }
@@ -172,6 +174,7 @@ impl MediaTypeVariant {
             Self::Gallery => "Gallery",
             Self::Thread => "Thread",
             Self::Playlist => "Playlist",
+            Self::Pdf => "PDF",
             Self::Unknown => "Unknown",
         }
     }
@@ -187,6 +190,7 @@ impl MediaTypeVariant {
             "text" => Self::Text,
             "thread" => Self::Thread,
             "playlist" => Self::Playlist,
+            "pdf" => Self::Pdf,
             _ => Self::Unknown,
         }
     }

@@ -54,9 +54,7 @@ pub fn render_post_detail_page(params: &PostDetailParams<'_>) -> Markup {
         }
     };
 
-    BaseLayout::new(&format!("Post: {title}"))
-        .with_user(params.user)
-        .render(content)
+    BaseLayout::new(&format!("Post: {title}"), params.user).render(content)
 }
 
 #[cfg(test)]

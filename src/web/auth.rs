@@ -914,7 +914,7 @@ pub async fn admin_reset_password(
 
     // Show the new password (one-time display)
     Html(
-        pages::render_admin_password_reset_result(&target_user.username, &new_password)
+        pages::render_admin_password_reset_result(&target_user.username, &new_password, &admin)
             .into_string(),
     )
     .into_response()
@@ -927,11 +927,11 @@ pub async fn admin_reset_password(
 /// GET /admin/excluded-domains - Show excluded domains management page.
 pub async fn admin_excluded_domains_page(
     State(state): State<AppState>,
-    RequireAdmin(_admin): RequireAdmin,
+    RequireAdmin(admin): RequireAdmin,
 ) -> Response {
     match queries::get_all_excluded_domains(state.db.pool()).await {
         Ok(domains) => {
-            Html(pages::render_admin_excluded_domains_page(&domains, None).into_string())
+            Html(pages::render_admin_excluded_domains_page(&domains, None, &admin).into_string())
                 .into_response()
         }
         Err(e) => {

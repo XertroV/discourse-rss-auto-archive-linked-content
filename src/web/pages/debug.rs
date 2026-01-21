@@ -75,9 +75,7 @@ pub fn render_debug_queue_page(params: &DebugQueueParams<'_>) -> Markup {
         (NavigationSection)
     };
 
-    BaseLayout::new("Debug: Queue Status")
-        .with_user(params.user)
-        .render(content)
+    BaseLayout::new("Debug: Queue Status", params.user).render(content)
 }
 
 /// Queue statistics section component.

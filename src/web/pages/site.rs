@@ -81,7 +81,7 @@ pub fn render_site_list_page(
         }
     };
 
-    BaseLayout::new(&page_title).with_user(user).render(content)
+    BaseLayout::new(&page_title, user).render(content)
 }
 
 #[cfg(test)]

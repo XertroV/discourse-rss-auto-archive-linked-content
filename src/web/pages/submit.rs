@@ -130,9 +130,7 @@ pub fn render_submit_form_page(params: &SubmitFormParams<'_>) -> Markup {
             ))
     };
 
-    BaseLayout::new("Submit for Archiving")
-        .with_user(params.user)
-        .render(content)
+    BaseLayout::new("Submit for Archiving", params.user).render(content)
 }
 
 /// Render the submit form page using the old-style function signature.
@@ -192,9 +190,7 @@ pub fn render_submit_success_page(submission_id: i64, user: Option<&User>) -> Ma
         }
     };
 
-    BaseLayout::new("Submission Successful")
-        .with_user(user)
-        .render(content)
+    BaseLayout::new("Submission Successful", user).render(content)
 }
 
 /// Render the submission success page (backwards compatible).
@@ -240,9 +236,7 @@ pub fn render_submit_error_page(error: &str, user: Option<&User>) -> Markup {
         }
     };
 
-    BaseLayout::new("Submission Failed")
-        .with_user(user)
-        .render(content)
+    BaseLayout::new("Submission Failed", user).render(content)
 }
 
 /// Render the submission error page (backwards compatible).

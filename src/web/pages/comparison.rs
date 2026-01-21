@@ -6,7 +6,7 @@
 use maud::{html, Markup, Render};
 
 use crate::components::BaseLayout;
-use crate::db::{Archive, Link};
+use crate::db::{Archive, Link, User};
 use crate::web::diff::{ChangeType, DiffLine, DiffResult};
 
 /// Truncate a URL for display, adding ellipsis if too long.
@@ -236,6 +236,7 @@ pub fn render_comparison_page(
     archive2: &Archive,
     link2: &Link,
     diff_result: &DiffResult,
+    user: Option<&User>,
 ) -> Markup {
     let content = html! {
         h1 { "Archive Comparison" }
@@ -257,7 +258,7 @@ pub fn render_comparison_page(
         }
     };
 
-    BaseLayout::new("Archive Comparison").render(content)
+    BaseLayout::new("Archive Comparison", user).render(content)
 }
 
 #[cfg(test)]
@@ -484,7 +485,7 @@ mod tests {
             is_identical: false,
         };
 
-        let page = render_comparison_page(&archive1, &link, &archive2, &link, &diff_result);
+        let page = render_comparison_page(&archive1, &link, &archive2, &link, &diff_result, None);
         let html = page.into_string();
 
         // Check page structure
@@ -515,7 +516,7 @@ mod tests {
             is_identical: true,
         };
 
-        let page = render_comparison_page(&archive1, &link, &archive2, &link, &diff_result);
+        let page = render_comparison_page(&archive1, &link, &archive2, &link, &diff_result, None);
         let html = page.into_string();
 
         assert!(html.contains("identical"));
@@ -535,7 +536,7 @@ mod tests {
             is_identical: true,
         };
 
-        let page = render_comparison_page(&archive1, &link, &archive2, &link, &diff_result);
+        let page = render_comparison_page(&archive1, &link, &archive2, &link, &diff_result, None);
         let html = page.into_string();
 
         assert!(html.contains("Neither archive has text content"));

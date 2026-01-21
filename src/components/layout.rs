@@ -27,7 +27,7 @@ const NSFW_FILTER_STYLE: &str =
 /// Base page layout builder.
 ///
 /// Provides a fluent interface for constructing the main page layout
-/// with optional user context for authentication-aware navigation.
+/// with required user context for authentication-aware navigation.
 ///
 /// # Example
 ///
@@ -36,8 +36,7 @@ const NSFW_FILTER_STYLE: &str =
 /// use crate::components::layout::BaseLayout;
 ///
 /// let content = html! { h1 { "Hello World" } };
-/// let page = BaseLayout::new("My Page")
-///     .with_user(Some(&user))
+/// let page = BaseLayout::new("My Page", user.as_ref())
 ///     .render(content);
 /// ```
 #[derive(Debug, Clone)]
@@ -48,24 +47,18 @@ pub struct BaseLayout<'a> {
 }
 
 impl<'a> BaseLayout<'a> {
-    /// Create a new base layout with the given page title.
+    /// Create a new base layout with the given page title and user.
+    ///
+    /// The user parameter is required to ensure authentication state is
+    /// always explicitly handled. Pass `None` for anonymous users or
+    /// `Some(&user)` for authenticated users.
     #[must_use]
-    pub fn new(title: &'a str) -> Self {
+    pub fn new(title: &'a str, user: Option<&'a User>) -> Self {
         Self {
             title,
-            user: None,
+            user,
             og_metadata: None,
         }
-    }
-
-    /// Set the authenticated user for the layout.
-    ///
-    /// When a user is provided, the navigation will show profile and
-    /// admin links (if the user is an admin) instead of the login link.
-    #[must_use]
-    pub fn with_user(mut self, user: Option<&'a User>) -> Self {
-        self.user = user;
-        self
     }
 
     /// Set the Open Graph metadata for social media previews.
@@ -218,7 +211,7 @@ mod tests {
     #[test]
     fn test_base_layout_basic_structure() {
         let content = html! { h1 { "Test Content" } };
-        let page = BaseLayout::new("Test Page").render(content);
+        let page = BaseLayout::new("Test Page", None).render(content);
         let html = page.into_string();
 
         // Check DOCTYPE and html structure
@@ -248,7 +241,7 @@ mod tests {
     #[test]
     fn test_base_layout_navigation() {
         let content = html! { p { "Content" } };
-        let page = BaseLayout::new("Nav Test").render(content);
+        let page = BaseLayout::new("Nav Test", None).render(content);
         let html = page.into_string();
 
         // Check navigation links
@@ -262,7 +255,7 @@ mod tests {
     #[test]
     fn test_base_layout_anonymous_user() {
         let content = html! { p { "Content" } };
-        let page = BaseLayout::new("Anonymous Test").render(content);
+        let page = BaseLayout::new("Anonymous Test", None).render(content);
         let html = page.into_string();
 
         // Should show login link for anonymous users
@@ -276,9 +269,7 @@ mod tests {
     fn test_base_layout_regular_user() {
         let user = test_user(false);
         let content = html! { p { "Content" } };
-        let page = BaseLayout::new("User Test")
-            .with_user(Some(&user))
-            .render(content);
+        let page = BaseLayout::new("User Test", Some(&user)).render(content);
         let html = page.into_string();
 
         // Should show profile link for authenticated users
@@ -292,9 +283,7 @@ mod tests {
     fn test_base_layout_admin_user() {
         let user = test_user(true);
         let content = html! { p { "Content" } };
-        let page = BaseLayout::new("Admin Test")
-            .with_user(Some(&user))
-            .render(content);
+        let page = BaseLayout::new("Admin Test", Some(&user)).render(content);
         let html = page.into_string();
 
         // Should show both profile and admin links for admin users
@@ -307,7 +296,7 @@ mod tests {
     #[test]
     fn test_base_layout_toggle_buttons() {
         let content = html! { p { "Content" } };
-        let page = BaseLayout::new("Toggle Test").render(content);
+        let page = BaseLayout::new("Toggle Test", None).render(content);
         let html = page.into_string();
 
         // Check NSFW toggle button
@@ -323,7 +312,7 @@ mod tests {
     #[test]
     fn test_base_layout_footer() {
         let content = html! { p { "Content" } };
-        let page = BaseLayout::new("Footer Test").render(content);
+        let page = BaseLayout::new("Footer Test", None).render(content);
         let html = page.into_string();
 
         // Check footer
@@ -337,7 +326,7 @@ mod tests {
     #[test]
     fn test_base_layout_external_scripts() {
         let content = html! { p { "Content" } };
-        let page = BaseLayout::new("Scripts Test").render(content);
+        let page = BaseLayout::new("Scripts Test", None).render(content);
         let html = page.into_string();
 
         // Check external script tags
@@ -348,7 +337,7 @@ mod tests {
     #[test]
     fn test_base_layout_nsfw_filter_style() {
         let content = html! { p { "Content" } };
-        let page = BaseLayout::new("NSFW Style Test").render(content);
+        let page = BaseLayout::new("NSFW Style Test", None).render(content);
         let html = page.into_string();
 
         // Check NSFW filter style is embedded
@@ -359,7 +348,7 @@ mod tests {
     #[test]
     fn test_base_layout_meta_tags() {
         let content = html! { p { "Content" } };
-        let page = BaseLayout::new("Meta Test").render(content);
+        let page = BaseLayout::new("Meta Test", None).render(content);
         let html = page.into_string();
 
         // Check meta tags for preventing archiving by third parties
@@ -369,15 +358,12 @@ mod tests {
     }
 
     #[test]
-    fn test_base_layout_builder_pattern() {
+    fn test_base_layout_with_og_metadata() {
         let user = test_user(false);
 
-        // Test that builder pattern works correctly
-        let layout = BaseLayout::new("Builder Test");
-        assert_eq!(layout.title, "Builder Test");
-        assert!(layout.user.is_none());
-
-        let layout = layout.with_user(Some(&user));
+        // Test that og metadata works correctly
+        let layout = BaseLayout::new("OG Test", Some(&user));
+        assert_eq!(layout.title, "OG Test");
         assert!(layout.user.is_some());
         assert_eq!(layout.user.unwrap().username, "testuser");
     }

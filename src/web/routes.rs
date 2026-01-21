@@ -1162,6 +1162,7 @@ pub struct CompareParams {
 async fn compare_archives(
     State(state): State<AppState>,
     Path(params): Path<CompareParams>,
+    MaybeUser(user): MaybeUser,
 ) -> Response {
     // Fetch both archives
     let archive1 = match get_archive(state.db.pool(), params.id1).await {
@@ -1222,11 +1223,22 @@ async fn compare_archives(
     let text2 = archive2.content_text.as_deref().unwrap_or("");
     let diff_result = diff::compute_diff(text1, text2);
 
-    let markup = pages::render_comparison_page(&archive1, &link1, &archive2, &link2, &diff_result);
+    let markup = pages::render_comparison_page(
+        &archive1,
+        &link1,
+        &archive2,
+        &link2,
+        &diff_result,
+        user.as_ref(),
+    );
     Html(markup.into_string()).into_response()
 }
 
-async fn post_detail(State(state): State<AppState>, Path(guid): Path<String>) -> Response {
+async fn post_detail(
+    State(state): State<AppState>,
+    Path(guid): Path<String>,
+    MaybeUser(user): MaybeUser,
+) -> Response {
     let post = match get_post_by_guid(state.db.pool(), &guid).await {
         Ok(Some(p)) => p,
         Ok(None) => {
@@ -1249,13 +1261,17 @@ async fn post_detail(State(state): State<AppState>, Path(guid): Path<String>) ->
     let params = pages::PostDetailParams {
         post: &post,
         archives: &archives,
-        user: None,
+        user: user.as_ref(),
     };
     let markup = pages::render_post_detail_page(&params);
     Html(markup.into_string()).into_response()
 }
 
-async fn thread_detail(State(state): State<AppState>, Path(thread_key): Path<String>) -> Response {
+async fn thread_detail(
+    State(state): State<AppState>,
+    Path(thread_key): Path<String>,
+    MaybeUser(user): MaybeUser,
+) -> Response {
     let posts = match get_posts_by_thread_key(state.db.pool(), &thread_key).await {
         Ok(p) => p,
         Err(e) => {
@@ -1282,7 +1298,7 @@ async fn thread_detail(State(state): State<AppState>, Path(thread_key): Path<Str
         thread_key: &thread_key,
         posts: &posts,
         archives: &archives,
-        user: None,
+        user: user.as_ref(),
     };
     let markup = pages::render_thread_detail_page(&params);
     Html(markup.into_string()).into_response()
@@ -1297,6 +1313,7 @@ pub struct ThreadsListParams {
 async fn threads_list(
     State(state): State<AppState>,
     Query(params): Query<ThreadsListParams>,
+    MaybeUser(user): MaybeUser,
 ) -> Response {
     let sort_by = params.sort.as_deref().unwrap_or("created");
     let page = params.page.unwrap_or(1);
@@ -1327,7 +1344,7 @@ async fn threads_list(
         sort_by: pages::ThreadSortBy::from_str(sort_by),
         page: (page as usize).saturating_sub(1), // Convert to 0-indexed
         total_pages,
-        user: None,
+        user: user.as_ref(),
     };
     let markup = pages::render_threads_list_page(&params);
     Html(markup.into_string()).into_response()

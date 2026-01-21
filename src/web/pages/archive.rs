@@ -1649,11 +1649,12 @@ mod tests {
 
         let html = render_archive_header(&archive, &link).into_string();
 
-        assert!(html.contains("Status:"));
-        assert!(html.contains("Original URL:"));
-        assert!(html.contains("Domain:"));
+        // Labels are in info-label divs (without colons)
+        assert!(html.contains("\"info-label\">Status<"));
+        assert!(html.contains("\"info-label\">Original URL<"));
+        assert!(html.contains("\"info-label\">Domain<"));
         assert!(html.contains("example.com"));
-        assert!(html.contains("HTTP Status:"));
+        assert!(html.contains("\"info-label\">HTTP Status<"));
         assert!(html.contains("200"));
     }
 

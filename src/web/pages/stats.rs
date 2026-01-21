@@ -254,9 +254,7 @@ pub fn render_stats_page(
         }
     };
 
-    BaseLayout::new("Statistics")
-        .with_user(user)
-        .render(content)
+    BaseLayout::new("Statistics", user).render(content)
 }
 
 /// Render the content type counts table.

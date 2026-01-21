@@ -49,7 +49,7 @@ pub fn render_login_page(error: Option<&str>, credentials: Option<(&str, &str)>)
         render_login_form(error)
     };
 
-    BaseLayout::new("Login").render(content)
+    BaseLayout::new("Login", None).render(content)
 }
 
 /// Render the registration success page with credentials.
@@ -281,9 +281,7 @@ pub fn render_profile_page(params: ProfilePageParams<'_>) -> Markup {
         }
     };
 
-    BaseLayout::new("Profile")
-        .with_user(Some(user))
-        .render(content)
+    BaseLayout::new("Profile", Some(user)).render(content)
 }
 
 /// Render the account status box based on user state.

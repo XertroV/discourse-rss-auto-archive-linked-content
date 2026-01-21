@@ -84,6 +84,7 @@ pub enum ContentType {
     Gallery,
     Thread,
     Playlist,
+    Pdf,
 }
 
 impl ContentType {
@@ -96,6 +97,7 @@ impl ContentType {
             Self::Gallery => "gallery",
             Self::Thread => "thread",
             Self::Playlist => "playlist",
+            Self::Pdf => "pdf",
         }
     }
 }

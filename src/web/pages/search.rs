@@ -88,7 +88,7 @@ pub fn render_search_page(
         }
     };
 
-    BaseLayout::new("Search").with_user(user).render(content)
+    BaseLayout::new("Search", user).render(content)
 }
 
 /// A search form component.
