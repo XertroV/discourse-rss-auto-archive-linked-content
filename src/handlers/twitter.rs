@@ -36,6 +36,10 @@ pub struct TwitterMetadata {
     pub text: Option<String>,
     pub created_at: Option<String>,
     pub quoted_tweet_url: Option<String>,
+    pub quoted_tweet_author: Option<String>,
+    pub quoted_tweet_text: Option<String>,
+    pub quoted_tweet_date: Option<String>,
+    pub quoted_tweet_deleted: bool,
     pub reply_to_tweet_url: Option<String>,
     pub media_count: usize,
     pub is_retweet: bool,
@@ -532,6 +536,22 @@ fn extract_twitter_metadata_from_json(json_str: &str) -> Result<TwitterMetadata>
         .get("quoted_tweet")
         .or_else(|| json.get("quoted_status"))
     {
+        // Check if the quoted tweet is deleted (tombstone/unavailable)
+        let is_deleted = quoted
+            .get("deleted")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+            || quoted
+                .get("tombstone")
+                .map(|v| !v.is_null())
+                .unwrap_or(false)
+            || quoted
+                .get("unavailable")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+        metadata.quoted_tweet_deleted = is_deleted;
+
         if let Some(quoted_id) = quoted.get("id").and_then(|v| v.as_u64()) {
             if let Some(quoted_user) = quoted
                 .get("user")
@@ -544,8 +564,24 @@ fn extract_twitter_metadata_from_json(json_str: &str) -> Result<TwitterMetadata>
             {
                 metadata.quoted_tweet_url =
                     Some(format!("https://x.com/{quoted_user}/status/{quoted_id}"));
+                metadata.quoted_tweet_author = Some(quoted_user.to_string());
             }
         }
+
+        // Extract quoted tweet text
+        metadata.quoted_tweet_text = quoted
+            .get("content")
+            .or_else(|| quoted.get("text"))
+            .or_else(|| quoted.get("full_text"))
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        // Extract quoted tweet date
+        metadata.quoted_tweet_date = quoted
+            .get("date")
+            .or_else(|| quoted.get("created_at"))
+            .and_then(|v| v.as_str())
+            .map(String::from);
     }
 
     // Check for reply
@@ -659,6 +695,70 @@ fn detect_nsfw_from_html(html: &str) -> bool {
         || html_lower.contains("data-sensitive=\"true\"")
         || html_lower.contains("is-sensitive-media")
         || html_lower.contains("sensitivemediawarning")
+}
+
+/// Detect if a quoted tweet has been deleted from HTML snapshot.
+///
+/// Looks for indicators that a quoted tweet is unavailable or deleted.
+fn detect_deleted_quoted_tweet_from_html(html: &str) -> bool {
+    let html_lower = html.to_ascii_lowercase();
+
+    // Look for deleted/unavailable tweet indicators
+    html_lower.contains("this post is unavailable")
+        || html_lower.contains("this tweet is unavailable")
+        || html_lower.contains("this post was deleted")
+        || html_lower.contains("this tweet was deleted")
+        || html_lower.contains("tweet unavailable")
+        || html_lower.contains("post unavailable")
+        || html_lower.contains("tweet-tombstone")
+        || html_lower.contains("tombstone")
+}
+
+/// Format combined tweet text for quote tweets.
+///
+/// Creates a markdown-formatted string showing both the outer tweet and quoted tweet:
+/// ```text
+/// [outer tweet content]
+///
+/// @person - date
+/// > [quoted tweet content]
+/// ```
+fn format_quote_tweet_text(metadata: &TwitterMetadata) -> Option<String> {
+    // Need both outer tweet text and quoted tweet info
+    let outer_text = metadata.text.as_ref()?;
+    let quoted_author = metadata.quoted_tweet_author.as_ref()?;
+
+    let mut result = outer_text.clone();
+    result.push_str("\n\n");
+    result.push('@');
+    result.push_str(quoted_author);
+
+    // Add date if available
+    if let Some(ref date) = metadata.quoted_tweet_date {
+        result.push_str(" - ");
+        result.push_str(date);
+    }
+
+    result.push('\n');
+
+    // Add quoted tweet content or deletion notice
+    if metadata.quoted_tweet_deleted {
+        result.push_str("> [This tweet has been deleted]");
+    } else if let Some(ref quoted_text) = metadata.quoted_tweet_text {
+        // Format as markdown blockquote - add > to each line
+        for line in quoted_text.lines() {
+            result.push_str("> ");
+            result.push_str(line);
+            result.push('\n');
+        }
+        // Remove trailing newline
+        result.pop();
+    } else {
+        // Have URL but no text - tweet might be unavailable
+        result.push_str("> [Quoted tweet content unavailable]");
+    }
+
+    Some(result)
 }
 
 /// Type of media detected in tweet HTML.
