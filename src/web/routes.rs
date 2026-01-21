@@ -53,7 +53,7 @@ struct PaginationParams {
     source: Option<String>,
 }
 
-const ITEMS_PER_PAGE: i64 = 50;
+const ITEMS_PER_PAGE: i64 = 24;
 const TABLE_ITEMS_PER_PAGE: i64 = 1000;
 
 /// Create the router with all routes.

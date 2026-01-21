@@ -104,6 +104,9 @@ pub fn render_archive_detail_page(params: &ArchiveDetailParams<'_>) -> Markup {
             // Embedded HTML preview (for webpage archives)
             (render_html_embed_section(archive, params.artifacts))
 
+            // Embedded PDF preview (for PDF documents)
+            (render_pdf_embed_section(archive, params.artifacts))
+
             // Page captures (screenshot, PDF, MHTML)
             (render_captures_section(archive, link, params.artifacts))
 
@@ -828,6 +831,38 @@ fn render_html_embed_section(archive: &Archive, artifacts: &[ArchiveArtifact]) -
     }
 }
 
+/// Render embedded PDF preview.
+fn render_pdf_embed_section(archive: &Archive, artifacts: &[ArchiveArtifact]) -> Markup {
+    // Only show for PDF content type
+    if archive.content_type.as_deref() != Some("pdf") {
+        return html! {};
+    }
+
+    // Find the PDF artifact
+    let pdf_artifact = artifacts.iter().find(|a| a.kind == "pdf");
+
+    let pdf_key = match pdf_artifact {
+        Some(artifact) => &artifact.s3_key,
+        None => return html! {},
+    };
+
+    html! {
+        section class="embedded-preview pdf-preview" {
+            details open {
+                summary {
+                    h2 style="display: inline;" { "Archived PDF Document" }
+                }
+                div class="iframe-container pdf-container" {
+                    iframe src=(format!("/s3/{}", html_escape(pdf_key)))
+                           type="application/pdf"
+                           loading="lazy"
+                           title="Archived PDF document" {}
+                }
+            }
+        }
+    }
+}
+
 /// Render page captures section (screenshot, PDF, MHTML).
 fn render_captures_section(
     archive: &Archive,
@@ -861,18 +896,20 @@ fn render_captures_section(
                         }
                     }
 
-                    // PDF link
+                    // PDF link (only show if not primary content - primary PDFs shown in embed section)
                     @if let Some(pdf_artifact) = pdf {
-                        div class="capture-item" {
-                            h4 { "PDF Document" }
-                            a href=(format!("/s3/{}", pdf_artifact.s3_key))
-                              target="_blank" rel="noopener"
-                              class="capture-link" {
-                                span class="capture-icon" { "\u{1F4C4}" }  // 📄
-                                span { "View PDF" }
-                            }
-                            p class="capture-meta" {
-                                (pdf_artifact.size_bytes.map(format_bytes).unwrap_or_else(|| "Unknown size".to_string()))
+                        @if archive.content_type.as_deref() != Some("pdf") {
+                            div class="capture-item" {
+                                h4 { "PDF Document" }
+                                a href=(format!("/s3/{}", pdf_artifact.s3_key))
+                                  target="_blank" rel="noopener"
+                                  class="capture-link" {
+                                    span class="capture-icon" { "\u{1F4C4}" }  // 📄
+                                    span { "View PDF" }
+                                }
+                                p class="capture-meta" {
+                                    (pdf_artifact.size_bytes.map(format_bytes).unwrap_or_else(|| "Unknown size".to_string()))
+                                }
                             }
                         }
                     }
@@ -1794,5 +1831,48 @@ mod tests {
         assert!(html.contains("Re-archive"));
         assert!(html.contains("Toggle NSFW"));
         assert!(html.contains("Delete"));
+    }
+
+    #[test]
+    fn test_render_pdf_embed_section() {
+        let mut archive = sample_archive();
+        archive.content_type = Some("pdf".to_string());
+
+        let pdf_artifact = ArchiveArtifact {
+            id: 1,
+            archive_id: 1,
+            kind: "pdf".to_string(),
+            s3_key: "archives/1/document.pdf".to_string(),
+            content_type: Some("application/pdf".to_string()),
+            size_bytes: Some(1024000),
+            sha256: None,
+            created_at: "2024-01-15".to_string(),
+            perceptual_hash: None,
+            duplicate_of_artifact_id: None,
+            video_file_id: None,
+            metadata: None,
+        };
+
+        let html = render_pdf_embed_section(&archive, &[pdf_artifact]).into_string();
+
+        assert!(html.contains("pdf-preview"));
+        assert!(html.contains("Archived PDF Document"));
+        assert!(html.contains("iframe"));
+        assert!(html.contains("/s3/archives/1/document.pdf"));
+    }
+
+    #[test]
+    fn test_render_pdf_embed_section_no_pdf_content_type() {
+        let archive = sample_archive(); // content_type is "video"
+        let html = render_pdf_embed_section(&archive, &[]).into_string();
+        assert!(html.is_empty());
+    }
+
+    #[test]
+    fn test_render_pdf_embed_section_no_artifact() {
+        let mut archive = sample_archive();
+        archive.content_type = Some("pdf".to_string());
+        let html = render_pdf_embed_section(&archive, &[]).into_string();
+        assert!(html.is_empty());
     }
 }
