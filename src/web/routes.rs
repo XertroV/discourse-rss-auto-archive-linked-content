@@ -18,24 +18,28 @@ use crate::auth::{MaybeUser, RequireAdmin, RequireApproved, RequireUser};
 use crate::components::OpenGraphMetadata;
 use crate::db::{
     add_comment_reaction, can_user_edit_comment, count_all_archives_filtered, count_all_threads,
-    count_archives_by_status, count_links, count_posts, count_submissions_from_ip_last_hour,
-    count_user_thread_archive_jobs_last_hour, create_comment, create_comment_reply,
-    create_pending_archive, delete_archive, find_artifact_by_s3_key, get_all_archives_table_view,
-    get_all_threads, get_archive, get_archive_by_link_id, get_archives_by_domain_display,
-    get_archives_for_post_display, get_archives_for_posts_display, get_archives_for_thread_job,
-    get_artifacts_for_archive, get_comment_edit_history, get_comment_with_author,
-    get_jobs_for_archive, get_link, get_link_by_normalized_url, get_link_occurrences_with_posts,
-    get_post_by_guid, get_posts_by_thread_key, get_queue_stats, get_quote_reply_chain,
-    get_recent_archives_display_filtered, get_recent_archives_filtered_full,
-    get_recent_archives_with_filters, get_recent_failed_archives, get_thread_archive_job,
-    get_video_file, has_missing_artifacts, insert_link, insert_submission,
-    insert_thread_archive_job, pin_comment, remove_comment_reaction, reset_archive_for_rearchive,
+    count_archives_by_content_type, count_archives_by_status, count_links, count_posts,
+    count_submissions_from_ip_last_hour, count_user_thread_archive_jobs_last_hour, create_comment,
+    create_comment_reply, create_pending_archive, delete_archive, find_artifact_by_s3_key,
+    get_all_archives_table_view, get_all_threads, get_archive, get_archive_by_link_id,
+    get_archive_timeline, get_archives_by_domain_display, get_archives_for_post_display,
+    get_archives_for_posts_display, get_archives_for_thread_job, get_artifacts_for_archive,
+    get_comment_edit_history, get_comment_with_author, get_jobs_for_archive, get_link,
+    get_link_by_normalized_url, get_link_occurrences_with_posts, get_nsfw_count, get_post_by_guid,
+    get_posts_by_thread_key, get_quality_metrics, get_queue_stats, get_quote_reply_chain,
+    get_recent_activity_counts, get_recent_archives_display_filtered,
+    get_recent_archives_filtered_full, get_recent_archives_with_filters,
+    get_recent_failed_archives, get_storage_stats, get_thread_archive_job, get_top_domains,
+    get_user_submission_stats, get_user_submissions, get_video_file, has_missing_artifacts,
+    insert_link, insert_submission, insert_thread_archive_job, mark_og_extraction_attempted,
+    pin_comment, remove_comment_reaction, reset_archive_for_rearchive,
     reset_single_skipped_archive, reset_skipped_archives, search_archives_display_filtered,
     search_archives_filtered_full, soft_delete_comment, submission_exists_for_url,
-    thread_archive_job_exists_recent, toggle_archive_nsfw, unpin_comment, update_comment, NewLink,
-    NewSubmission, NewThreadArchiveJob,
+    thread_archive_job_exists_recent, toggle_archive_nsfw, unpin_comment,
+    update_archive_og_metadata, update_comment, NewLink, NewSubmission, NewThreadArchiveJob,
 };
 use crate::handlers::normalize_url;
+use crate::og_extractor;
 
 /// Pagination query parameters.
 #[derive(Debug, Deserialize)]
@@ -477,38 +481,61 @@ async fn archive_detail(
 
     // Generate Open Graph metadata for archive detail page
     let og_metadata = {
-        let title = archive
-            .content_title
+        // Try to use extracted OG metadata from database first
+        let (og_title, og_description, og_image, og_type) =
+            if archive.og_title.is_some() || archive.og_description.is_some() {
+                // Use extracted metadata from database
+                (
+                    archive.og_title.clone(),
+                    archive.og_description.clone(),
+                    archive.og_image.clone(),
+                    archive.og_type.clone(),
+                )
+            } else if !archive.og_extraction_attempted {
+                // Fallback: Try to extract from S3 for old archives
+                extract_og_from_s3_fallback(&state, &archive, &artifacts).await
+            } else {
+                // No extracted metadata and extraction was already attempted
+                (None, None, None, None)
+            };
+
+        // Build metadata using extracted data or fallback to generated data
+        let title = og_title
             .as_deref()
+            .or(archive.content_title.as_deref())
             .unwrap_or("Untitled Archive");
 
-        // Generate description from content text
-        let description = if let Some(text) = &archive.content_text {
-            crate::components::truncate_text(text, 200)
-        } else {
-            format!("Archived content from {}", link.domain)
-        };
-
-        // Get thumbnail URL if available (only for non-NSFW content)
-        let image_url = if !archive.is_nsfw {
-            // Check if we have a public URL base configured
-            if let Some(ref base) = state.config.s3_public_url_base {
-                artifacts
-                    .iter()
-                    .find(|a| a.kind == "thumbnail")
-                    .map(|a| format!("{}/{}", base, a.s3_key))
+        let description = og_description.unwrap_or_else(|| {
+            if let Some(text) = &archive.content_text {
+                crate::components::truncate_text(text, 200)
             } else {
-                None
+                format!("Archived content from {}", link.domain)
             }
+        });
+
+        // Use extracted OG image if available, otherwise use thumbnail
+        let image_url = if !archive.is_nsfw {
+            og_image.or_else(|| {
+                // Fallback to thumbnail if no OG image
+                if let Some(ref base) = state.config.s3_public_url_base {
+                    artifacts
+                        .iter()
+                        .find(|a| a.kind == "thumbnail")
+                        .map(|a| format!("{}/{}", base, a.s3_key))
+                } else {
+                    None
+                }
+            })
         } else {
             None
         };
 
         let archive_url = format!("/archive/{}", archive.id);
+        let og_type_str = og_type.as_deref().unwrap_or("article");
 
         Some(
             OpenGraphMetadata::new(title, &description, &archive_url)
-                .with_type("article")
+                .with_type(og_type_str)
                 .with_image(image_url.as_deref())
                 .with_nsfw(archive.is_nsfw)
                 .with_twitter_card(if image_url.is_some() {
@@ -1337,6 +1364,7 @@ async fn site_list(
 }
 
 async fn stats(State(state): State<AppState>, MaybeUser(user): MaybeUser) -> Response {
+    // Fetch all stats data
     let status_counts = match count_archives_by_status(state.db.pool()).await {
         Ok(c) => c,
         Err(e) => {
@@ -1345,11 +1373,86 @@ async fn stats(State(state): State<AppState>, MaybeUser(user): MaybeUser) -> Res
         }
     };
 
+    let content_type_counts = match count_archives_by_content_type(state.db.pool()).await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("Failed to count archives by content type: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    let top_domains = get_top_domains(state.db.pool(), 10)
+        .await
+        .unwrap_or_default();
+    let recent_activity = get_recent_activity_counts(state.db.pool())
+        .await
+        .unwrap_or((0, 0, 0));
+    let storage_stats = get_storage_stats(state.db.pool())
+        .await
+        .unwrap_or((0, 0.0, 0));
+    let timeline = get_archive_timeline(state.db.pool())
+        .await
+        .unwrap_or_default();
+    let queue_stats_full = get_queue_stats(state.db.pool(), MAX_RETRIES).await.ok();
+    let queue_stats = match queue_stats_full {
+        Some(qs) => (qs.pending_count, qs.processing_count),
+        None => (0, 0),
+    };
+    let quality_metrics = get_quality_metrics(state.db.pool())
+        .await
+        .unwrap_or((0, 0, 0));
+    let nsfw_count = get_nsfw_count(state.db.pool()).await.unwrap_or(0);
+
     let link_count = count_links(state.db.pool()).await.unwrap_or(0);
     let post_count = count_posts(state.db.pool()).await.unwrap_or(0);
 
-    let stats_data = pages::StatsData::new(post_count, link_count, status_counts);
-    let markup = pages::render_stats_page(&stats_data, user.as_ref());
+    // Calculate total completed archives
+    let total_complete = status_counts
+        .iter()
+        .find(|(status, _)| status == "complete")
+        .map(|(_, count)| *count)
+        .unwrap_or(0);
+
+    let stats_data = pages::StatsData::new(
+        post_count,
+        link_count,
+        status_counts,
+        content_type_counts,
+        top_domains,
+        recent_activity,
+        storage_stats,
+        timeline,
+        queue_stats,
+        quality_metrics,
+        nsfw_count,
+        total_complete,
+    );
+
+    // Fetch user-specific stats if logged in
+    let user_stats = if let Some(ref u) = user {
+        match get_user_submission_stats(state.db.pool(), u.id).await {
+            Ok((total, complete, pending, failed)) => {
+                let recent_submissions = get_user_submissions(state.db.pool(), u.id, 20)
+                    .await
+                    .unwrap_or_default();
+                Some(pages::UserStats {
+                    total_submissions: total,
+                    complete_submissions: complete,
+                    pending_submissions: pending,
+                    failed_submissions: failed,
+                    recent_submissions,
+                })
+            }
+            Err(e) => {
+                tracing::error!("Failed to get user submission stats: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let markup = pages::render_stats_page(&stats_data, user.as_ref(), user_stats.as_ref());
     Html(markup.into_string()).into_response()
 }
 
@@ -2651,6 +2754,125 @@ async fn comment_history_handler(
                 .into_response()
         }
     }
+}
+
+/// Fallback function to extract OG metadata from S3-stored raw.html for old archives.
+///
+/// This function is called when an archive doesn't have extracted OG metadata in the database
+/// and extraction hasn't been attempted yet. It attempts to:
+/// 1. Find the raw.html artifact in S3
+/// 2. Download and parse it
+/// 3. Extract OG metadata
+/// 4. Save the metadata to the database
+///
+/// Returns (og_title, og_description, og_image, og_type) tuple.
+async fn extract_og_from_s3_fallback(
+    state: &AppState,
+    archive: &crate::db::Archive,
+    artifacts: &[crate::db::ArchiveArtifact],
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
+    // Find raw.html artifact
+    let raw_html_artifact = artifacts.iter().find(|a| a.kind == "raw_html");
+
+    if let Some(artifact) = raw_html_artifact {
+        // Try to download raw.html from S3
+        match state.s3.download_file(&artifact.s3_key).await {
+            Ok((bytes, _content_type)) => {
+                // Convert bytes to string
+                match String::from_utf8(bytes) {
+                    Ok(html_content) => {
+                        // Extract OG metadata
+                        match og_extractor::extract_og_metadata(&html_content) {
+                            Ok(og_metadata) => {
+                                if og_metadata.has_content() {
+                                    // Save to database
+                                    let result = (
+                                        og_metadata.title.clone(),
+                                        og_metadata.description.clone(),
+                                        og_metadata.image.clone(),
+                                        og_metadata.og_type.clone(),
+                                    );
+
+                                    // Save extracted metadata to database (non-blocking)
+                                    let pool = state.db.pool().clone();
+                                    let archive_id = archive.id;
+                                    let og_title = og_metadata.title.clone();
+                                    let og_description = og_metadata.description.clone();
+                                    let og_image = og_metadata.image.clone();
+                                    let og_type = og_metadata.og_type.clone();
+
+                                    tokio::spawn(async move {
+                                        if let Err(e) = update_archive_og_metadata(
+                                            &pool,
+                                            archive_id,
+                                            og_title.as_deref(),
+                                            og_description.as_deref(),
+                                            og_image.as_deref(),
+                                            og_type.as_deref(),
+                                        )
+                                        .await
+                                        {
+                                            tracing::warn!(
+                                                archive_id,
+                                                error = %e,
+                                                "Failed to save fallback OG metadata"
+                                            );
+                                        }
+                                    });
+
+                                    return result;
+                                } else {
+                                    // No metadata found, mark as attempted
+                                    let pool = state.db.pool().clone();
+                                    let archive_id = archive.id;
+                                    tokio::spawn(async move {
+                                        let _ =
+                                            mark_og_extraction_attempted(&pool, archive_id).await;
+                                    });
+                                }
+                            }
+                            Err(e) => {
+                                tracing::debug!(
+                                    archive_id = archive.id,
+                                    error = %e,
+                                    "Failed to extract OG metadata from S3 fallback"
+                                );
+                                // Mark as attempted even on failure
+                                let pool = state.db.pool().clone();
+                                let archive_id = archive.id;
+                                tokio::spawn(async move {
+                                    let _ = mark_og_extraction_attempted(&pool, archive_id).await;
+                                });
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            archive_id = archive.id,
+                            error = %e,
+                            "Failed to convert S3 HTML to string"
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::debug!(
+                    archive_id = archive.id,
+                    s3_key = %artifact.s3_key,
+                    error = %e,
+                    "Failed to download raw.html from S3 for OG extraction"
+                );
+            }
+        }
+    }
+
+    // Return empty if extraction failed or no raw.html found
+    (None, None, None, None)
 }
 
 #[cfg(test)]

@@ -41,6 +41,7 @@ pub mod dedup;
 pub mod fs_utils;
 pub mod handlers;
 pub mod ipfs;
+pub mod og_extractor;
 pub mod rss;
 pub mod s3;
 pub mod tls;

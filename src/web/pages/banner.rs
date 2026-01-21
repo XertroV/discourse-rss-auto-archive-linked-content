@@ -220,6 +220,12 @@ mod tests {
             progress_percent: None,
             progress_details: None,
             last_progress_update: None,
+            og_title: None,
+            og_description: None,
+            og_image: None,
+            og_type: None,
+            og_extracted_at: None,
+            og_extraction_attempted: false,
         }
     }
 

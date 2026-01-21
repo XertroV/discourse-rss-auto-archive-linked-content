@@ -43,7 +43,7 @@ pub use home::{
 pub use post::{render_post_detail_page, PostDetailParams};
 pub use search::{render_search_page, SearchPageParams};
 pub use site::render_site_list_page;
-pub use stats::{render_stats_page, StatsData};
+pub use stats::{render_stats_page, StatsData, UserStats};
 pub use submit::{
     render_submit_error, render_submit_error_page, render_submit_form, render_submit_form_page,
     render_submit_success, render_submit_success_page, SubmitFormParams,

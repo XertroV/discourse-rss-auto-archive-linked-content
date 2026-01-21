@@ -145,6 +145,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 23).await?;
     }
 
+    if current_version < 24 {
+        debug!("Running migration v24");
+        run_migration_v24(pool).await?;
+        set_schema_version(pool, 24).await?;
+    }
+
     Ok(())
 }
 
@@ -1235,6 +1241,51 @@ async fn run_migration_v23(pool: &SqlitePool) -> Result<()> {
         .execute(pool)
         .await
         .context("Failed to create unique index on archives.link_id")?;
+
+    Ok(())
+}
+
+async fn run_migration_v24(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v24: adding Open Graph metadata columns for extracted OG data");
+
+    // Add og_title column to store extracted OG title
+    sqlx::query("ALTER TABLE archives ADD COLUMN og_title TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add og_title column")?;
+
+    // Add og_description column to store extracted OG description
+    sqlx::query("ALTER TABLE archives ADD COLUMN og_description TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add og_description column")?;
+
+    // Add og_image column to store extracted OG image URL
+    sqlx::query("ALTER TABLE archives ADD COLUMN og_image TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add og_image column")?;
+
+    // Add og_type column to store extracted OG type (article, website, etc.)
+    sqlx::query("ALTER TABLE archives ADD COLUMN og_type TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add og_type column")?;
+
+    // Add og_extracted_at column to track when extraction occurred
+    sqlx::query("ALTER TABLE archives ADD COLUMN og_extracted_at TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add og_extracted_at column")?;
+
+    // Add og_extraction_attempted column to avoid repeated failed extractions
+    // 0 = not attempted, 1 = attempted (success or failure)
+    sqlx::query(
+        "ALTER TABLE archives ADD COLUMN og_extraction_attempted INTEGER NOT NULL DEFAULT 0",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to add og_extraction_attempted column")?;
 
     Ok(())
 }

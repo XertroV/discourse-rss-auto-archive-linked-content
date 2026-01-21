@@ -146,6 +146,20 @@ pub struct Archive {
     pub progress_details: Option<String>,
     /// Timestamp of the last progress update.
     pub last_progress_update: Option<String>,
+    /// Extracted Open Graph title from the archived page.
+    pub og_title: Option<String>,
+    /// Extracted Open Graph description from the archived page.
+    pub og_description: Option<String>,
+    /// Extracted Open Graph image URL from the archived page.
+    pub og_image: Option<String>,
+    /// Extracted Open Graph type from the archived page (article, website, etc.).
+    pub og_type: Option<String>,
+    /// Timestamp when OG metadata was extracted.
+    pub og_extracted_at: Option<String>,
+    /// Whether OG extraction was attempted (0 = no, 1 = yes).
+    /// Prevents repeated failed extraction attempts.
+    #[serde(default)]
+    pub og_extraction_attempted: bool,
 }
 
 impl Archive {

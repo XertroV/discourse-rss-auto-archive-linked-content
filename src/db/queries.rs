@@ -1524,6 +1524,126 @@ pub async fn count_archives_by_content_type(pool: &SqlitePool) -> Result<Vec<(St
     .context("Failed to count archives by content type")
 }
 
+// TODO: Add content type trends - track which content types are most successful
+// at archiving over time (success rate by content type, average processing time, etc.)
+
+/// Get top domains by completed archive count.
+pub async fn get_top_domains(pool: &SqlitePool, limit: i64) -> Result<Vec<(String, i64)>> {
+    sqlx::query_as(
+        "SELECT domain, COUNT(*) as count
+         FROM archives
+         WHERE status = 'complete'
+         GROUP BY domain
+         ORDER BY count DESC
+         LIMIT ?",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to get top domains")
+}
+
+/// Get recent activity counts (24h, 7d, 30d).
+pub async fn get_recent_activity_counts(pool: &SqlitePool) -> Result<(i64, i64, i64)> {
+    let last_24h: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM archives
+         WHERE status = 'complete'
+         AND created_at >= datetime('now', '-1 day')",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let last_7d: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM archives
+         WHERE status = 'complete'
+         AND created_at >= datetime('now', '-7 days')",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let last_30d: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM archives
+         WHERE status = 'complete'
+         AND created_at >= datetime('now', '-30 days')",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok((last_24h.0, last_7d.0, last_30d.0))
+}
+
+/// Get storage statistics (total size in bytes, average size, largest archive).
+pub async fn get_storage_stats(pool: &SqlitePool) -> Result<(i64, f64, i64)> {
+    let stats: Option<(Option<i64>, Option<f64>, Option<i64>)> = sqlx::query_as(
+        "SELECT
+            COALESCE(SUM(size_bytes), 0) as total_size,
+            COALESCE(AVG(size_bytes), 0.0) as avg_size,
+            COALESCE(MAX(size_bytes), 0) as max_size
+         FROM artifacts",
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    match stats {
+        Some((Some(total), Some(avg), Some(max))) => Ok((total, avg, max)),
+        _ => Ok((0, 0.0, 0)),
+    }
+}
+
+/// Get timeline data for archives (by month for the last 12 months).
+pub async fn get_archive_timeline(pool: &SqlitePool) -> Result<Vec<(String, i64)>> {
+    sqlx::query_as(
+        "SELECT
+            strftime('%Y-%m', created_at) as month,
+            COUNT(*) as count
+         FROM archives
+         WHERE status = 'complete'
+         AND created_at >= datetime('now', '-12 months')
+         GROUP BY month
+         ORDER BY month ASC",
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to get archive timeline")
+}
+
+/// Get quality metrics (archives with video, complete.html, screenshots).
+pub async fn get_quality_metrics(pool: &SqlitePool) -> Result<(i64, i64, i64)> {
+    let with_video: (i64,) = sqlx::query_as(
+        "SELECT COUNT(DISTINCT archive_id) FROM artifacts
+         WHERE file_type = 'video'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let with_complete_html: (i64,) = sqlx::query_as(
+        "SELECT COUNT(DISTINCT archive_id) FROM artifacts
+         WHERE s3_key LIKE '%/complete.html'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let with_screenshot: (i64,) = sqlx::query_as(
+        "SELECT COUNT(DISTINCT archive_id) FROM artifacts
+         WHERE file_type = 'image' AND s3_key LIKE '%screenshot%'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok((with_video.0, with_complete_html.0, with_screenshot.0))
+}
+
+/// Get NSFW archive count.
+pub async fn get_nsfw_count(pool: &SqlitePool) -> Result<i64> {
+    let row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM archives
+         WHERE status = 'complete' AND nsfw = 1",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(row.0)
+}
+
 /// Get a post by ID.
 pub async fn get_post(pool: &SqlitePool, id: i64) -> Result<Option<Post>> {
     sqlx::query_as("SELECT * FROM posts WHERE id = ?")
@@ -1729,6 +1849,74 @@ pub async fn set_submission_rejected(pool: &SqlitePool, id: i64, reason: &str) -
     .context("Failed to set submission rejected")?;
 
     Ok(())
+}
+
+/// Get user submission statistics.
+pub async fn get_user_submission_stats(
+    pool: &SqlitePool,
+    user_id: i64,
+) -> Result<(i64, i64, i64, i64)> {
+    let total: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM submissions WHERE submitted_by_user_id = ?")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?;
+
+    let complete: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM submissions WHERE submitted_by_user_id = ? AND status = 'complete'",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+
+    let pending: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM submissions WHERE submitted_by_user_id = ? AND status IN ('pending', 'processing')",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+
+    let failed: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM submissions WHERE submitted_by_user_id = ? AND status IN ('failed', 'rejected')",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok((total.0, complete.0, pending.0, failed.0))
+}
+
+/// Get user's recent submissions with details.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UserSubmissionDetail {
+    pub id: i64,
+    pub url: String,
+    pub status: String,
+    pub created_at: String,
+    pub processed_at: Option<String>,
+    pub error_message: Option<String>,
+    pub link_id: Option<i64>,
+}
+
+pub async fn get_user_submissions(
+    pool: &SqlitePool,
+    user_id: i64,
+    limit: i64,
+) -> Result<Vec<UserSubmissionDetail>> {
+    sqlx::query_as(
+        r"
+        SELECT id, url, status, created_at, processed_at, error_message, link_id
+        FROM submissions
+        WHERE submitted_by_user_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        ",
+    )
+    .bind(user_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch user submissions")
 }
 
 // ========== Startup Recovery ==========
@@ -4056,4 +4244,63 @@ pub async fn user_has_forum_link(pool: &SqlitePool, user_id: i64) -> Result<bool
             .context("Failed to check forum link status")?;
 
     Ok(result.is_some())
+}
+
+// ========== Open Graph Metadata ==========
+
+/// Update Open Graph metadata for an archive.
+///
+/// This stores extracted OG metadata and marks the extraction as attempted.
+/// Pass None for fields that weren't found in the HTML.
+pub async fn update_archive_og_metadata(
+    pool: &SqlitePool,
+    archive_id: i64,
+    og_title: Option<&str>,
+    og_description: Option<&str>,
+    og_image: Option<&str>,
+    og_type: Option<&str>,
+) -> Result<()> {
+    sqlx::query(
+        r"
+        UPDATE archives
+        SET og_title = ?,
+            og_description = ?,
+            og_image = ?,
+            og_type = ?,
+            og_extracted_at = datetime('now'),
+            og_extraction_attempted = 1
+        WHERE id = ?
+        ",
+    )
+    .bind(og_title)
+    .bind(og_description)
+    .bind(og_image)
+    .bind(og_type)
+    .bind(archive_id)
+    .execute(pool)
+    .await
+    .context("Failed to update archive OG metadata")?;
+
+    Ok(())
+}
+
+/// Mark OG extraction as attempted for an archive without storing metadata.
+///
+/// This is used when extraction fails or no OG metadata is found,
+/// to prevent repeated extraction attempts.
+pub async fn mark_og_extraction_attempted(pool: &SqlitePool, archive_id: i64) -> Result<()> {
+    sqlx::query(
+        r"
+        UPDATE archives
+        SET og_extraction_attempted = 1,
+            og_extracted_at = datetime('now')
+        WHERE id = ?
+        ",
+    )
+    .bind(archive_id)
+    .execute(pool)
+    .await
+    .context("Failed to mark OG extraction as attempted")?;
+
+    Ok(())
 }

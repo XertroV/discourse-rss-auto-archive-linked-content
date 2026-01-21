@@ -16,17 +16,19 @@ use crate::db::{
     create_archive_job, find_artifact_by_perceptual_hash, find_video_file, get_archive,
     get_failed_archives_for_retry, get_link, get_or_create_video_file, get_pending_archives,
     has_artifact_kind, insert_artifact, insert_artifact_with_hash, insert_artifact_with_metadata,
-    insert_artifact_with_video_file, is_domain_excluded, reset_archive_for_retry,
-    reset_stuck_processing_archives, reset_todays_failed_archives, set_archive_complete,
-    set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw, set_archive_processing,
-    set_archive_skipped, set_job_completed, set_job_failed, set_job_running, set_job_skipped,
-    update_link_final_url, update_link_last_archived, update_video_file_metadata_key,
-    ArchiveJobType, ArtifactKind, Database, VideoFile,
+    insert_artifact_with_video_file, is_domain_excluded, mark_og_extraction_attempted,
+    reset_archive_for_retry, reset_stuck_processing_archives, reset_todays_failed_archives,
+    set_archive_complete, set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw,
+    set_archive_processing, set_archive_skipped, set_job_completed, set_job_failed,
+    set_job_running, set_job_skipped, update_archive_og_metadata, update_link_final_url,
+    update_link_last_archived, update_video_file_metadata_key, ArchiveJobType, ArtifactKind,
+    Database, VideoFile,
 };
 use crate::dedup;
 use crate::handlers::youtube::extract_video_id;
 use crate::handlers::HANDLERS;
 use crate::ipfs::IpfsClient;
+use crate::og_extractor;
 use crate::s3::S3Client;
 
 const MAX_RETRIES: i32 = 3;
@@ -1882,6 +1884,59 @@ async fn process_archive_inner(
 
     // Update link last archived timestamp
     update_link_last_archived(db.pool(), link_id).await?;
+
+    // Extract Open Graph metadata from raw.html if available
+    let raw_html_path = work_dir.join("raw.html");
+    if raw_html_path.exists() {
+        match tokio::fs::read_to_string(&raw_html_path).await {
+            Ok(html_content) => {
+                match og_extractor::extract_og_metadata(&html_content) {
+                    Ok(og_metadata) => {
+                        if og_metadata.has_content() {
+                            // Save extracted metadata to database
+                            if let Err(e) = update_archive_og_metadata(
+                                db.pool(),
+                                archive_id,
+                                og_metadata.title.as_deref(),
+                                og_metadata.description.as_deref(),
+                                og_metadata.image.as_deref(),
+                                og_metadata.og_type.as_deref(),
+                            )
+                            .await
+                            {
+                                warn!(archive_id, error = %e, "Failed to save OG metadata");
+                            } else {
+                                debug!(
+                                    archive_id,
+                                    og_title = ?og_metadata.title,
+                                    "Extracted and saved OG metadata"
+                                );
+                            }
+                        } else {
+                            // No OG metadata found, mark as attempted to avoid future retries
+                            if let Err(e) =
+                                mark_og_extraction_attempted(db.pool(), archive_id).await
+                            {
+                                warn!(
+                                    archive_id,
+                                    error = %e,
+                                    "Failed to mark OG extraction as attempted"
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(archive_id, error = %e, "Failed to extract OG metadata");
+                        // Mark as attempted even on failure to avoid repeated attempts
+                        let _ = mark_og_extraction_attempted(db.pool(), archive_id).await;
+                    }
+                }
+            }
+            Err(e) => {
+                debug!(archive_id, error = %e, "Could not read raw.html for OG extraction");
+            }
+        }
+    }
 
     // Clean up work directory
     if let Err(e) = tokio::fs::remove_dir_all(&work_dir).await {
