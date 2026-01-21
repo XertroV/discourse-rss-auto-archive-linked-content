@@ -204,6 +204,9 @@ fn render_audit_target(event: &AuditEvent) -> Markup {
                 "user" => html! {
                     a href=(format!("/admin/user/{}", id)) { (label) }
                 },
+                "archive" => html! {
+                    a href=(format!("/archive/{}", id)) { (label) }
+                },
                 "forum_link" => {
                     // Try to extract forum_username from metadata for a better link
                     if let Some(metadata) = &event.metadata {
