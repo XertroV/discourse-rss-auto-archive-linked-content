@@ -39,6 +39,10 @@ pub struct TwitterMetadata {
     pub media_count: usize,
     pub is_retweet: bool,
     pub source_url: String,
+    /// Whether Twitter marked this as possibly_sensitive.
+    pub possibly_sensitive: Option<bool>,
+    /// Whether Twitter marked this as sensitive (alternate field name).
+    pub sensitive: Option<bool>,
 }
 
 /// Result of attempting to archive from a source.
@@ -105,82 +109,87 @@ impl SiteHandler for TwitterHandler {
 
         debug!(url = %normalized_url, tweet_id = ?tweet_id, "Archiving Twitter/X content");
 
-        // Determine archival strategy based on config
-        // mark as always false here to forcably disable nitter (not working)
-        let prefer_nitter = false && config.twitter_prefer_nitter;
-        let nitter_instances = &config.twitter_nitter_instances;
-
-        // Try to archive media
-        let result = if prefer_nitter && !nitter_instances.is_empty() {
-            // Try nitter first, then fall back to direct
-            match try_nitter_archive(&normalized_url, work_dir, cookies, config, nitter_instances)
-                .await
-            {
-                ArchiveAttempt::Success(r) => r,
-                _ => {
-                    debug!("Nitter failed, trying direct Twitter access");
-                    archive_twitter_direct(&normalized_url, work_dir, cookies, config).await?
-                }
-            }
-        } else {
-            // Try direct first, then fall back to nitter if rate-limited
-            match archive_twitter_direct(&normalized_url, work_dir, cookies, config).await {
-                Ok(r) => r,
-                Err(e) => {
-                    let err_str = e.to_string();
-                    if is_rate_limit_error(&err_str) && !nitter_instances.is_empty() {
-                        info!("Twitter rate-limited, trying nitter fallback");
-                        match try_nitter_archive(
-                            &normalized_url,
-                            work_dir,
-                            cookies,
-                            config,
-                            nitter_instances,
-                        )
-                        .await
-                        {
-                            ArchiveAttempt::Success(r) => r,
-                            ArchiveAttempt::Error(nitter_err) => {
-                                return Err(e.context(format!(
-                                    "Direct Twitter failed; nitter fallback also failed: {nitter_err}"
-                                )));
-                            }
-                            _ => return Err(e.context("Direct Twitter failed; nitter unavailable")),
-                        }
-                    } else {
-                        return Err(e);
-                    }
-                }
-            }
-        };
+        // Start with an empty result - we'll populate it based on what we find
+        let mut result = ArchiveResult::default();
 
         // Set video_id for deduplication
-        let mut result = result;
         if let Some(ref tid) = tweet_id {
             result.video_id = Some(format!("twitter_{tid}"));
         }
 
         // Store final URL
-        if result.final_url.is_none() {
-            result.final_url = Some(normalized_url.clone());
-        }
+        result.final_url = Some(normalized_url.clone());
 
-        // Fetch HTML snapshot if enabled (for monolith processing)
-        // Use chromium --dump-dom to get rendered HTML after JS execution
+        // Step 1: Fetch HTML snapshot first (this is our primary source of truth)
+        // This allows us to detect if there's media before calling yt-dlp/gallery-dl
+        let mut html_content: Option<String> = None;
         if config.twitter_html_snapshot {
-            if let Err(e) = fetch_html_snapshot_cdp(&normalized_url, work_dir, cookies).await {
-                warn!(url = %normalized_url, error = %e, "Failed to fetch HTML snapshot for Twitter");
-                // Non-fatal: continue with media archive even if HTML fails
-            } else {
-                debug!(url = %normalized_url, "Successfully saved HTML snapshot");
-                // If no primary file was set (text-only tweet), use raw.html
-                if result.primary_file.is_none() {
-                    result.primary_file = Some("raw.html".to_string());
-                    if result.content_type.is_empty() {
-                        result.content_type = "thread".to_string();
+            match fetch_html_snapshot_cdp(&normalized_url, work_dir, cookies).await {
+                Ok(()) => {
+                    debug!(url = %normalized_url, "Successfully saved HTML snapshot");
+                    let html_path = work_dir.join("raw.html");
+                    if let Ok(html) = tokio::fs::read_to_string(&html_path).await {
+                        html_content = Some(html);
                     }
+                    result.primary_file = Some("raw.html".to_string());
+                    result.content_type = "thread".to_string();
+                }
+                Err(e) => {
+                    warn!(url = %normalized_url, error = %e, "Failed to fetch HTML snapshot for Twitter");
                 }
             }
+        }
+
+        // Step 2: Detect if there's media in the HTML
+        let has_media = html_content
+            .as_ref()
+            .map(|html| detect_media_in_html(html))
+            .unwrap_or(false);
+
+        // Step 3: Only call yt-dlp/gallery-dl if we detected media
+        if has_media {
+            debug!(url = %normalized_url, "Media detected in tweet, attempting download");
+
+            match archive_twitter_direct(&normalized_url, work_dir, cookies, config).await {
+                Ok(media_result) => {
+                    // Merge media result with our result
+                    if media_result.primary_file.is_some() {
+                        result.primary_file = media_result.primary_file;
+                    }
+                    if !media_result.content_type.is_empty() {
+                        result.content_type = media_result.content_type;
+                    }
+                    result.title = media_result.title.or(result.title);
+                    result.author = media_result.author.or(result.author);
+                    result.text = media_result.text.or(result.text);
+                    result.metadata_json = media_result.metadata_json.or(result.metadata_json);
+                    result.is_nsfw = media_result.is_nsfw.or(result.is_nsfw);
+                    result.nsfw_source = media_result.nsfw_source.or(result.nsfw_source);
+                }
+                Err(e) => {
+                    // Media download failed, but we still have the HTML snapshot
+                    warn!(url = %normalized_url, error = %e, "Failed to download Twitter media, using HTML snapshot only");
+                }
+            }
+        } else {
+            debug!(url = %normalized_url, "No media detected in tweet, skipping yt-dlp/gallery-dl");
+        }
+
+        // Step 4: Detect NSFW from HTML if not already detected
+        if result.is_nsfw.is_none() || !result.is_nsfw.unwrap_or(false) {
+            if let Some(ref html) = html_content {
+                if detect_nsfw_from_html(html) {
+                    result.is_nsfw = Some(true);
+                    result.nsfw_source = Some("twitter_html".to_string());
+                    debug!(url = %normalized_url, "Detected NSFW from Twitter HTML snapshot");
+                }
+            }
+        }
+
+        // Ensure we have a primary file (either HTML or media)
+        if result.primary_file.is_none() {
+            // No HTML and no media - this is a failure
+            anyhow::bail!("Failed to archive Twitter content: no HTML snapshot or media");
         }
 
         Ok(result)
@@ -214,6 +223,16 @@ async fn archive_twitter_direct(
             // Default to "thread" for text-only tweets (not "image")
             if result.content_type.is_empty() && result.primary_file.is_none() {
                 result.content_type = "thread".to_string();
+            }
+
+            // Detect NSFW from yt-dlp metadata
+            if result.is_nsfw.is_none() {
+                let (is_nsfw, nsfw_source) =
+                    detect_nsfw_from_ytdlp_metadata(result.metadata_json.as_deref());
+                if is_nsfw.unwrap_or(false) {
+                    result.is_nsfw = is_nsfw;
+                    result.nsfw_source = nsfw_source;
+                }
             }
 
             return Ok(result);
@@ -280,6 +299,17 @@ async fn archive_twitter_direct(
     // Extract tweet ID for deduplication
     if let Some(tweet_id) = extract_tweet_id(url) {
         result.video_id = Some(format!("twitter_{tweet_id}"));
+    }
+
+    // Detect NSFW from gallery-dl metadata
+    if result.is_nsfw.is_none() {
+        if let Some(ref json_str) = result.metadata_json {
+            let (is_nsfw, nsfw_source) = detect_nsfw_from_gallerydl_json(json_str);
+            if is_nsfw.unwrap_or(false) {
+                result.is_nsfw = is_nsfw;
+                result.nsfw_source = nsfw_source;
+            }
+        }
     }
 
     Ok(result)
@@ -498,7 +528,121 @@ fn extract_twitter_metadata_from_json(json_str: &str) -> Result<TwitterMetadata>
             .map(|v| !v.is_null())
             .unwrap_or(false);
 
+    // Extract NSFW indicators
+    metadata.possibly_sensitive = json.get("possibly_sensitive").and_then(|v| v.as_bool());
+
+    metadata.sensitive = json.get("sensitive").and_then(|v| v.as_bool());
+
     Ok(metadata)
+}
+
+/// Extract NSFW status from gallery-dl Twitter JSON metadata.
+///
+/// Checks for `possibly_sensitive` and `sensitive` fields in JSON output.
+/// Returns (is_nsfw, source) tuple.
+fn detect_nsfw_from_gallerydl_json(json_str: &str) -> (Option<bool>, Option<String>) {
+    let json: serde_json::Value = match serde_json::from_str(json_str) {
+        Ok(j) => j,
+        Err(_) => return (None, None),
+    };
+
+    // Check possibly_sensitive field (primary indicator)
+    if let Some(sensitive) = json
+        .get("possibly_sensitive")
+        .or_else(|| json.get("sensitive"))
+        .and_then(|v| v.as_bool())
+    {
+        if sensitive {
+            return (Some(true), Some("twitter_metadata".to_string()));
+        }
+    }
+
+    (None, None)
+}
+
+/// Extract NSFW status from yt-dlp Twitter/X JSON metadata.
+///
+/// Checks for age_limit and possibly_sensitive fields.
+fn detect_nsfw_from_ytdlp_metadata(metadata_json: Option<&str>) -> (Option<bool>, Option<String>) {
+    let Some(json_str) = metadata_json else {
+        return (None, None);
+    };
+
+    let json: serde_json::Value = match serde_json::from_str(json_str) {
+        Ok(j) => j,
+        Err(_) => return (None, None),
+    };
+
+    // Check age_limit (used by some platforms)
+    if let Some(age_limit) = json.get("age_limit").and_then(|v| v.as_i64()) {
+        if age_limit >= 18 {
+            return (Some(true), Some("metadata".to_string()));
+        }
+    }
+
+    // Check possibly_sensitive
+    if let Some(sensitive) = json
+        .get("possibly_sensitive")
+        .or_else(|| json.get("sensitive"))
+        .and_then(|v| v.as_bool())
+    {
+        if sensitive {
+            return (Some(true), Some("twitter_metadata".to_string()));
+        }
+    }
+
+    (None, None)
+}
+
+/// Detect NSFW status from Twitter HTML snapshot.
+///
+/// Looks for sensitive content warnings and CSS classes.
+fn detect_nsfw_from_html(html: &str) -> bool {
+    let html_lower = html.to_ascii_lowercase();
+
+    // Look for explicit sensitive content indicators
+    html_lower.contains("potentially sensitive content")
+        || html_lower.contains("sensitive media")
+        || html_lower.contains("this media may contain sensitive")
+        // CSS/data attributes that Twitter uses for blurred content
+        || html_lower.contains("data-sensitive=\"true\"")
+        || html_lower.contains("is-sensitive-media")
+        || html_lower.contains("sensitivemediawarning")
+}
+
+/// Detect if the Twitter HTML contains media (video, images, or GIFs).
+///
+/// This is used to decide whether to invoke yt-dlp/gallery-dl for downloading.
+/// For text-only tweets, we skip these tools to avoid unnecessary API calls.
+fn detect_media_in_html(html: &str) -> bool {
+    let html_lower = html.to_ascii_lowercase();
+
+    // Video indicators
+    let has_video = html_lower.contains("data-testid=\"videoplayer\"")
+        || html_lower.contains("data-testid=\"videocomponent\"")
+        || html_lower.contains("\"video\"")
+        || html_lower.contains("<video")
+        || html_lower.contains("player.m3u8")
+        || html_lower.contains("ext_tw_video")
+        || html_lower.contains("amplify_video");
+
+    // Image indicators (excluding profile pictures and icons)
+    // Twitter uses data-testid="tweetPhoto" for tweet images
+    let has_images = html_lower.contains("data-testid=\"tweetphoto\"")
+        || html_lower.contains("pbs.twimg.com/media/")
+        || html_lower.contains("pbs.twimg.com/tweet_video")
+        || html_lower.contains("pbs.twimg.com/ext_tw_video");
+
+    // GIF indicators
+    let has_gif =
+        html_lower.contains("data-testid=\"tweetgif\"") || html_lower.contains("tweet_video_thumb");
+
+    // Card with media (preview cards with images/videos)
+    let has_media_card = html_lower.contains("data-testid=\"card.wrapper\"")
+        && (html_lower.contains("pbs.twimg.com/card_img/")
+            || html_lower.contains("data-testid=\"card.layoutlarge.media\""));
+
+    has_video || has_images || has_gif || has_media_card
 }
 
 /// Fetch HTML from Twitter/X or nitter for HTML snapshot.
@@ -797,5 +941,267 @@ mod tests {
             metadata.quoted_tweet_url,
             Some("https://x.com/quoteduser/status/9876543210".to_string())
         );
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_gallerydl_json_possibly_sensitive_true() {
+        let json = r#"{"possibly_sensitive": true, "tweet_id": 123}"#;
+        let (is_nsfw, source) = detect_nsfw_from_gallerydl_json(json);
+        assert_eq!(is_nsfw, Some(true));
+        assert_eq!(source, Some("twitter_metadata".to_string()));
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_gallerydl_json_sensitive_true() {
+        let json = r#"{"sensitive": true, "tweet_id": 123}"#;
+        let (is_nsfw, source) = detect_nsfw_from_gallerydl_json(json);
+        assert_eq!(is_nsfw, Some(true));
+        assert_eq!(source, Some("twitter_metadata".to_string()));
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_gallerydl_json_false() {
+        let json = r#"{"possibly_sensitive": false, "tweet_id": 123}"#;
+        let (is_nsfw, _) = detect_nsfw_from_gallerydl_json(json);
+        assert_eq!(is_nsfw, None);
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_gallerydl_json_missing_field() {
+        let json = r#"{"tweet_id": 123, "author": "test"}"#;
+        let (is_nsfw, _) = detect_nsfw_from_gallerydl_json(json);
+        assert_eq!(is_nsfw, None);
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_gallerydl_json_invalid_json() {
+        let json = "invalid json {";
+        let (is_nsfw, source) = detect_nsfw_from_gallerydl_json(json);
+        assert_eq!(is_nsfw, None);
+        assert_eq!(source, None);
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_ytdlp_metadata_age_limit() {
+        let json = r#"{"age_limit": 18, "id": "123"}"#;
+        let (is_nsfw, source) = detect_nsfw_from_ytdlp_metadata(Some(json));
+        assert_eq!(is_nsfw, Some(true));
+        assert_eq!(source, Some("metadata".to_string()));
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_ytdlp_metadata_age_limit_over_18() {
+        let json = r#"{"age_limit": 21, "id": "123"}"#;
+        let (is_nsfw, source) = detect_nsfw_from_ytdlp_metadata(Some(json));
+        assert_eq!(is_nsfw, Some(true));
+        assert_eq!(source, Some("metadata".to_string()));
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_ytdlp_metadata_possibly_sensitive() {
+        let json = r#"{"possibly_sensitive": true, "id": "123"}"#;
+        let (is_nsfw, source) = detect_nsfw_from_ytdlp_metadata(Some(json));
+        assert_eq!(is_nsfw, Some(true));
+        assert_eq!(source, Some("twitter_metadata".to_string()));
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_ytdlp_metadata_none() {
+        let (is_nsfw, source) = detect_nsfw_from_ytdlp_metadata(None);
+        assert_eq!(is_nsfw, None);
+        assert_eq!(source, None);
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_ytdlp_metadata_age_limit_under_18() {
+        let json = r#"{"age_limit": 13, "id": "123"}"#;
+        let (is_nsfw, _) = detect_nsfw_from_ytdlp_metadata(Some(json));
+        assert_eq!(is_nsfw, None);
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_html_potentially_sensitive() {
+        let html = r#"<div>The following media includes potentially sensitive content</div>"#;
+        assert!(detect_nsfw_from_html(html));
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_html_sensitive_media() {
+        let html = r#"<div>This tweet contains sensitive media warning</div>"#;
+        assert!(detect_nsfw_from_html(html));
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_html_data_attribute() {
+        let html = r#"<div data-sensitive="true">Content</div>"#;
+        assert!(detect_nsfw_from_html(html));
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_html_css_class() {
+        let html = r#"<div class="is-sensitive-media">Content</div>"#;
+        assert!(detect_nsfw_from_html(html));
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_html_sensitivemediawarning() {
+        let html = r#"<div class="sensitivemediawarning">Warning</div>"#;
+        assert!(detect_nsfw_from_html(html));
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_html_case_insensitive() {
+        let html = r#"<div>POTENTIALLY SENSITIVE CONTENT here</div>"#;
+        assert!(detect_nsfw_from_html(html));
+    }
+
+    #[test]
+    fn test_detect_nsfw_from_html_safe_content() {
+        let html = r#"<div>Normal tweet content with no warnings</div>"#;
+        assert!(!detect_nsfw_from_html(html));
+    }
+
+    #[test]
+    fn test_extract_twitter_metadata_with_nsfw_fields() {
+        let json = r#"{
+            "tweet_id": 1234567890,
+            "author": {"name": "Test User"},
+            "content": "Test tweet",
+            "possibly_sensitive": true
+        }"#;
+
+        let metadata = extract_twitter_metadata_from_json(json).unwrap();
+        assert_eq!(metadata.possibly_sensitive, Some(true));
+        assert_eq!(metadata.sensitive, None);
+    }
+
+    #[test]
+    fn test_extract_twitter_metadata_with_sensitive_field() {
+        let json = r#"{
+            "tweet_id": 1234567890,
+            "author": {"name": "Test User"},
+            "content": "Test tweet",
+            "sensitive": true
+        }"#;
+
+        let metadata = extract_twitter_metadata_from_json(json).unwrap();
+        assert_eq!(metadata.possibly_sensitive, None);
+        assert_eq!(metadata.sensitive, Some(true));
+    }
+
+    #[test]
+    fn test_extract_twitter_metadata_without_nsfw_fields() {
+        let json = r#"{
+            "tweet_id": 1234567890,
+            "author": {"name": "Test User"},
+            "content": "Test tweet"
+        }"#;
+
+        let metadata = extract_twitter_metadata_from_json(json).unwrap();
+        assert_eq!(metadata.possibly_sensitive, None);
+        assert_eq!(metadata.sensitive, None);
+    }
+
+    #[test]
+    fn test_detect_media_in_html_video_player() {
+        let html = r#"<div data-testid="videoPlayer">Video content</div>"#;
+        assert!(detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_detect_media_in_html_video_component() {
+        let html = r#"<div data-testid="videoComponent"><video src="test.mp4"></video></div>"#;
+        assert!(detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_detect_media_in_html_video_tag() {
+        let html = r#"<video src="https://video.twimg.com/test.mp4"></video>"#;
+        assert!(detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_detect_media_in_html_m3u8_stream() {
+        let html = r#"<script>var videoUrl = "https://video.twimg.com/player.m3u8";</script>"#;
+        assert!(detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_detect_media_in_html_tweet_photo() {
+        let html = r#"<div data-testid="tweetPhoto"><img src="photo.jpg"></div>"#;
+        assert!(detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_detect_media_in_html_twimg_media() {
+        let html = r#"<img src="https://pbs.twimg.com/media/ABC123.jpg" alt="Tweet image">"#;
+        assert!(detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_detect_media_in_html_tweet_video() {
+        let html = r#"<img src="https://pbs.twimg.com/tweet_video/ABC123.jpg">"#;
+        assert!(detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_detect_media_in_html_gif() {
+        let html = r#"<div data-testid="tweetGif"><img src="animated.gif"></div>"#;
+        assert!(detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_detect_media_in_html_gif_thumb() {
+        let html = r#"<img class="tweet_video_thumb" src="thumb.jpg">"#;
+        assert!(detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_detect_media_in_html_card_with_media() {
+        let html = r#"
+            <div data-testid="card.wrapper">
+                <div data-testid="card.layoutLarge.media">
+                    <img src="https://pbs.twimg.com/card_img/123.jpg">
+                </div>
+            </div>
+        "#;
+        assert!(detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_detect_media_in_html_case_insensitive() {
+        let html = r#"<DIV DATA-TESTID="VIDEOPLAYER">Video</DIV>"#;
+        assert!(detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_detect_media_in_html_text_only_tweet() {
+        let html = r#"
+            <article>
+                <div>Just a text tweet with no media</div>
+                <div>Some profile image: https://pbs.twimg.com/profile_images/123.jpg</div>
+            </article>
+        "#;
+        // Should be false - only has profile image, not tweet media
+        assert!(!detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_detect_media_in_html_empty() {
+        let html = "";
+        assert!(!detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_detect_media_in_html_no_media_indicators() {
+        let html = r#"
+            <html>
+                <body>
+                    <div>Normal tweet content without media</div>
+                    <p>Just text and links</p>
+                </body>
+            </html>
+        "#;
+        assert!(!detect_media_in_html(html));
     }
 }
