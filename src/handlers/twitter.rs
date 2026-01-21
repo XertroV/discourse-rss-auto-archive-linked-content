@@ -122,11 +122,13 @@ impl SiteHandler for TwitterHandler {
 
         // Step 1: Fetch HTML snapshot first (this is our primary source of truth)
         // This allows us to detect if there's media before calling yt-dlp/gallery-dl
+        // Try all methods and save each to separate files for comparison
         let mut html_content: Option<String> = None;
         if config.twitter_html_snapshot {
-            match fetch_html_snapshot_cdp(&normalized_url, work_dir, cookies).await {
+            match fetch_html_snapshot_all_methods(&normalized_url, work_dir, cookies).await {
                 Ok(()) => {
-                    debug!(url = %normalized_url, "Successfully saved HTML snapshot");
+                    debug!(url = %normalized_url, "Successfully saved HTML snapshots (multiple methods)");
+                    // Read raw.html which is copied from the first successful method
                     let html_path = work_dir.join("raw.html");
                     if let Ok(html) = tokio::fs::read_to_string(&html_path).await {
                         html_content = Some(html);
@@ -135,7 +137,7 @@ impl SiteHandler for TwitterHandler {
                     result.content_type = "thread".to_string();
                 }
                 Err(e) => {
-                    warn!(url = %normalized_url, error = %e, "Failed to fetch HTML snapshot for Twitter");
+                    warn!(url = %normalized_url, error = %e, "Failed to fetch HTML snapshot for Twitter (all methods failed)");
                 }
             }
         }
@@ -645,6 +647,19 @@ fn detect_media_in_html(html: &str) -> bool {
     has_video || has_images || has_gif || has_media_card
 }
 
+/// Remove `<noscript>` tags and their contents from HTML.
+///
+/// Twitter/X pages include a `<noscript>` section that shows a "JavaScript is required"
+/// message. Since we're capturing the rendered page (which has JS enabled), this
+/// noscript content is misleading and should be removed.
+fn strip_noscript_tags(html: &str) -> String {
+    // Use regex to remove <noscript>...</noscript> tags and their contents
+    // This handles both single-line and multi-line noscript blocks
+    static NOSCRIPT_PATTERN: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"(?is)<noscript[^>]*>.*?</noscript>").unwrap());
+    NOSCRIPT_PATTERN.replace_all(html, "").into_owned()
+}
+
 /// Fetch HTML from Twitter/X or nitter for HTML snapshot.
 #[allow(dead_code)] // Will be used in Phase 5 (HTML snapshot)
 pub async fn fetch_tweet_html(url: &str, cookies: &CookieOptions<'_>) -> Result<String> {
@@ -711,82 +726,243 @@ fn build_cookie_header_for_domain(cookies_path: &Path, domain: &str) -> Result<S
     Ok(cookies.join("; "))
 }
 
-/// Fetch HTML snapshot using browser to get rendered HTML after JS execution.
+/// Fetch HTML snapshot using CDP (Chrome DevTools Protocol) via ScreenshotService.
 ///
-/// Twitter requires JavaScript to render content, so we use a headless browser to
-/// get the fully rendered DOM. This function tries multiple methods in order:
-/// 1. ScreenshotService CDP (best - uses persistent browser with proper waiting)
-/// 2. Chromium --dump-dom CLI (fallback - may not wait long enough for JS)
-/// 3. HTTP fetch (last resort - no JS rendering)
-///
-/// Note: keep this function around even if we don't use it so that we can swap to it quickly if need be.
+/// This is the preferred method as it properly waits for JavaScript rendering.
+/// Strips noscript tags from the output.
+#[allow(dead_code)]
 async fn fetch_html_snapshot_cdp(
     twitter_url: &str,
-    work_dir: &Path,
+    output_path: &Path,
     cookies: &CookieOptions<'_>,
 ) -> Result<()> {
-    let html_path = work_dir.join("raw.html");
+    let screenshot_service = cookies
+        .screenshot_service
+        .context("ScreenshotService not available for CDP HTML capture")?;
 
-    // Try ScreenshotService CDP first (preferred - proper waiting for JS rendering)
-    if let Some(screenshot_service) = cookies.screenshot_service {
-        match screenshot_service.capture_html(twitter_url).await {
-            Ok(html) => {
-                if html.trim().is_empty() {
-                    warn!("ScreenshotService returned empty HTML for Twitter");
-                } else {
-                    tokio::fs::write(&html_path, &html)
-                        .await
-                        .context("Failed to write raw.html")?;
-                    debug!(path = %html_path.display(), size = html.len(), "Saved rendered HTML snapshot via CDP");
-                    return Ok(());
-                }
-            }
-            Err(e) => {
-                warn!(url = %twitter_url, error = %e, "CDP HTML capture failed for Twitter, falling back to dump-dom");
-            }
-        }
+    let html = screenshot_service
+        .capture_html(twitter_url)
+        .await
+        .context("CDP HTML capture failed")?;
+
+    if html.trim().is_empty() {
+        anyhow::bail!("CDP returned empty HTML for Twitter");
     }
 
-    // Try chromium --dump-dom (may not wait long enough for full JS rendering)
-    if let Some(spec) = cookies.browser_profile {
-        match fetch_html_with_chromium(twitter_url, work_dir, spec, 60, "twitter html").await {
-            Ok(html) => {
-                if html.trim().is_empty() {
-                    warn!("Chromium dump-dom returned empty HTML for Twitter");
-                } else {
-                    tokio::fs::write(&html_path, &html)
-                        .await
-                        .context("Failed to write raw.html")?;
-                    debug!(path = %html_path.display(), size = html.len(), "Saved rendered HTML snapshot via chromium dump-dom");
-                    return Ok(());
-                }
-            }
-            Err(e) => {
-                warn!(url = %twitter_url, error = %e, "Chromium dump-dom failed for Twitter, falling back to HTTP");
-            }
-        }
+    // Strip noscript tags to remove "JavaScript required" messages
+    let html = strip_noscript_tags(&html);
+
+    tokio::fs::write(output_path, &html)
+        .await
+        .context("Failed to write HTML file")?;
+
+    debug!(path = %output_path.display(), size = html.len(), "Saved HTML snapshot via CDP");
+    Ok(())
+}
+
+/// Fetch HTML snapshot using Chromium's --dump-dom CLI flag.
+///
+/// Uses a cloned Chromium profile for cookies. May not wait long enough for
+/// full JS rendering on complex pages.
+/// Strips noscript tags from the output.
+#[allow(dead_code)]
+async fn fetch_html_snapshot_dump_dom(
+    twitter_url: &str,
+    work_dir: &Path,
+    output_path: &Path,
+    cookies: &CookieOptions<'_>,
+) -> Result<()> {
+    let spec = cookies
+        .browser_profile
+        .context("Browser profile not available for dump-dom HTML capture")?;
+
+    let html = fetch_html_with_chromium(twitter_url, work_dir, spec, 60, "twitter html")
+        .await
+        .context("Chromium dump-dom failed")?;
+
+    if html.trim().is_empty() {
+        anyhow::bail!("Chromium dump-dom returned empty HTML for Twitter");
     }
 
-    // Fallback to HTTP fetch (won't have JS-rendered content, but better than nothing)
+    // Strip noscript tags to remove "JavaScript required" messages
+    let html = strip_noscript_tags(&html);
+
+    tokio::fs::write(output_path, &html)
+        .await
+        .context("Failed to write HTML file")?;
+
+    debug!(path = %output_path.display(), size = html.len(), "Saved HTML snapshot via dump-dom");
+    Ok(())
+}
+
+/// Fetch HTML snapshot using plain HTTP GET (no JavaScript rendering).
+///
+/// This is the simplest method but won't include dynamically rendered content.
+/// Strips noscript tags from the output.
+#[allow(dead_code)]
+async fn fetch_html_snapshot_http(twitter_url: &str, output_path: &Path) -> Result<()> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .context("Failed to build HTTP client")?;
 
-    debug!(url = %twitter_url, "Trying HTTP fetch for Twitter HTML (JS content will be missing)");
-    match fetch_html_from_url(&client, twitter_url).await {
-        Ok(content) if !content.trim().is_empty() => {
-            tokio::fs::write(&html_path, &content)
-                .await
-                .context("Failed to write raw.html")?;
-            debug!(path = %html_path.display(), size = content.len(), "Saved HTML snapshot via HTTP (no JS rendering)");
-            Ok(())
+    let html = fetch_html_from_url(&client, twitter_url)
+        .await
+        .context("HTTP fetch failed")?;
+
+    if html.trim().is_empty() {
+        anyhow::bail!("HTTP fetch returned empty HTML for Twitter");
+    }
+
+    // Strip noscript tags to remove "JavaScript required" messages
+    let html = strip_noscript_tags(&html);
+
+    tokio::fs::write(output_path, &html)
+        .await
+        .context("Failed to write HTML file")?;
+
+    debug!(path = %output_path.display(), size = html.len(), "Saved HTML snapshot via HTTP");
+    Ok(())
+}
+
+/// Fetch HTML snapshot using HTTP with cookies from cookies.txt file.
+///
+/// Uses the Netscape cookie format file to add authentication cookies.
+/// May help with rate limiting or accessing protected content.
+/// Strips noscript tags from the output.
+#[allow(dead_code)]
+async fn fetch_html_snapshot_http_with_cookies(
+    twitter_url: &str,
+    output_path: &Path,
+    cookies: &CookieOptions<'_>,
+) -> Result<()> {
+    let html = fetch_tweet_html(twitter_url, cookies)
+        .await
+        .context("HTTP with cookies fetch failed")?;
+
+    if html.trim().is_empty() {
+        anyhow::bail!("HTTP with cookies returned empty HTML for Twitter");
+    }
+
+    // Strip noscript tags to remove "JavaScript required" messages
+    let html = strip_noscript_tags(&html);
+
+    tokio::fs::write(output_path, &html)
+        .await
+        .context("Failed to write HTML file")?;
+
+    debug!(path = %output_path.display(), size = html.len(), "Saved HTML snapshot via HTTP with cookies");
+    Ok(())
+}
+
+/// Try all HTML snapshot methods and save each result to a separate file.
+///
+/// This function attempts each method independently and saves successful results
+/// to method-specific files for comparison:
+/// - `raw_cdp.html` - CDP/ScreenshotService (best JS rendering)
+/// - `raw_dump_dom.html` - Chromium --dump-dom
+/// - `raw_http.html` - Plain HTTP (no cookies)
+/// - `raw_http_cookies.html` - HTTP with cookies
+///
+/// Also saves the first successful result as `raw.html` for compatibility.
+/// Returns Ok if at least one method succeeds.
+async fn fetch_html_snapshot_all_methods(
+    twitter_url: &str,
+    work_dir: &Path,
+    cookies: &CookieOptions<'_>,
+) -> Result<()> {
+    let mut any_success = false;
+    let mut first_success_file: Option<&str> = None;
+
+    // Try CDP method
+    let cdp_path = work_dir.join("raw_cdp.html");
+    if cookies.screenshot_service.is_some() {
+        match fetch_html_snapshot_cdp(twitter_url, &cdp_path, cookies).await {
+            Ok(()) => {
+                info!(url = %twitter_url, "CDP HTML snapshot saved to raw_cdp.html");
+                any_success = true;
+                if first_success_file.is_none() {
+                    first_success_file = Some("raw_cdp.html");
+                }
+            }
+            Err(e) => {
+                warn!(url = %twitter_url, error = %e, "CDP HTML snapshot failed");
+            }
         }
-        Ok(_) => {
-            anyhow::bail!("Twitter returned empty HTML");
+    } else {
+        debug!(url = %twitter_url, "Skipping CDP method - screenshot service not available");
+    }
+
+    // Try dump-dom method
+    let dump_dom_path = work_dir.join("raw_dump_dom.html");
+    if cookies.browser_profile.is_some() {
+        match fetch_html_snapshot_dump_dom(twitter_url, work_dir, &dump_dom_path, cookies).await {
+            Ok(()) => {
+                info!(url = %twitter_url, "Dump-dom HTML snapshot saved to raw_dump_dom.html");
+                any_success = true;
+                if first_success_file.is_none() {
+                    first_success_file = Some("raw_dump_dom.html");
+                }
+            }
+            Err(e) => {
+                warn!(url = %twitter_url, error = %e, "Dump-dom HTML snapshot failed");
+            }
         }
-        Err(e) => Err(e.context("Failed to fetch HTML from Twitter")),
+    } else {
+        debug!(url = %twitter_url, "Skipping dump-dom method - browser profile not available");
+    }
+
+    // Try HTTP method (no cookies)
+    let http_path = work_dir.join("raw_http.html");
+    match fetch_html_snapshot_http(twitter_url, &http_path).await {
+        Ok(()) => {
+            info!(url = %twitter_url, "HTTP HTML snapshot saved to raw_http.html");
+            any_success = true;
+            if first_success_file.is_none() {
+                first_success_file = Some("raw_http.html");
+            }
+        }
+        Err(e) => {
+            warn!(url = %twitter_url, error = %e, "HTTP HTML snapshot failed");
+        }
+    }
+
+    // Try HTTP with cookies method
+    let http_cookies_path = work_dir.join("raw_http_cookies.html");
+    if cookies.cookies_file.is_some() {
+        match fetch_html_snapshot_http_with_cookies(twitter_url, &http_cookies_path, cookies).await
+        {
+            Ok(()) => {
+                info!(url = %twitter_url, "HTTP with cookies HTML snapshot saved to raw_http_cookies.html");
+                any_success = true;
+                if first_success_file.is_none() {
+                    first_success_file = Some("raw_http_cookies.html");
+                }
+            }
+            Err(e) => {
+                warn!(url = %twitter_url, error = %e, "HTTP with cookies HTML snapshot failed");
+            }
+        }
+    } else {
+        debug!(url = %twitter_url, "Skipping HTTP with cookies method - cookies file not available");
+    }
+
+    // Copy first successful result to raw.html for compatibility
+    if let Some(success_file) = first_success_file {
+        let source = work_dir.join(success_file);
+        let dest = work_dir.join("raw.html");
+        if let Err(e) = tokio::fs::copy(&source, &dest).await {
+            warn!(source = %source.display(), dest = %dest.display(), error = %e, "Failed to copy to raw.html");
+        } else {
+            debug!(source = %success_file, "Copied first successful snapshot to raw.html");
+        }
+    }
+
+    if any_success {
+        Ok(())
+    } else {
+        anyhow::bail!("All HTML snapshot methods failed for Twitter URL: {twitter_url}");
     }
 }
 
@@ -1203,5 +1379,66 @@ mod tests {
             </html>
         "#;
         assert!(!detect_media_in_html(html));
+    }
+
+    #[test]
+    fn test_strip_noscript_tags_simple() {
+        let html = r#"<html><body><noscript>JavaScript required</noscript><div>Content</div></body></html>"#;
+        let result = strip_noscript_tags(html);
+        assert!(!result.contains("<noscript"));
+        assert!(!result.contains("JavaScript required"));
+        assert!(result.contains("<div>Content</div>"));
+    }
+
+    #[test]
+    fn test_strip_noscript_tags_multiline() {
+        let html = r#"<html>
+<body>
+<noscript>
+    <div>JavaScript is required to view this page</div>
+    <p>Please enable JavaScript</p>
+</noscript>
+<div>Actual content</div>
+</body>
+</html>"#;
+        let result = strip_noscript_tags(html);
+        assert!(!result.contains("<noscript"));
+        assert!(!result.contains("JavaScript is required"));
+        assert!(result.contains("Actual content"));
+    }
+
+    #[test]
+    fn test_strip_noscript_tags_multiple() {
+        let html = r#"<html><noscript>First</noscript><div>Middle</div><noscript>Second</noscript></html>"#;
+        let result = strip_noscript_tags(html);
+        assert!(!result.contains("First"));
+        assert!(!result.contains("Second"));
+        assert!(result.contains("Middle"));
+    }
+
+    #[test]
+    fn test_strip_noscript_tags_with_attributes() {
+        let html = r#"<noscript class="js-warning" id="noscript-msg">Enable JS</noscript><div>Content</div>"#;
+        let result = strip_noscript_tags(html);
+        assert!(!result.contains("<noscript"));
+        assert!(!result.contains("Enable JS"));
+        assert!(result.contains("<div>Content</div>"));
+    }
+
+    #[test]
+    fn test_strip_noscript_tags_none_present() {
+        let html = r#"<html><body><div>No noscript here</div></body></html>"#;
+        let result = strip_noscript_tags(html);
+        assert_eq!(result, html);
+    }
+
+    #[test]
+    fn test_strip_noscript_tags_case_insensitive() {
+        let html =
+            r#"<NOSCRIPT>Upper case</NOSCRIPT><NoScript>Mixed case</NoScript><div>Content</div>"#;
+        let result = strip_noscript_tags(html);
+        assert!(!result.contains("Upper case"));
+        assert!(!result.contains("Mixed case"));
+        assert!(result.contains("<div>Content</div>"));
     }
 }

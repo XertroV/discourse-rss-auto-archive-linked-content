@@ -1784,14 +1784,14 @@ pre {
 }
 
 .embedded-preview summary::before {
-    content: "▶ ";
+    content: "\25B6  ";
     font-size: var(--font-size-sm);
     color: var(--text-muted);
     margin-right: var(--spacing-xs);
 }
 
 .embedded-preview details[open] summary::before {
-    content: "▼ ";
+    content: "\25BC  ";
 }
 
 .embedded-preview summary:hover {
@@ -2259,14 +2259,14 @@ pre {
 
 .debug-info summary::before,
 .debug-actions summary::before {
-    content: "▶ ";
+    content: "\25B6  ";
     font-size: var(--font-size-sm);
     color: var(--text-muted);
 }
 
 .debug-info details[open] summary::before,
 .debug-actions details[open] summary::before {
-    content: "▼ ";
+    content: "\25BC  ";
 }
 
 /* ========== User Stats Section ========== */
@@ -2297,13 +2297,13 @@ pre {
 }
 
 .user-stats-section summary::before {
-    content: "▶ ";
+    content: "\25B6  ";
     font-size: var(--font-size-sm);
     color: var(--text-muted);
 }
 
 .user-stats-section details[open] summary::before {
-    content: "▼ ";
+    content: "\25BC  ";
 }
 
 .user-stats-content {
@@ -2940,14 +2940,14 @@ body.nsfw-hidden [data-nsfw="true"] {
 }
 
 .platform-comments-section summary::before {
-    content: "▶";
+    content: "\25B6";
     font-size: var(--font-size-sm);
     color: var(--text-muted);
     margin-right: var(--spacing-xs);
 }
 
 .platform-comments-section details[open] summary::before {
-    content: "▼";
+    content: "\25BC";
 }
 
 .comments-count-badge {
