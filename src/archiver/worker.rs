@@ -2098,7 +2098,8 @@ async fn process_subtitle_files(
     use super::ytdlp::parse_subtitle_info;
 
     // Categorize subtitles by language and type
-    let mut best_subtitle_for_transcript: Option<(PathBuf, bool)> = None;
+    // Tuple: (path, language, is_english, is_auto)
+    let mut best_subtitle_for_transcript: Option<(PathBuf, String, bool, bool)> = None;
 
     // Upload each subtitle file with metadata
     for subtitle_file in subtitle_files {
@@ -2158,26 +2159,35 @@ async fn process_subtitle_files(
 
         // Select best subtitle for transcript generation
         // Prefer: English manual > English auto > any manual > any auto
-        if language.starts_with("en") {
-            match &best_subtitle_for_transcript {
-                None => {
-                    best_subtitle_for_transcript = Some((local_path.clone(), is_auto));
-                }
-                Some((_, best_is_auto)) => {
-                    // Replace if current is better (manual preferred over auto)
-                    if !is_auto && *best_is_auto {
-                        best_subtitle_for_transcript = Some((local_path.clone(), is_auto));
-                    }
+        let is_english = language.starts_with("en");
+
+        match &best_subtitle_for_transcript {
+            None => {
+                // No subtitle selected yet, use this one
+                best_subtitle_for_transcript =
+                    Some((local_path.clone(), language.clone(), is_english, is_auto));
+            }
+            Some((_, _, best_is_english, best_is_auto)) => {
+                // Determine if current subtitle is better
+                let current_is_better = match (is_english, *best_is_english) {
+                    // English always beats non-English
+                    (true, false) => true,
+                    // Non-English never beats English
+                    (false, true) => false,
+                    // Same language group: manual beats auto
+                    _ => !is_auto && *best_is_auto,
+                };
+                if current_is_better {
+                    best_subtitle_for_transcript =
+                        Some((local_path.clone(), language.clone(), is_english, is_auto));
                 }
             }
-        } else if best_subtitle_for_transcript.is_none() {
-            // If no English subtitle yet, use this one
-            best_subtitle_for_transcript = Some((local_path.clone(), is_auto));
         }
     }
 
     // Generate transcript from the best subtitle file
-    if let Some((best_subtitle_path, is_auto)) = best_subtitle_for_transcript {
+    if let Some((best_subtitle_path, language, is_english, is_auto)) = best_subtitle_for_transcript
+    {
         match build_transcript_from_file(&best_subtitle_path).await {
             Ok(transcript) if !transcript.is_empty() => {
                 let transcript_key = format!("{s3_prefix}subtitles/transcript.txt");
@@ -2192,6 +2202,8 @@ async fn process_subtitle_files(
                         debug!(
                             archive_id,
                             key = %transcript_key,
+                            language = %language,
+                            is_english,
                             is_auto,
                             size = size_bytes,
                             "Generated and uploaded transcript"
@@ -2200,6 +2212,7 @@ async fn process_subtitle_files(
                         // Store metadata about transcript source
                         let transcript_metadata = serde_json::json!({
                             "source": if is_auto { "auto_subtitles" } else { "manual_subtitles" },
+                            "language": language,
                             "source_file": best_subtitle_path.file_name()
                                 .and_then(|n| n.to_str())
                                 .unwrap_or("unknown"),
