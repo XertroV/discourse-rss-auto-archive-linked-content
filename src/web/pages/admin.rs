@@ -155,6 +155,12 @@ fn render_user_row(user: &User, current_user: &User) -> Markup {
         })
         .cell(display_name)
         .cell(user.email.as_deref().unwrap_or("\u{2014}"))
+        .cell_markup(html! {
+            span class=(if user.is_approved { "approval-tick" } else { "approval-cross" })
+                title=(if user.is_approved { "Approved" } else { "Not approved" }) {
+                (if user.is_approved { "\u{2713}" } else { "\u{2717}" })
+            }
+        })
         .cell_markup(render_user_status_badge(user))
         .cell(&user.created_at)
         .cell_markup(render_user_actions(user, is_current_user));
@@ -178,6 +184,7 @@ fn render_users_table(users: &[User], current_user: &User) -> Markup {
         "Username",
         "Display Name",
         "Email",
+        "Approved",
         "Status",
         "Created",
         "Actions",
@@ -379,9 +386,7 @@ pub fn render_admin_panel(params: &AdminPanelParams) -> Markup {
         }
     };
 
-    BaseLayout::new("Admin Panel")
-        .with_user(Some(params.current_user))
-        .render(content)
+    BaseLayout::new("Admin Panel", Some(params.current_user)).render(content)
 }
 
 /// Render the forum links section with table and re-archive form.
@@ -509,7 +514,11 @@ fn render_forum_links_table(
 ///
 /// Complete HTML page as maud Markup
 #[must_use]
-pub fn render_admin_password_reset_result(username: &str, new_password: &str) -> Markup {
+pub fn render_admin_password_reset_result(
+    username: &str,
+    new_password: &str,
+    current_user: &User,
+) -> Markup {
     let content = html! {
         div class="password-reset-container" {
             h1 { "Password Reset" }
@@ -533,7 +542,7 @@ pub fn render_admin_password_reset_result(username: &str, new_password: &str) ->
         }
     };
 
-    BaseLayout::new("Password Reset").render(content)
+    BaseLayout::new("Password Reset", Some(current_user)).render(content)
 }
 
 /// Render the excluded domain status badge.
@@ -614,6 +623,7 @@ fn render_excluded_domains_table(domains: &[ExcludedDomain]) -> Markup {
 pub fn render_admin_excluded_domains_page(
     domains: &[ExcludedDomain],
     message: Option<&str>,
+    current_user: &User,
 ) -> Markup {
     let content = html! {
         div class="excluded-domains-container" {
@@ -668,7 +678,7 @@ pub fn render_admin_excluded_domains_page(
         }
     };
 
-    BaseLayout::new("Excluded Domains").render(content)
+    BaseLayout::new("Excluded Domains", Some(current_user)).render(content)
 }
 
 /// Render the admin user profile page.
@@ -797,9 +807,7 @@ pub fn render_admin_user_profile(
         }
     };
 
-    BaseLayout::new(&format!("User: {}", user.username))
-        .with_user(Some(current_user))
-        .render(content)
+    BaseLayout::new(&format!("User: {}", user.username), Some(current_user)).render(content)
 }
 
 /// Render the admin forum user profile page.
@@ -917,9 +925,11 @@ pub fn render_admin_forum_user_profile(
         }
     };
 
-    BaseLayout::new(&format!("Forum User: {}", forum_link.forum_username))
-        .with_user(Some(current_user))
-        .render(content)
+    BaseLayout::new(
+        &format!("Forum User: {}", forum_link.forum_username),
+        Some(current_user),
+    )
+    .render(content)
 }
 
 /// Render the audit log table for user profile.
@@ -1172,7 +1182,9 @@ mod tests {
 
     #[test]
     fn test_render_admin_password_reset_result() {
-        let html = render_admin_password_reset_result("testuser", "newpassword123").into_string();
+        let admin = test_user(1, "admin", true, true, true);
+        let html =
+            render_admin_password_reset_result("testuser", "newpassword123", &admin).into_string();
 
         assert!(html.contains("Password Reset"));
         assert!(html.contains("testuser"));
@@ -1216,9 +1228,14 @@ mod tests {
 
     #[test]
     fn test_render_admin_excluded_domains_page() {
+        let admin = test_user(1, "admin", true, true, true);
         let domains = vec![test_excluded_domain(1, "example.com", true)];
-        let html = render_admin_excluded_domains_page(&domains, Some("Domain added successfully!"))
-            .into_string();
+        let html = render_admin_excluded_domains_page(
+            &domains,
+            Some("Domain added successfully!"),
+            &admin,
+        )
+        .into_string();
 
         assert!(html.contains("Excluded Domains"));
         assert!(html.contains("Add New Excluded Domain"));
@@ -1230,7 +1247,8 @@ mod tests {
 
     #[test]
     fn test_render_admin_excluded_domains_page_no_message() {
-        let html = render_admin_excluded_domains_page(&[], None).into_string();
+        let admin = test_user(1, "admin", true, true, true);
+        let html = render_admin_excluded_domains_page(&[], None, &admin).into_string();
 
         assert!(html.contains("Excluded Domains"));
         assert!(html.contains("No excluded domains yet"));

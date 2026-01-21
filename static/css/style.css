@@ -609,6 +609,11 @@ tr:hover {
     color: white;
 }
 
+.media-type-pdf {
+    background-color: #ea580c;
+    color: white;
+}
+
 /* NSFW badge */
 .nsfw-badge {
     background-color: var(--danger);
@@ -2449,6 +2454,21 @@ pre {
 .status-pending {
     background: var(--warning-bg);
     color: var(--warning-text);
+}
+
+/* Approval status icons */
+.approval-tick {
+    color: var(--success);
+    font-size: 1.25rem;
+    font-weight: bold;
+    cursor: help;
+}
+
+.approval-cross {
+    color: var(--danger);
+    font-size: 1.25rem;
+    font-weight: bold;
+    cursor: help;
 }
 
 /* Admin buttons */
