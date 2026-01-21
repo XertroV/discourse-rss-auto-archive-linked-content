@@ -4246,6 +4246,68 @@ pub async fn user_has_forum_link(pool: &SqlitePool, user_id: i64) -> Result<bool
     Ok(result.is_some())
 }
 
+/// Get all forum account links with associated usernames.
+pub async fn get_all_forum_links(pool: &SqlitePool) -> Result<Vec<ForumAccountLink>> {
+    sqlx::query_as(
+        r"
+        SELECT f.*
+        FROM forum_account_links f
+        ORDER BY f.created_at DESC
+        ",
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to get all forum links")
+}
+
+/// Delete a forum account link and reset the user's display name.
+///
+/// This removes the link and clears the display_name from the user,
+/// effectively "unlocking" their display name for manual editing.
+pub async fn delete_forum_link(pool: &SqlitePool, link_id: i64) -> Result<Option<i64>> {
+    // First get the user_id from the link
+    let link: Option<ForumAccountLink> =
+        sqlx::query_as("SELECT * FROM forum_account_links WHERE id = ?")
+            .bind(link_id)
+            .fetch_optional(pool)
+            .await
+            .context("Failed to get forum link")?;
+
+    let Some(link) = link else {
+        return Ok(None);
+    };
+
+    let user_id = link.user_id;
+
+    // Delete the link
+    sqlx::query("DELETE FROM forum_account_links WHERE id = ?")
+        .bind(link_id)
+        .execute(pool)
+        .await
+        .context("Failed to delete forum link")?;
+
+    // Reset the user's display name to NULL
+    sqlx::query("UPDATE users SET display_name = NULL, updated_at = datetime('now') WHERE id = ?")
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .context("Failed to reset user display name")?;
+
+    Ok(Some(user_id))
+}
+
+/// Get a forum account link by ID.
+pub async fn get_forum_link_by_id(
+    pool: &SqlitePool,
+    link_id: i64,
+) -> Result<Option<ForumAccountLink>> {
+    sqlx::query_as("SELECT * FROM forum_account_links WHERE id = ?")
+        .bind(link_id)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to get forum link by ID")
+}
+
 // ========== Open Graph Metadata ==========
 
 /// Update Open Graph metadata for an archive.

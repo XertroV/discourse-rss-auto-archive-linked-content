@@ -22,7 +22,7 @@ pub mod threads;
 // Re-export page rendering functions for convenience
 pub use admin::{
     render_admin_excluded_domains_page, render_admin_forum_user_profile, render_admin_panel,
-    render_admin_password_reset_result, render_admin_user_profile,
+    render_admin_password_reset_result, render_admin_user_profile, AdminPanelParams,
 };
 pub use all_archives::{render_all_archives_table_page, AllArchivesPageParams};
 pub use archive::{render_archive_detail_page, ArchiveDetailParams};

@@ -95,6 +95,10 @@ pub fn router() -> Router<AppState> {
             "/admin/forum-user/:username",
             get(auth::admin_forum_user_profile),
         )
+        .route(
+            "/admin/forum-link/delete",
+            post(auth::admin_delete_forum_link),
+        )
         .route("/archives/failed", get(recent_failed_archives))
         .route("/archives/all", get(recent_all_archives))
         .route("/search", get(search))

@@ -554,9 +554,19 @@ pub async fn profile_post(
     .into_response()
 }
 
+/// Query params for admin panel.
+#[derive(Debug, Deserialize)]
+pub struct AdminPanelQuery {
+    /// Active tab
+    tab: Option<String>,
+    /// Success/error message
+    message: Option<String>,
+}
+
 /// GET /admin - Admin panel.
 pub async fn admin_panel(
     State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<AdminPanelQuery>,
     RequireAdmin(admin): RequireAdmin,
 ) -> Response {
     // Get all users
@@ -577,7 +587,25 @@ pub async fn admin_panel(
         }
     };
 
-    Html(pages::render_admin_panel(&users, &audit_events, &admin).into_string()).into_response()
+    // Get all forum links
+    let forum_links = match queries::get_all_forum_links(state.db.pool()).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("Failed to fetch forum links: {e}");
+            vec![]
+        }
+    };
+
+    let params = pages::AdminPanelParams {
+        users: &users,
+        audit_events: &audit_events,
+        forum_links: &forum_links,
+        current_user: &admin,
+        active_tab: query.tab.as_deref(),
+        message: query.message.as_deref(),
+    };
+
+    Html(pages::render_admin_panel(&params).into_string()).into_response()
 }
 
 /// POST /admin/user/:id/approve - Approve a user.
@@ -1100,6 +1128,83 @@ pub async fn admin_delete_excluded_domain(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to delete excluded domain",
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Form data for forum link actions.
+#[derive(Debug, Deserialize)]
+pub struct ForumLinkActionForm {
+    link_id: i64,
+}
+
+/// POST /admin/forum-link/delete - Delete a forum account link.
+pub async fn admin_delete_forum_link(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
+    RequireAdmin(admin): RequireAdmin,
+    Form(form): Form<ForumLinkActionForm>,
+) -> Response {
+    let direct_ip = addr.ip().to_string();
+    let forwarded_for = headers
+        .get("x-forwarded-for")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+
+    // Get the link details before deleting for logging
+    let link = match queries::get_forum_link_by_id(state.db.pool(), form.link_id).await {
+        Ok(Some(l)) => l,
+        Ok(None) => {
+            return Redirect::to("/admin?tab=forum-links&message=Forum%20link%20not%20found")
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch forum link: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    match queries::delete_forum_link(state.db.pool(), form.link_id).await {
+        Ok(Some(user_id)) => {
+            tracing::info!(
+                admin_id = admin.id,
+                link_id = form.link_id,
+                user_id = user_id,
+                forum_username = %link.forum_username,
+                "Admin deleted forum account link"
+            );
+
+            // Log audit event
+            let metadata = format!(
+                r#"{{"forum_username": "{}", "user_id": {}}}"#,
+                link.forum_username, user_id
+            );
+            let _ = queries::create_audit_event(
+                state.db.pool(),
+                Some(admin.id),
+                "admin_delete_forum_link",
+                Some("forum_link"),
+                Some(form.link_id),
+                Some(&metadata),
+                Some(&direct_ip),
+                forwarded_for.as_deref(),
+                None,
+            )
+            .await;
+
+            Redirect::to("/admin?tab=forum-links&message=Forum%20link%20deleted%20successfully")
+                .into_response()
+        }
+        Ok(None) => Redirect::to("/admin?tab=forum-links&message=Forum%20link%20not%20found")
+            .into_response(),
+        Err(e) => {
+            tracing::error!("Failed to delete forum link: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to delete forum link",
             )
                 .into_response()
         }

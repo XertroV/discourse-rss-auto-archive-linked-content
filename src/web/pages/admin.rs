@@ -248,46 +248,215 @@ fn render_audit_table(audit_events: &[AuditEvent], users: &[User]) -> Markup {
     ResponsiveTable::new(table.render()).render()
 }
 
-/// Render the main admin panel page.
+/// Parameters for the admin panel page.
+pub struct AdminPanelParams<'a> {
+    pub users: &'a [User],
+    pub audit_events: &'a [AuditEvent],
+    pub forum_links: &'a [ForumAccountLink],
+    pub current_user: &'a User,
+    /// Optional active tab ("users", "forum-links", "audit")
+    pub active_tab: Option<&'a str>,
+    /// Optional success/error message
+    pub message: Option<&'a str>,
+}
+
+/// Render the main admin panel page with tabs.
 ///
 /// # Arguments
 ///
-/// * `users` - List of all users
-/// * `audit_events` - Recent audit events
-/// * `current_user` - The currently logged-in admin user
+/// * `params` - Parameters for rendering the admin panel
 ///
 /// # Returns
 ///
 /// Complete HTML page as maud Markup
 #[must_use]
-pub fn render_admin_panel(
-    users: &[User],
-    audit_events: &[AuditEvent],
-    current_user: &User,
-) -> Markup {
+pub fn render_admin_panel(params: &AdminPanelParams) -> Markup {
+    let active_tab = params.active_tab.unwrap_or("users");
+
+    // Build user lookup for forum links table
+    let user_lookup: HashMap<i64, &User> = params.users.iter().map(|u| (u.id, u)).collect();
+
     let content = html! {
         div class="admin-panel-container" {
             h1 { "Admin Panel" }
 
-            // Users section
-            h2 class="admin-section-header" { "Users" }
-            (render_users_table(users, current_user))
-
-            // Admin tools section
-            h2 class="admin-section-header" { "Admin Tools" }
-            div class="admin-tools" {
-                (Button::primary("Manage Excluded Domains").href("/admin/excluded-domains"))
+            // Optional message
+            @if let Some(msg) = params.message {
+                (Alert::success(msg).render())
             }
 
-            // Audit log section
-            h2 class="admin-section-header" { "Recent Audit Log" }
-            (render_audit_table(audit_events, users))
+            // Tab navigation
+            div class="tab-nav" {
+                button class=(if active_tab == "users" { "active" } else { "" })
+                    onclick="switchTab('users')" { "Users" }
+                button class=(if active_tab == "forum-links" { "active" } else { "" })
+                    onclick="switchTab('forum-links')" { "Forum Links" }
+                button class=(if active_tab == "audit" { "active" } else { "" })
+                    onclick="switchTab('audit')" { "Audit Log" }
+            }
+
+            // Users tab
+            div id="tab-users" class=(format!("tab-content {}", if active_tab == "users" { "active" } else { "" })) {
+                (render_users_table(params.users, params.current_user))
+
+                // Admin tools section
+                h3 class="admin-section-header" style="margin-top: var(--spacing-lg);" { "Admin Tools" }
+                div class="admin-tools" {
+                    (Button::primary("Manage Excluded Domains").href("/admin/excluded-domains"))
+                }
+            }
+
+            // Forum Links tab
+            div id="tab-forum-links" class=(format!("tab-content {}", if active_tab == "forum-links" { "active" } else { "" })) {
+                (render_forum_links_section(params.forum_links, &user_lookup))
+            }
+
+            // Audit Log tab
+            div id="tab-audit" class=(format!("tab-content {}", if active_tab == "audit" { "active" } else { "" })) {
+                (render_audit_table(params.audit_events, params.users))
+            }
+        }
+
+        // Tab switching JavaScript
+        script {
+            (maud::PreEscaped(r#"
+                function switchTab(tabName) {
+                    // Hide all tabs
+                    document.querySelectorAll('.tab-content').forEach(tab => {
+                        tab.classList.remove('active');
+                    });
+                    // Deactivate all nav buttons
+                    document.querySelectorAll('.tab-nav button').forEach(btn => {
+                        btn.classList.remove('active');
+                    });
+                    // Show selected tab
+                    document.getElementById('tab-' + tabName).classList.add('active');
+                    // Activate selected nav button
+                    event.target.classList.add('active');
+                    // Update URL without reload
+                    const url = new URL(window.location);
+                    url.searchParams.set('tab', tabName);
+                    window.history.replaceState({}, '', url);
+                }
+            "#))
         }
     };
 
     BaseLayout::new("Admin Panel")
-        .with_user(Some(current_user))
+        .with_user(Some(params.current_user))
         .render(content)
+}
+
+/// Render the forum links section with table and re-archive form.
+fn render_forum_links_section(
+    forum_links: &[ForumAccountLink],
+    user_lookup: &HashMap<i64, &User>,
+) -> Markup {
+    html! {
+        // Re-archive thread form
+        div class="add-domain-section" style="margin-bottom: var(--spacing-lg);" {
+            h3 { "Re-Archive Forum Thread" }
+            p class="page-description" {
+                "Submit a forum thread URL to re-archive. This will re-process any "
+                code { "link_archive_account" }
+                " commands to re-link forum accounts."
+            }
+            (Form::post("/submit/thread", html! {
+                (FormGroup::new(
+                    "Thread URL:",
+                    "url",
+                    Input::text("url")
+                        .id("url")
+                        .placeholder("https://forum.example.com/t/topic-slug/12345")
+                        .required()
+                        .render()
+                ).render())
+                (Button::primary("Re-Archive Thread").r#type("submit"))
+            }))
+        }
+
+        // Forum links table
+        h3 { "Forum Account Links" }
+        p class="page-description" {
+            "Manage forum account links. Deleting a link will reset the user's display name, allowing them to set a new one or re-link their forum account."
+        }
+        (render_forum_links_table(forum_links, user_lookup))
+    }
+}
+
+/// Render a single forum link row.
+fn render_forum_link_row(link: &ForumAccountLink, user_lookup: &HashMap<i64, &User>) -> Markup {
+    let username = user_lookup
+        .get(&link.user_id)
+        .map_or_else(|| format!("User #{}", link.user_id), |u| u.username.clone());
+
+    let display_name = user_lookup
+        .get(&link.user_id)
+        .and_then(|u| u.display_name.as_ref())
+        .filter(|n| !n.is_empty())
+        .map_or("—", String::as_str);
+
+    let row = TableRow::new()
+        .cell(&link.id.to_string())
+        .cell_markup(html! {
+            a href=(format!("/admin/forum-user/{}", link.forum_username)) {
+                code { (&link.forum_username) }
+            }
+        })
+        .cell_markup(html! {
+            a href=(format!("/admin/user/{}", link.user_id)) {
+                code { (username) }
+            }
+        })
+        .cell(display_name)
+        .cell_markup(html! {
+            a href=(&link.linked_via_post_url) target="_blank" {
+                (link.post_title.as_deref().unwrap_or(&link.linked_via_post_guid))
+            }
+        })
+        .cell(&link.created_at)
+        .cell_markup(html! {
+            (Form::post("/admin/forum-link/delete", html! {
+                (HiddenInput::new("link_id", &link.id.to_string()))
+                (Button::danger("Delete")
+                    .r#type("submit")
+                    .class("btn-sm")
+                    .onclick("return confirm('Are you sure you want to delete this forum link? The user\\'s display name will be reset.')"))
+            }).class("inline-form"))
+        });
+
+    row.render()
+}
+
+/// Render the forum links table.
+fn render_forum_links_table(
+    forum_links: &[ForumAccountLink],
+    user_lookup: &HashMap<i64, &User>,
+) -> Markup {
+    if forum_links.is_empty() {
+        return html! {
+            p class="no-domains-message" { "No forum account links yet." }
+        };
+    }
+
+    let rows: Vec<Markup> = forum_links
+        .iter()
+        .map(|link| render_forum_link_row(link, user_lookup))
+        .collect();
+
+    let table = Table::new(vec![
+        "ID",
+        "Forum Username",
+        "Archive User",
+        "Display Name",
+        "Linked Via",
+        "Created",
+        "Actions",
+    ])
+    .variant(TableVariant::Admin)
+    .rows(rows);
+
+    ResponsiveTable::new(table.render()).render()
 }
 
 /// Render the password reset result page.
@@ -859,20 +1028,43 @@ mod tests {
         assert!(!html.contains("Make Admin"));
     }
 
+    fn test_forum_link(id: i64, user_id: i64, forum_username: &str) -> ForumAccountLink {
+        ForumAccountLink {
+            id,
+            user_id,
+            forum_username: forum_username.to_string(),
+            linked_via_post_guid: "test-guid".to_string(),
+            linked_via_post_url: "https://example.com/post/1".to_string(),
+            forum_author_raw: Some(format!("@{forum_username}")),
+            post_title: Some("Test Post".to_string()),
+            post_published_at: Some("2024-01-01T00:00:00Z".to_string()),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        }
+    }
+
     #[test]
     fn test_render_admin_panel() {
         let admin = test_user(1, "admin", true, true, true);
         let user = test_user(2, "testuser", false, true, true);
         let users = vec![admin.clone(), user];
         let events = vec![test_audit_event(1, Some(1), "login")];
+        let forum_links = vec![test_forum_link(1, 2, "forumuser")];
 
-        let html = render_admin_panel(&users, &events, &admin).into_string();
+        let params = AdminPanelParams {
+            users: &users,
+            audit_events: &events,
+            forum_links: &forum_links,
+            current_user: &admin,
+            active_tab: None,
+            message: None,
+        };
+        let html = render_admin_panel(&params).into_string();
 
         // Check page structure
         assert!(html.contains("Admin Panel"));
         assert!(html.contains("Users"));
-        assert!(html.contains("Admin Tools"));
-        assert!(html.contains("Recent Audit Log"));
+        assert!(html.contains("Forum Links"));
+        assert!(html.contains("Audit Log"));
 
         // Check user table content
         assert!(html.contains("admin"));
@@ -885,6 +1077,34 @@ mod tests {
         // Check admin tools link
         assert!(html.contains("Manage Excluded Domains"));
         assert!(html.contains("/admin/excluded-domains"));
+
+        // Check forum links
+        assert!(html.contains("forumuser"));
+    }
+
+    #[test]
+    fn test_render_admin_panel_with_message() {
+        let admin = test_user(1, "admin", true, true, true);
+        let params = AdminPanelParams {
+            users: &[admin.clone()],
+            audit_events: &[],
+            forum_links: &[],
+            current_user: &admin,
+            active_tab: Some("forum-links"),
+            message: Some("Test message"),
+        };
+        let html = render_admin_panel(&params).into_string();
+
+        assert!(html.contains("Test message"));
+        // Forum links tab should be active
+        assert!(html.contains("tab-forum-links"));
+    }
+
+    #[test]
+    fn test_render_forum_links_table_empty() {
+        let user_lookup: HashMap<i64, &User> = HashMap::new();
+        let html = render_forum_links_table(&[], &user_lookup).into_string();
+        assert!(html.contains("No forum account links yet"));
     }
 
     #[test]
