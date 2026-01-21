@@ -546,7 +546,7 @@ fn build_cookie_header_for_domain(cookies_path: &Path, domain: &str) -> Result<S
 async fn fetch_html_snapshot(
     twitter_url: &str,
     work_dir: &Path,
-    nitter_instances: &[String],
+    _nitter_instances: &[String],
 ) -> Result<()> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -556,44 +556,62 @@ async fn fetch_html_snapshot(
 
     let mut html: Option<String> = None;
 
-    // Try nitter instances first (simpler HTML, better for monolith)
+    // TEMPORARILY DISABLED: Try nitter instances first (simpler HTML, better for monolith)
+    // Nitter appears to be returning empty responses, so we're going directly to Twitter for now
+    /*
     for instance in nitter_instances {
         let nitter_url = get_nitter_url(twitter_url, instance);
         debug!(nitter_url = %nitter_url, "Trying nitter for HTML snapshot");
 
         match fetch_html_from_url(&client, &nitter_url).await {
-            Ok(content) => {
-                info!(instance = %instance, "Got HTML snapshot from nitter");
+            Ok(content) if !content.trim().is_empty() => {
+                info!(instance = %instance, size = content.len(), "Got HTML snapshot from nitter");
                 html = Some(content);
                 break;
+            }
+            Ok(_) => {
+                debug!(instance = %instance, "Nitter returned empty HTML");
             }
             Err(e) => {
                 debug!(instance = %instance, error = %e, "Nitter HTML fetch failed");
             }
         }
     }
+    */
 
-    // If no nitter worked, try Twitter directly (may have complex JS-heavy HTML)
+    // Try Twitter directly (may have complex JS-heavy HTML)
+    // Note: This used to be a fallback after nitter, but nitter is currently disabled
     if html.is_none() {
         debug!(url = %twitter_url, "Trying Twitter directly for HTML snapshot");
         match fetch_html_from_url(&client, twitter_url).await {
-            Ok(content) => {
-                debug!("Got HTML snapshot from Twitter directly");
+            Ok(content) if !content.trim().is_empty() => {
+                debug!(
+                    size = content.len(),
+                    "Got HTML snapshot from Twitter directly"
+                );
                 html = Some(content);
             }
+            Ok(_) => {
+                return Err(anyhow::anyhow!("Twitter returned empty HTML"));
+            }
             Err(e) => {
-                return Err(e.context("Failed to fetch HTML from both nitter and Twitter"));
+                return Err(e.context("Failed to fetch HTML from Twitter"));
             }
         }
     }
 
     // Save HTML to raw.html
     if let Some(content) = html {
+        // Validate that we actually got content
+        if content.trim().is_empty() {
+            anyhow::bail!("Retrieved HTML is empty");
+        }
+
         let html_path = work_dir.join("raw.html");
         tokio::fs::write(&html_path, &content)
             .await
             .context("Failed to write raw.html")?;
-        debug!(path = %html_path.display(), "Saved HTML snapshot");
+        debug!(path = %html_path.display(), size = content.len(), "Saved HTML snapshot");
         Ok(())
     } else {
         anyhow::bail!("No HTML content retrieved");

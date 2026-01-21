@@ -1093,6 +1093,14 @@ async fn process_archive_inner(
             let key = format!("{s3_prefix}media/{primary}");
             let metadata = tokio::fs::metadata(&local_path).await.ok();
             let size_bytes = metadata.map(|m| m.len() as i64);
+
+            // Check for empty files (can cause S3 upload issues)
+            if let Some(0) = size_bytes {
+                return Err(anyhow::anyhow!(
+                    "Primary file {primary} is empty (0 bytes), cannot upload to S3"
+                ));
+            }
+
             let content_type = mime_guess::from_path(&local_path)
                 .first_or_octet_stream()
                 .to_string();
@@ -1277,10 +1285,14 @@ async fn process_archive_inner(
     let raw_html_path = work_dir.join("raw.html");
     let raw_is_primary = matches!(result.primary_file.as_deref(), Some("raw.html"));
     if raw_html_path.exists() {
-        if !raw_is_primary {
+        // Check if file is empty before uploading (empty files can cause S3 signature errors)
+        let metadata = tokio::fs::metadata(&raw_html_path).await.ok();
+        let size_bytes = metadata.as_ref().map(|m| m.len() as i64);
+
+        if let Some(0) = size_bytes {
+            warn!(archive_id, "Skipping upload of empty raw.html file");
+        } else if !raw_is_primary {
             let raw_key = format!("{s3_prefix}media/raw.html");
-            let metadata = tokio::fs::metadata(&raw_html_path).await.ok();
-            let size_bytes = metadata.map(|m| m.len() as i64);
 
             match s3
                 .upload_file(&raw_html_path, &raw_key, Some(archive_id))

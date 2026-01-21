@@ -1721,7 +1721,14 @@ async fn submit_form(State(state): State<AppState>, MaybeUser(user): MaybeUser) 
         Some(_) => (None, true),
     };
 
-    let html = pages::render_submit_form(None, None, auth_warning, can_submit);
+    let params = pages::submit::SubmitFormParams {
+        error: None,
+        success: None,
+        auth_warning,
+        can_submit,
+        user: user.as_ref(),
+    };
+    let html = pages::submit::render_submit_form_page(&params).into_string();
     Html(html).into_response()
 }
 

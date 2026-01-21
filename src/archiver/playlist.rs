@@ -88,83 +88,96 @@ async fn get_playlist_metadata(url: &str, cookies: &CookieOptions<'_>) -> Result
         anyhow::bail!("yt-dlp playlist metadata fetch failed: {stderr}");
     }
 
-    // Parse the JSON output from yt-dlp
-    let playlist_json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).context("Failed to parse yt-dlp playlist JSON")?;
+    // Parse the NDJSON output from yt-dlp (one JSON object per line)
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout_str
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .collect();
 
-    // Extract playlist information
-    let playlist_id = playlist_json
-        .get("id")
+    if lines.is_empty() {
+        anyhow::bail!("yt-dlp returned no playlist data");
+    }
+
+    // Parse the first line to extract playlist metadata
+    let first_entry: serde_json::Value =
+        serde_json::from_str(lines[0]).context("Failed to parse first playlist entry JSON")?;
+
+    // Extract playlist information from the first entry
+    let playlist_id = first_entry
+        .get("playlist_id")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
 
-    let playlist_title = playlist_json
-        .get("title")
+    let playlist_title = first_entry
+        .get("playlist_title")
         .and_then(|v| v.as_str())
         .unwrap_or("Untitled Playlist")
         .to_string();
 
-    let playlist_url = playlist_json
-        .get("url")
+    let playlist_url = first_entry
+        .get("playlist_webpage_url")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    let uploader = playlist_json
-        .get("uploader")
+    let uploader = first_entry
+        .get("playlist_uploader")
+        .or_else(|| first_entry.get("uploader"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    // Extract videos from the entries
+    // Extract videos from all entries
     let mut videos = Vec::new();
-    if let Some(entries) = playlist_json.get("entries").and_then(|v| v.as_array()) {
-        for entry in entries {
-            let video_id = entry
-                .get("id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
-                .to_string();
+    for line in &lines {
+        let entry: serde_json::Value =
+            serde_json::from_str(line).context("Failed to parse playlist entry JSON")?;
 
-            let title = entry
-                .get("title")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Untitled Video")
-                .to_string();
+        let video_id = entry
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
 
-            let video_url = entry
-                .get("url")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| format!("https://www.youtube.com/watch?v={}", video_id));
+        let title = entry
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Untitled Video")
+            .to_string();
 
-            let uploader_name = entry
-                .get("uploader")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+        let video_url = entry
+            .get("url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("https://www.youtube.com/watch?v={}", video_id));
 
-            let upload_date = entry.get("upload_date").and_then(|v| v.as_str()).map(|s| {
-                // Convert YYYYMMDD format to ISO format YYYY-MM-DD
-                if s.len() == 8 {
-                    format!("{}-{}-{}", &s[0..4], &s[4..6], &s[6..8])
-                } else {
-                    s.to_string()
-                }
-            });
+        let uploader_name = entry
+            .get("uploader")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
-            let duration = entry
-                .get("duration")
-                .and_then(|v| v.as_i64())
-                .map(|d| d as i32);
+        let upload_date = entry.get("upload_date").and_then(|v| v.as_str()).map(|s| {
+            // Convert YYYYMMDD format to ISO format YYYY-MM-DD
+            if s.len() == 8 {
+                format!("{}-{}-{}", &s[0..4], &s[4..6], &s[6..8])
+            } else {
+                s.to_string()
+            }
+        });
 
-            videos.push(PlaylistVideoInfo {
-                id: video_id,
-                title,
-                url: video_url,
-                uploader: uploader_name,
-                upload_date,
-                duration,
-            });
-        }
+        let duration = entry
+            .get("duration")
+            .and_then(|v| v.as_i64())
+            .map(|d| d as i32);
+
+        videos.push(PlaylistVideoInfo {
+            id: video_id,
+            title,
+            url: video_url,
+            uploader: uploader_name,
+            upload_date,
+            duration,
+        });
     }
 
     let video_count = videos.len() as i32;
@@ -259,5 +272,45 @@ mod tests {
             maybe_adjust_chromium_user_data_dir_spec("chromium+basictext:/path/to/profile"),
             "chromium+basictext:/path/to/profile"
         );
+    }
+
+    #[test]
+    fn test_parse_ndjson_playlist_format() {
+        // Simulate yt-dlp NDJSON output format
+        let ndjson_output = r#"{"id": "video1", "title": "Video 1", "url": "https://www.youtube.com/watch?v=video1", "uploader": "Test Channel", "duration": 120, "playlist_id": "PLtest123", "playlist_title": "Test Playlist", "playlist_uploader": "Test Channel", "playlist_webpage_url": "https://www.youtube.com/playlist?list=PLtest123"}
+{"id": "video2", "title": "Video 2", "url": "https://www.youtube.com/watch?v=video2", "uploader": "Test Channel", "duration": 180, "playlist_id": "PLtest123", "playlist_title": "Test Playlist", "playlist_uploader": "Test Channel", "playlist_webpage_url": "https://www.youtube.com/playlist?list=PLtest123"}
+{"id": "video3", "title": "Video 3", "url": "https://www.youtube.com/watch?v=video3", "uploader": "Test Channel", "duration": 240, "playlist_id": "PLtest123", "playlist_title": "Test Playlist", "playlist_uploader": "Test Channel", "playlist_webpage_url": "https://www.youtube.com/playlist?list=PLtest123"}"#;
+
+        // Parse NDJSON like the updated code does
+        let lines: Vec<&str> = ndjson_output
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .collect();
+
+        assert_eq!(lines.len(), 3);
+
+        // Parse first entry for playlist metadata
+        let first_entry: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        let playlist_id = first_entry
+            .get("playlist_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let playlist_title = first_entry
+            .get("playlist_title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Untitled");
+
+        assert_eq!(playlist_id, "PLtest123");
+        assert_eq!(playlist_title, "Test Playlist");
+
+        // Parse all videos
+        let mut videos = Vec::new();
+        for line in &lines {
+            let entry: serde_json::Value = serde_json::from_str(line).unwrap();
+            let video_id = entry.get("id").and_then(|v| v.as_str()).unwrap();
+            videos.push(video_id.to_string());
+        }
+
+        assert_eq!(videos, vec!["video1", "video2", "video3"]);
     }
 }

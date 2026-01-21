@@ -1,0 +1,6 @@
+
+# Temporarily disable nitter to test direct Twitter access
+[twitter]
+nitter_instances = []
+# Or alternatively, disable HTML snapshots entirely:
+# html_snapshot = false
