@@ -52,9 +52,16 @@ pub async fn parse_vtt(path: &Path) -> Result<Vec<SubtitleCue>> {
         if line.contains("-->") {
             if let Some((start, end)) = parse_timestamp_line(line) {
                 // Collect text lines until we hit an empty line
+                // (YouTube VTT format may have empty lines right after timestamp)
                 let mut text_lines = Vec::new();
                 i += 1;
 
+                // Skip leading empty lines after timestamp (YouTube format quirk)
+                while i < lines.len() && lines[i].trim().is_empty() {
+                    i += 1;
+                }
+
+                // Collect text lines until we hit an empty line
                 while i < lines.len() {
                     let text_line = lines[i].trim();
                     if text_line.is_empty() {
@@ -180,6 +187,9 @@ pub fn generate_transcript(cues: &[SubtitleCue]) -> String {
 
 /// Parse a VTT timestamp line like "00:00:10.500 --> 00:00:13.200".
 ///
+/// Also handles lines with additional attributes after the end timestamp, e.g.:
+/// "00:00:00.160 --> 00:00:02.149 align:start position:0%"
+///
 /// Returns (start_time, end_time) in seconds.
 fn parse_timestamp_line(line: &str) -> Option<(f64, f64)> {
     let parts: Vec<&str> = line.split("-->").map(str::trim).collect();
@@ -188,7 +198,12 @@ fn parse_timestamp_line(line: &str) -> Option<(f64, f64)> {
     }
 
     let start = parse_vtt_timestamp(parts[0])?;
-    let end = parse_vtt_timestamp(parts[1])?;
+
+    // The end part may have additional attributes after the timestamp
+    // e.g., "00:00:02.149 align:start position:0%"
+    // Extract just the timestamp (first whitespace-separated token)
+    let end_part = parts[1].split_whitespace().next().unwrap_or(parts[1]);
+    let end = parse_vtt_timestamp(end_part)?;
 
     Some((start, end))
 }
@@ -336,6 +351,25 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_timestamp_line() {
+        // Basic format
+        assert_eq!(
+            parse_timestamp_line("00:00:10.500 --> 00:00:13.200"),
+            Some((10.5, 13.2))
+        );
+        // With additional attributes (YouTube VTT format)
+        assert_eq!(
+            parse_timestamp_line("00:00:00.160 --> 00:00:02.149 align:start position:0%"),
+            Some((0.16, 2.149))
+        );
+        // Multiple attributes
+        assert_eq!(
+            parse_timestamp_line("00:01:30.000 --> 00:01:35.500 align:center line:90%"),
+            Some((90.0, 95.5))
+        );
+    }
+
+    #[test]
     fn test_parse_srt_timestamp() {
         assert_eq!(parse_srt_timestamp("00:00:10,500"), Some(10.5));
         assert_eq!(parse_srt_timestamp("00:01:30,250"), Some(90.25));
@@ -387,5 +421,45 @@ mod tests {
         assert!(transcript.contains("Hello world"));
         assert!(transcript.contains("[0:35]"));
         assert!(transcript.contains("Next section"));
+    }
+
+    #[tokio::test]
+    async fn test_parse_vtt_youtube_format() {
+        // YouTube VTT format with position attributes and inline timing tags
+        let vtt_content = r#"WEBVTT
+Kind: captions
+Language: en
+
+00:00:00.160 --> 00:00:02.149 align:start position:0%
+
+PayPal<00:00:00.800><c> does</c><00:00:01.040><c> not</c><00:00:01.199><c> want</c><00:00:01.439><c> you</c><00:00:01.600><c> seeing</c><00:00:01.920><c> this</c>
+
+00:00:02.149 --> 00:00:02.159 align:start position:0%
+PayPal does not want you seeing this
+
+
+00:00:02.159 --> 00:00:04.309 align:start position:0%
+PayPal does not want you seeing this
+video.<00:00:02.720><c> A</c><00:00:02.960><c> few</c><00:00:03.040><c> hours</c><00:00:03.280><c> ago,</c><00:00:03.600><c> PayPal's</c><00:00:04.080><c> lawyer</c>
+"#;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let vtt_path = temp_dir.path().join("test.vtt");
+        tokio::fs::write(&vtt_path, vtt_content).await.unwrap();
+
+        let cues = parse_vtt(&vtt_path).await.unwrap();
+
+        // Should have parsed multiple cues
+        assert!(!cues.is_empty(), "Expected cues but got none");
+        assert_eq!(cues.len(), 3);
+
+        // First cue should have the text content with tags removed
+        assert!(cues[0].text.contains("PayPal"));
+        assert!(cues[0].text.contains("does"));
+        assert!(cues[0].text.contains("not"));
+
+        // Verify timestamps were parsed correctly
+        assert!((cues[0].start_time - 0.160).abs() < 0.001);
+        assert!((cues[0].end_time - 2.149).abs() < 0.001);
     }
 }
