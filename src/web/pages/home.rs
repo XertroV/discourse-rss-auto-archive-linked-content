@@ -372,8 +372,26 @@ pub fn render_home_page(params: &HomePageParams) -> Markup {
 
     // Build the main content
     let content = html! {
-        h1 { (heading) }
-        (tabs)
+        // Header row with heading, tabs, and search
+        div class="archive-header-row" {
+            div class="archive-header-title" {
+                h1 { (heading) }
+            }
+            div class="archive-header-tabs" {
+                (tabs)
+            }
+            div class="archive-header-search" {
+                form method="get" action="/search" class="header-search-form" {
+                    input type="search" name="q" placeholder="Search archives..." class="header-search-input" aria-label="Search archives";
+                    button type="submit" class="header-search-btn" aria-label="Search" {
+                        svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" {
+                            circle cx="11" cy="11" r="8" {}
+                            path d="m21 21-4.35-4.35" {}
+                        }
+                    }
+                }
+            }
+        }
 
         // Show filters on paginated pages (including when no results)
         @if params.total_pages > 0 || params.content_type_filter.is_some() || params.source_filter.is_some() {

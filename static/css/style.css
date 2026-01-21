@@ -488,6 +488,108 @@ tr:hover {
     gap: var(--spacing-md);
 }
 
+/* Archive header row - three column layout */
+.archive-header-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.archive-header-title {
+    flex-shrink: 0;
+}
+
+.archive-header-title h1 {
+    margin: 0;
+    font-size: var(--font-size-2xl);
+}
+
+.archive-header-tabs {
+    flex-shrink: 0;
+}
+
+.archive-header-tabs .archive-tabs {
+    margin: 0;
+    padding: 0;
+    border-bottom: none;
+}
+
+.archive-header-search {
+    flex: 1;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.header-search-form {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    width: 100%;
+    max-width: 400px;
+}
+
+.header-search-input {
+    flex: 1;
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.header-search-input:focus {
+    border-color: var(--primary);
+    box-shadow: var(--box-shadow-focus);
+}
+
+.header-search-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-sm);
+    background-color: var(--primary);
+    color: white;
+    border: 1px solid var(--primary);
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.header-search-btn:hover {
+    background-color: var(--primary-hover);
+    border-color: var(--primary-hover);
+}
+
+.header-search-btn svg {
+    display: block;
+}
+
+/* Mobile: stack header elements vertically */
+@media (max-width: 768px) {
+    .archive-header-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--spacing-sm);
+    }
+
+    .archive-header-tabs .archive-tabs {
+        justify-content: center;
+    }
+
+    .archive-header-search {
+        justify-content: stretch;
+    }
+
+    .header-search-form {
+        max-width: none;
+    }
+}
+
 /* Recent archive tabs */
 .archive-tabs {
     display: flex;

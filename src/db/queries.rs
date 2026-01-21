@@ -829,9 +829,11 @@ pub async fn search_archives_display(
     limit: i64,
 ) -> Result<Vec<ArchiveDisplay>> {
     let sanitized = crate::db::sanitize_fts_query(query);
-    if sanitized.is_empty() {
+    if sanitized.is_empty() && query.trim().is_empty() {
         return Ok(Vec::new());
     }
+
+    let url_pattern = format!("%{}%", query.trim());
 
     sqlx::query_as(
         r"
@@ -843,18 +845,19 @@ pub async fn search_archives_display(
             COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
         FROM archives a
         JOIN links l ON a.link_id = l.id
-        JOIN archives_fts ON a.id = archives_fts.rowid
+        LEFT JOIN archives_fts ON a.id = archives_fts.rowid
         LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
-        WHERE archives_fts MATCH ?
+        WHERE (archives_fts MATCH ? OR l.original_url LIKE ?)
         GROUP BY a.id, a.link_id, a.status, a.archived_at,
                  a.content_title, a.content_author, a.content_type,
                  a.is_nsfw, a.error_message, a.retry_count,
                  l.original_url, l.domain
-        ORDER BY rank
+        ORDER BY COALESCE(rank, 0) DESC
         LIMIT ?
         ",
     )
     .bind(sanitized)
+    .bind(url_pattern)
     .bind(limit)
     .fetch_all(pool)
     .await
@@ -1059,12 +1062,15 @@ pub async fn search_archives_display_filtered(
     source: Option<&str>,
 ) -> Result<Vec<ArchiveDisplay>> {
     let sanitized = crate::db::sanitize_fts_query(query);
-    if sanitized.is_empty() {
+    if sanitized.is_empty() && query.trim().is_empty() {
         return Ok(Vec::new());
     }
 
+    let url_pattern = format!("%{}%", query.trim());
+
     // Build WHERE clause dynamically based on filters
-    let mut where_clauses: Vec<String> = vec!["archives_fts MATCH ?".to_string()];
+    let mut where_clauses: Vec<String> =
+        vec!["(archives_fts MATCH ? OR l.original_url LIKE ?)".to_string()];
     let domain_filter = source.map(get_domain_filter);
 
     if content_type.is_some() {
@@ -1091,14 +1097,14 @@ pub async fn search_archives_display_filtered(
             COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
         FROM archives a
         JOIN links l ON a.link_id = l.id
-        JOIN archives_fts ON a.id = archives_fts.rowid
+        LEFT JOIN archives_fts ON a.id = archives_fts.rowid
         LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
         WHERE {}
         GROUP BY a.id, a.link_id, a.status, a.archived_at,
                  a.content_title, a.content_author, a.content_type,
                  a.is_nsfw, a.error_message, a.retry_count,
                  l.original_url, l.domain
-        ORDER BY rank
+        ORDER BY COALESCE(rank, 0) DESC
         LIMIT ?
         ",
         where_clause
@@ -1108,6 +1114,7 @@ pub async fn search_archives_display_filtered(
 
     // Bind parameters in order
     sql_query = sql_query.bind(sanitized);
+    sql_query = sql_query.bind(&url_pattern);
 
     if let Some(ct) = content_type {
         sql_query = sql_query.bind(ct);
@@ -1242,20 +1249,24 @@ pub async fn get_archives_for_thread_job(
 /// Search archives using FTS.
 pub async fn search_archives(pool: &SqlitePool, query: &str, limit: i64) -> Result<Vec<Archive>> {
     let sanitized = crate::db::sanitize_fts_query(query);
-    if sanitized.is_empty() {
+    if sanitized.is_empty() && query.trim().is_empty() {
         return Ok(Vec::new());
     }
+
+    let url_pattern = format!("%{}%", query.trim());
 
     sqlx::query_as(
         r"
         SELECT archives.* FROM archives
-        JOIN archives_fts ON archives.id = archives_fts.rowid
-        WHERE archives_fts MATCH ?
-        ORDER BY rank
+        JOIN links l ON archives.link_id = l.id
+        LEFT JOIN archives_fts ON archives.id = archives_fts.rowid
+        WHERE (archives_fts MATCH ? OR l.original_url LIKE ?)
+        ORDER BY COALESCE(rank, 0) DESC
         LIMIT ?
         ",
     )
     .bind(sanitized)
+    .bind(url_pattern)
     .bind(limit)
     .fetch_all(pool)
     .await
@@ -1281,12 +1292,14 @@ pub async fn search_archives_filtered_full(
     content_type: Option<&str>,
 ) -> Result<Vec<Archive>> {
     let sanitized = crate::db::sanitize_fts_query(query);
-    if sanitized.is_empty() {
+    if sanitized.is_empty() && query.trim().is_empty() {
         return Ok(Vec::new());
     }
 
+    let url_pattern = format!("%{}%", query.trim());
+
     // Build WHERE clause dynamically based on filters
-    let mut where_clauses = vec!["archives_fts MATCH ?".to_string()];
+    let mut where_clauses = vec!["(archives_fts MATCH ? OR l.original_url LIKE ?)".to_string()];
 
     match nsfw_filter {
         Some(true) => where_clauses.push("archives.is_nsfw = 1".to_string()),
@@ -1302,12 +1315,13 @@ pub async fn search_archives_filtered_full(
 
     let where_clause = where_clauses.join(" AND ");
     let sql = format!(
-        "SELECT archives.* FROM archives JOIN archives_fts ON archives.id = archives_fts.rowid WHERE {} ORDER BY rank LIMIT ?",
+        "SELECT archives.* FROM archives JOIN links l ON archives.link_id = l.id LEFT JOIN archives_fts ON archives.id = archives_fts.rowid WHERE {} ORDER BY COALESCE(rank, 0) DESC LIMIT ?",
         where_clause
     );
 
     let mut q = sqlx::query_as(&sql);
     q = q.bind(sanitized);
+    q = q.bind(&url_pattern);
 
     // Bind content_type if present (bind in order of ? placeholders)
     if let Some(ct) = content_type {
