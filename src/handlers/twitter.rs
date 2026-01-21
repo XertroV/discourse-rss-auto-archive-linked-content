@@ -12,6 +12,7 @@ use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::{gallerydl, ytdlp, CookieOptions};
 use crate::chromium_profile::fetch_html_with_chromium;
 use crate::constants::ARCHIVAL_USER_AGENT;
+use crate::og_extractor::extract_og_metadata;
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
     vec![
@@ -122,22 +123,34 @@ impl SiteHandler for TwitterHandler {
 
         // Step 1: Fetch HTML snapshot first (this is our primary source of truth)
         // This allows us to detect if there's media before calling yt-dlp/gallery-dl
-        // Try all methods and save each to separate files for comparison
+        // Only save raw.html from CDP (the best method), skip other method-specific HTML files
         let mut html_content: Option<String> = None;
         if config.twitter_html_snapshot {
-            match fetch_html_snapshot_all_methods(&normalized_url, work_dir, cookies).await {
+            match fetch_html_snapshot_cdp_only(&normalized_url, work_dir, cookies).await {
                 Ok(()) => {
-                    debug!(url = %normalized_url, "Successfully saved HTML snapshots (multiple methods)");
-                    // Read raw.html which is copied from the first successful method
+                    debug!(url = %normalized_url, "Successfully saved raw.html from CDP");
+                    // Read raw.html
                     let html_path = work_dir.join("raw.html");
                     if let Ok(html) = tokio::fs::read_to_string(&html_path).await {
-                        html_content = Some(html);
+                        html_content = Some(html.clone());
+
+                        // Extract og:description as plaintext content (contains tweet text)
+                        if let Ok(og_metadata) = extract_og_metadata(&html) {
+                            if let Some(description) = og_metadata.description {
+                                result.text = Some(description);
+                                debug!(url = %normalized_url, "Extracted tweet text from og:description");
+                            }
+                            // Also use og:title if we don't have a title yet
+                            if result.title.is_none() {
+                                result.title = og_metadata.title;
+                            }
+                        }
                     }
                     result.primary_file = Some("raw.html".to_string());
                     result.content_type = "thread".to_string();
                 }
                 Err(e) => {
-                    warn!(url = %normalized_url, error = %e, "Failed to fetch HTML snapshot for Twitter (all methods failed)");
+                    warn!(url = %normalized_url, error = %e, "Failed to fetch HTML snapshot for Twitter");
                 }
             }
         }
@@ -874,114 +887,59 @@ async fn fetch_html_snapshot_http_with_cookies(
     Ok(())
 }
 
-/// Try all HTML snapshot methods and save each result to a separate file.
+/// Fetch HTML snapshot using CDP only and save directly to raw.html.
 ///
-/// This function attempts each method independently and saves successful results
-/// to method-specific files for comparison:
-/// - `raw_cdp.html` - CDP/ScreenshotService (best JS rendering)
-/// - `raw_dump_dom.html` - Chromium --dump-dom
-/// - `raw_http.html` - Plain HTTP (no cookies)
-/// - `raw_http_cookies.html` - HTTP with cookies
-///
-/// Also saves the first successful result as `raw.html` for compatibility.
-/// Returns Ok if at least one method succeeds.
-async fn fetch_html_snapshot_all_methods(
+/// This is the preferred method for Twitter as it properly waits for JavaScript rendering.
+/// Only saves raw.html - no method-specific files.
+async fn fetch_html_snapshot_cdp_only(
     twitter_url: &str,
     work_dir: &Path,
     cookies: &CookieOptions<'_>,
 ) -> Result<()> {
-    let mut any_success = false;
-    let mut first_success_file: Option<&str> = None;
+    let raw_html_path = work_dir.join("raw.html");
 
-    // Try CDP method
-    let cdp_path = work_dir.join("raw_cdp.html");
+    // Try CDP method (best for JavaScript-heavy sites like Twitter)
     if cookies.screenshot_service.is_some() {
-        match fetch_html_snapshot_cdp(twitter_url, &cdp_path, cookies).await {
+        match fetch_html_snapshot_cdp(twitter_url, &raw_html_path, cookies).await {
             Ok(()) => {
-                info!(url = %twitter_url, "CDP HTML snapshot saved to raw_cdp.html");
-                any_success = true;
-                if first_success_file.is_none() {
-                    first_success_file = Some("raw_cdp.html");
-                }
+                info!(url = %twitter_url, "CDP HTML snapshot saved to raw.html");
+                return Ok(());
             }
             Err(e) => {
-                warn!(url = %twitter_url, error = %e, "CDP HTML snapshot failed");
+                warn!(url = %twitter_url, error = %e, "CDP HTML snapshot failed, trying fallback");
             }
         }
     } else {
-        debug!(url = %twitter_url, "Skipping CDP method - screenshot service not available");
+        debug!(url = %twitter_url, "CDP method not available - screenshot service not configured");
     }
 
-    // Try dump-dom method
-    let dump_dom_path = work_dir.join("raw_dump_dom.html");
+    // Fallback to dump-dom if CDP is not available
     if cookies.browser_profile.is_some() {
-        match fetch_html_snapshot_dump_dom(twitter_url, work_dir, &dump_dom_path, cookies).await {
+        match fetch_html_snapshot_dump_dom(twitter_url, work_dir, &raw_html_path, cookies).await {
             Ok(()) => {
-                info!(url = %twitter_url, "Dump-dom HTML snapshot saved to raw_dump_dom.html");
-                any_success = true;
-                if first_success_file.is_none() {
-                    first_success_file = Some("raw_dump_dom.html");
-                }
+                info!(url = %twitter_url, "Dump-dom HTML snapshot saved to raw.html (fallback)");
+                return Ok(());
             }
             Err(e) => {
-                warn!(url = %twitter_url, error = %e, "Dump-dom HTML snapshot failed");
+                warn!(url = %twitter_url, error = %e, "Dump-dom HTML snapshot also failed");
             }
-        }
-    } else {
-        debug!(url = %twitter_url, "Skipping dump-dom method - browser profile not available");
-    }
-
-    // Try HTTP method (no cookies)
-    let http_path = work_dir.join("raw_http.html");
-    match fetch_html_snapshot_http(twitter_url, &http_path).await {
-        Ok(()) => {
-            info!(url = %twitter_url, "HTTP HTML snapshot saved to raw_http.html");
-            any_success = true;
-            if first_success_file.is_none() {
-                first_success_file = Some("raw_http.html");
-            }
-        }
-        Err(e) => {
-            warn!(url = %twitter_url, error = %e, "HTTP HTML snapshot failed");
         }
     }
 
-    // Try HTTP with cookies method
-    let http_cookies_path = work_dir.join("raw_http_cookies.html");
+    // Last resort: HTTP with cookies (won't have JS-rendered content but better than nothing)
     if cookies.cookies_file.is_some() {
-        match fetch_html_snapshot_http_with_cookies(twitter_url, &http_cookies_path, cookies).await
-        {
+        match fetch_html_snapshot_http_with_cookies(twitter_url, &raw_html_path, cookies).await {
             Ok(()) => {
-                info!(url = %twitter_url, "HTTP with cookies HTML snapshot saved to raw_http_cookies.html");
-                any_success = true;
-                if first_success_file.is_none() {
-                    first_success_file = Some("raw_http_cookies.html");
-                }
+                info!(url = %twitter_url, "HTTP with cookies HTML snapshot saved to raw.html (fallback)");
+                return Ok(());
             }
             Err(e) => {
-                warn!(url = %twitter_url, error = %e, "HTTP with cookies HTML snapshot failed");
+                warn!(url = %twitter_url, error = %e, "HTTP with cookies HTML snapshot also failed");
             }
         }
-    } else {
-        debug!(url = %twitter_url, "Skipping HTTP with cookies method - cookies file not available");
     }
 
-    // Copy first successful result to raw.html for compatibility
-    if let Some(success_file) = first_success_file {
-        let source = work_dir.join(success_file);
-        let dest = work_dir.join("raw.html");
-        if let Err(e) = tokio::fs::copy(&source, &dest).await {
-            warn!(source = %source.display(), dest = %dest.display(), error = %e, "Failed to copy to raw.html");
-        } else {
-            debug!(source = %success_file, "Copied first successful snapshot to raw.html");
-        }
-    }
-
-    if any_success {
-        Ok(())
-    } else {
-        anyhow::bail!("All HTML snapshot methods failed for Twitter URL: {twitter_url}");
-    }
+    anyhow::bail!("All HTML snapshot methods failed for Twitter URL: {twitter_url}");
 }
 
 /// Fetch HTML from a URL.

@@ -106,7 +106,8 @@ pub fn render_archive_detail_page(params: &ArchiveDetailParams<'_>) -> Markup {
             (render_media_section(archive, link, params.artifacts))
 
             // Embedded HTML preview (for webpage archives)
-            (render_html_embed_section(archive, params.artifacts))
+            // Note: Twitter archives show screenshot instead (HTML embed skipped)
+            (render_html_embed_section(archive, link, params.artifacts))
 
             // Embedded PDF preview (for PDF documents)
             (render_pdf_embed_section(archive, params.artifacts))
@@ -963,7 +964,24 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
 }
 
 /// Render embedded HTML preview for webpage archives.
-fn render_html_embed_section(archive: &Archive, artifacts: &[ArchiveArtifact]) -> Markup {
+///
+/// For Twitter/X archives, this returns empty markup since we use screenshot
+/// as the default view (HTML embed is less useful for tweets).
+fn render_html_embed_section(
+    archive: &Archive,
+    link: &Link,
+    artifacts: &[ArchiveArtifact],
+) -> Markup {
+    // Skip HTML embed for Twitter - screenshot is the default view
+    let is_twitter = link.domain == "x.com"
+        || link.domain == "twitter.com"
+        || link.domain.ends_with(".x.com")
+        || link.domain.ends_with(".twitter.com");
+
+    if is_twitter {
+        return html! {};
+    }
+
     let primary_key_opt = archive.s3_key_primary.as_deref();
     let is_html_archive = primary_key_opt.is_some_and(|pk| {
         pk.ends_with(".html") || archive.content_type.as_deref() == Some("thread")

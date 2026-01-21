@@ -767,6 +767,7 @@ async fn process_archive_inner(
     // Check for existing video before downloading (supports all platforms)
     let platform = handler.site_id();
     let is_youtube = platform == "youtube";
+    let is_twitter = platform == "twitter";
     let video_id = if is_youtube {
         extract_video_id(&link.normalized_url)
     } else {
@@ -1324,154 +1325,163 @@ async fn process_archive_inner(
 
         // Upload method-specific HTML files (raw_cdp.html, raw_dump_dom.html, etc.)
         // These are created by Twitter archiving to allow comparison between methods
-        for method_file in &[
-            "raw_cdp.html",
-            "raw_dump_dom.html",
-            "raw_http.html",
-            "raw_http_cookies.html",
-        ] {
-            let method_path = work_dir.join(method_file);
-            if method_path.exists() {
-                let metadata = tokio::fs::metadata(&method_path).await.ok();
-                let size_bytes = metadata.as_ref().map(|m| m.len() as i64);
+        // Skip for Twitter - we only save raw.html, screenshot shows the content
+        if !is_twitter {
+            for method_file in &[
+                "raw_cdp.html",
+                "raw_dump_dom.html",
+                "raw_http.html",
+                "raw_http_cookies.html",
+            ] {
+                let method_path = work_dir.join(method_file);
+                if method_path.exists() {
+                    let metadata = tokio::fs::metadata(&method_path).await.ok();
+                    let size_bytes = metadata.as_ref().map(|m| m.len() as i64);
 
-                if let Some(0) = size_bytes {
-                    debug!(archive_id, file = %method_file, "Skipping upload of empty method-specific HTML file");
-                    continue;
-                }
+                    if let Some(0) = size_bytes {
+                        debug!(archive_id, file = %method_file, "Skipping upload of empty method-specific HTML file");
+                        continue;
+                    }
 
-                let method_key = format!("{s3_prefix}media/{method_file}");
-                // Derive artifact kind from filename (e.g., "raw_cdp.html" -> "raw_html_cdp")
-                let artifact_kind = method_file
-                    .strip_suffix(".html")
-                    .unwrap_or(method_file)
-                    .replace("raw_", "raw_html_");
+                    let method_key = format!("{s3_prefix}media/{method_file}");
+                    // Derive artifact kind from filename (e.g., "raw_cdp.html" -> "raw_html_cdp")
+                    let artifact_kind = method_file
+                        .strip_suffix(".html")
+                        .unwrap_or(method_file)
+                        .replace("raw_", "raw_html_");
 
-                match s3
-                    .upload_file(&method_path, &method_key, Some(archive_id))
-                    .await
-                {
-                    Ok(()) => {
-                        debug!(archive_id, file = %method_file, key = %method_key, "Uploaded method-specific HTML");
-                        if let Err(e) = insert_artifact(
-                            db.pool(),
-                            archive_id,
-                            &artifact_kind,
-                            &method_key,
-                            Some("text/html"),
-                            size_bytes,
-                            None,
-                        )
+                    match s3
+                        .upload_file(&method_path, &method_key, Some(archive_id))
                         .await
-                        {
-                            warn!(archive_id, file = %method_file, error = %e, "Failed to insert artifact record");
+                    {
+                        Ok(()) => {
+                            debug!(archive_id, file = %method_file, key = %method_key, "Uploaded method-specific HTML");
+                            if let Err(e) = insert_artifact(
+                                db.pool(),
+                                archive_id,
+                                &artifact_kind,
+                                &method_key,
+                                Some("text/html"),
+                                size_bytes,
+                                None,
+                            )
+                            .await
+                            {
+                                warn!(archive_id, file = %method_file, error = %e, "Failed to insert artifact record");
+                            }
+                        }
+                        Err(e) => {
+                            warn!(archive_id, file = %method_file, error = %e, "Failed to upload method-specific HTML");
                         }
                     }
-                    Err(e) => {
-                        warn!(archive_id, file = %method_file, error = %e, "Failed to upload method-specific HTML");
-                    }
                 }
             }
         }
 
-        match create_view_html(
-            db,
-            archive_id,
-            link_id,
-            &raw_html_path,
-            &work_dir,
-            s3,
-            &s3_prefix,
-        )
-        .await
-        {
-            Ok(view_size) => {
-                debug!(archive_id, "Created view.html with archive banner");
-                let view_key = format!("{s3_prefix}media/view.html");
-                if let Err(e) = insert_artifact(
-                    db.pool(),
-                    archive_id,
-                    ArtifactKind::ViewHtml.as_str(),
-                    &view_key,
-                    Some("text/html"),
-                    view_size,
-                    None,
-                )
-                .await
-                {
-                    warn!(archive_id, error = %e, "Failed to insert view.html artifact record");
-                }
-            }
-            Err(e) => {
-                warn!(archive_id, error = %e, "Failed to create view.html, continuing without banner");
-            }
-        }
-
-        // Create complete.html with monolith if enabled (non-fatal if fails)
-        let monolith_config = config.monolith_config();
-        if monolith_config.enabled {
-            let complete_path = work_dir.join("complete.html");
-            let cookies_file = config.cookies_file_path.as_deref();
-
-            let monolith_input = Url::from_file_path(&raw_html_path)
-                .ok()
-                .map_or_else(|| raw_html_path.display().to_string(), |u| u.to_string());
-
-            let monolith_job = start_job(db.pool(), archive_id, ArchiveJobType::Monolith).await;
-
-            match create_complete_html(
-                &monolith_input,
-                &complete_path,
-                cookies_file,
-                &monolith_config,
+        // Create view.html and complete.html for non-Twitter archives
+        // Twitter archives use screenshot as the default view, so these aren't needed
+        if is_twitter {
+            debug!(archive_id, "Skipping view.html and complete.html for Twitter - using screenshot as default view");
+        } else {
+            match create_view_html(
+                db,
+                archive_id,
+                link_id,
+                &raw_html_path,
+                &work_dir,
+                s3,
+                &s3_prefix,
             )
             .await
             {
-                Ok(()) => {
-                    let complete_key = format!("{s3_prefix}media/complete.html");
-                    let metadata = tokio::fs::metadata(&complete_path).await.ok();
-                    let size_bytes = metadata.map(|m| m.len() as i64);
-                    if let Err(e) = s3
-                        .upload_file(&complete_path, &complete_key, Some(archive_id))
-                        .await
+                Ok(view_size) => {
+                    debug!(archive_id, "Created view.html with archive banner");
+                    let view_key = format!("{s3_prefix}media/view.html");
+                    if let Err(e) = insert_artifact(
+                        db.pool(),
+                        archive_id,
+                        ArtifactKind::ViewHtml.as_str(),
+                        &view_key,
+                        Some("text/html"),
+                        view_size,
+                        None,
+                    )
+                    .await
                     {
-                        warn!(archive_id, error = %e, "Failed to upload complete.html");
-                    } else {
-                        debug!(archive_id, key = %complete_key, "Uploaded complete.html");
-                        if let Err(e) = insert_artifact(
-                            db.pool(),
-                            archive_id,
-                            ArtifactKind::CompleteHtml.as_str(),
-                            &complete_key,
-                            Some("text/html"),
-                            size_bytes,
-                            None,
-                        )
-                        .await
-                        {
-                            warn!(archive_id, error = %e, "Failed to insert complete.html artifact record");
-                        } else {
-                            let size_meta = size_bytes.map(|s| format!("{s} bytes"));
-                            complete_job(db.pool(), monolith_job, size_meta.as_deref()).await;
-                        }
+                        warn!(archive_id, error = %e, "Failed to insert view.html artifact record");
                     }
                 }
                 Err(e) => {
-                    let err_str = e.to_string();
-                    if err_str.contains("exit code Some(101)") || err_str.contains("panicked") {
-                        warn!(
-                            archive_id,
-                            error = %e,
-                            "Monolith crashed processing this page - likely a tool limitation with this content type"
-                        );
-                        fail_job(db.pool(), monolith_job, &err_str).await;
-                    } else {
-                        warn!(archive_id, error = %e, "Failed to create complete.html with monolith");
-                        fail_job(db.pool(), monolith_job, &err_str).await;
+                    warn!(archive_id, error = %e, "Failed to create view.html, continuing without banner");
+                }
+            }
+
+            // Create complete.html with monolith if enabled (non-fatal if fails)
+            let monolith_config = config.monolith_config();
+            if monolith_config.enabled {
+                let complete_path = work_dir.join("complete.html");
+                let cookies_file = config.cookies_file_path.as_deref();
+
+                let monolith_input = Url::from_file_path(&raw_html_path)
+                    .ok()
+                    .map_or_else(|| raw_html_path.display().to_string(), |u| u.to_string());
+
+                let monolith_job = start_job(db.pool(), archive_id, ArchiveJobType::Monolith).await;
+
+                match create_complete_html(
+                    &monolith_input,
+                    &complete_path,
+                    cookies_file,
+                    &monolith_config,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        let complete_key = format!("{s3_prefix}media/complete.html");
+                        let metadata = tokio::fs::metadata(&complete_path).await.ok();
+                        let size_bytes = metadata.map(|m| m.len() as i64);
+                        if let Err(e) = s3
+                            .upload_file(&complete_path, &complete_key, Some(archive_id))
+                            .await
+                        {
+                            warn!(archive_id, error = %e, "Failed to upload complete.html");
+                        } else {
+                            debug!(archive_id, key = %complete_key, "Uploaded complete.html");
+                            if let Err(e) = insert_artifact(
+                                db.pool(),
+                                archive_id,
+                                ArtifactKind::CompleteHtml.as_str(),
+                                &complete_key,
+                                Some("text/html"),
+                                size_bytes,
+                                None,
+                            )
+                            .await
+                            {
+                                warn!(archive_id, error = %e, "Failed to insert complete.html artifact record");
+                            } else {
+                                let size_meta = size_bytes.map(|s| format!("{s} bytes"));
+                                complete_job(db.pool(), monolith_job, size_meta.as_deref()).await;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        if err_str.contains("exit code Some(101)") || err_str.contains("panicked") {
+                            warn!(
+                                archive_id,
+                                error = %e,
+                                "Monolith crashed processing this page - likely a tool limitation with this content type"
+                            );
+                            fail_job(db.pool(), monolith_job, &err_str).await;
+                        } else {
+                            warn!(archive_id, error = %e, "Failed to create complete.html with monolith");
+                            fail_job(db.pool(), monolith_job, &err_str).await;
+                        }
                     }
                 }
             }
-        }
+        } // end of else block for !is_twitter
     }
 
     if let Some(ref thumb) = result.thumbnail {
