@@ -112,118 +112,109 @@ pub fn render_stats_page(
     user: Option<&User>,
     user_stats: Option<&UserStats>,
 ) -> Markup {
+    // Build the stats cards
+    let overview_card = StatsCard::new("Overview")
+        .item("Known Forum Posts", stats.post_count.to_string())
+        .item("Archived Links", stats.link_count.to_string())
+        .item("Total Completed", stats.total_complete.to_string())
+        .item(
+            "NSFW Content",
+            format!(
+                "{} ({})",
+                stats.nsfw_count,
+                if stats.total_complete > 0 {
+                    format!(
+                        "{:.1}%",
+                        (stats.nsfw_count as f64 / stats.total_complete as f64) * 100.0
+                    )
+                } else {
+                    "0.0%".to_string()
+                }
+            ),
+        );
+
+    let activity_card = StatsCard::new("Recent Activity")
+        .item(
+            "Last 24 Hours",
+            format!("{} archives", stats.recent_activity.0),
+        )
+        .item(
+            "Last 7 Days",
+            format!("{} archives", stats.recent_activity.1),
+        )
+        .item(
+            "Last 30 Days",
+            format!("{} archives", stats.recent_activity.2),
+        );
+
+    let queue_card = StatsCard::new("Queue Health")
+        .item("Pending", format!("{} archives", stats.queue_stats.0))
+        .item("Processing", format!("{} archives", stats.queue_stats.1));
+
+    let storage_card = StatsCard::new("Storage")
+        .item("Total Size", format_bytes(stats.storage_stats.0))
+        .item("Average Size", format_bytes(stats.storage_stats.1 as i64))
+        .item("Largest Archive", format_bytes(stats.storage_stats.2));
+
+    let quality_card = StatsCard::new("Archive Quality")
+        .item(
+            "With Video Files",
+            format!(
+                "{}{}",
+                stats.quality_metrics.0,
+                if stats.total_complete > 0 {
+                    format!(
+                        " ({:.1}%)",
+                        (stats.quality_metrics.0 as f64 / stats.total_complete as f64) * 100.0
+                    )
+                } else {
+                    String::new()
+                }
+            ),
+        )
+        .item(
+            "With Complete HTML",
+            format!(
+                "{}{}",
+                stats.quality_metrics.1,
+                if stats.total_complete > 0 {
+                    format!(
+                        " ({:.1}%)",
+                        (stats.quality_metrics.1 as f64 / stats.total_complete as f64) * 100.0
+                    )
+                } else {
+                    String::new()
+                }
+            ),
+        )
+        .item(
+            "With Screenshots",
+            format!(
+                "{}{}",
+                stats.quality_metrics.2,
+                if stats.total_complete > 0 {
+                    format!(
+                        " ({:.1}%)",
+                        (stats.quality_metrics.2 as f64 / stats.total_complete as f64) * 100.0
+                    )
+                } else {
+                    String::new()
+                }
+            ),
+        );
+
+    let stats_grid = StatsCardGrid::new()
+        .card(overview_card)
+        .card(activity_card)
+        .card(queue_card)
+        .card(storage_card)
+        .card(quality_card);
+
     let content = html! {
         h1 { "Statistics" }
 
-        // Overview section
-        section {
-            h2 { "Overview" }
-            div class="stats-grid" {
-                div class="stat-item" {
-                    strong { "Known Forum Posts:" }
-                    " " (stats.post_count)
-                }
-                div class="stat-item" {
-                    strong { "Archived Links:" }
-                    " " (stats.link_count)
-                }
-                div class="stat-item" {
-                    strong { "Total Completed:" }
-                    " " (stats.total_complete)
-                }
-                div class="stat-item" {
-                    strong { "NSFW Content:" }
-                    " " (stats.nsfw_count) " ("
-                    (if stats.total_complete > 0 {
-                        format!("{:.1}%", (stats.nsfw_count as f64 / stats.total_complete as f64) * 100.0)
-                    } else {
-                        "0.0%".to_string()
-                    })
-                    ")"
-                }
-            }
-        }
-
-        // Recent Activity
-        section {
-            h2 { "Recent Activity" }
-            div class="stats-grid" {
-                div class="stat-item" {
-                    strong { "Last 24 Hours:" }
-                    " " (stats.recent_activity.0) " archives"
-                }
-                div class="stat-item" {
-                    strong { "Last 7 Days:" }
-                    " " (stats.recent_activity.1) " archives"
-                }
-                div class="stat-item" {
-                    strong { "Last 30 Days:" }
-                    " " (stats.recent_activity.2) " archives"
-                }
-            }
-        }
-
-        // Queue Health
-        section {
-            h2 { "Queue Health" }
-            div class="stats-grid" {
-                div class="stat-item" {
-                    strong { "Pending:" }
-                    " " (stats.queue_stats.0) " archives"
-                }
-                div class="stat-item" {
-                    strong { "Processing:" }
-                    " " (stats.queue_stats.1) " archives"
-                }
-            }
-        }
-
-        // Storage Stats
-        section {
-            h2 { "Storage Statistics" }
-            div class="stats-grid" {
-                div class="stat-item" {
-                    strong { "Total Size:" }
-                    " " (format_bytes(stats.storage_stats.0))
-                }
-                div class="stat-item" {
-                    strong { "Average Size:" }
-                    " " (format_bytes(stats.storage_stats.1 as i64))
-                }
-                div class="stat-item" {
-                    strong { "Largest Archive:" }
-                    " " (format_bytes(stats.storage_stats.2))
-                }
-            }
-        }
-
-        // Quality Metrics
-        section {
-            h2 { "Archive Quality Metrics" }
-            div class="stats-grid" {
-                div class="stat-item" {
-                    strong { "With Video Files:" }
-                    " " (stats.quality_metrics.0)
-                    @if stats.total_complete > 0 {
-                        " (" (format!("{:.1}%", (stats.quality_metrics.0 as f64 / stats.total_complete as f64) * 100.0)) ")"
-                    }
-                }
-                div class="stat-item" {
-                    strong { "With Complete HTML:" }
-                    " " (stats.quality_metrics.1)
-                    @if stats.total_complete > 0 {
-                        " (" (format!("{:.1}%", (stats.quality_metrics.1 as f64 / stats.total_complete as f64) * 100.0)) ")"
-                    }
-                }
-                div class="stat-item" {
-                    strong { "With Screenshots:" }
-                    " " (stats.quality_metrics.2)
-                    @if stats.total_complete > 0 {
-                        " (" (format!("{:.1}%", (stats.quality_metrics.2 as f64 / stats.total_complete as f64) * 100.0)) ")"
-                    }
-                }
-            }
-        }
+        // Stats cards grid for the short stats sections
+        (stats_grid)
 
         // Timeline Chart
         section {
@@ -560,12 +551,22 @@ mod tests {
         // Check main heading
         assert!(html.contains("<h1>Statistics</h1>"));
 
-        // Check overview section
-        assert!(html.contains("<h2>Overview</h2>"));
-        assert!(html.contains("<strong>Known Forum Posts:</strong>"));
-        assert!(html.contains(" 50"));
-        assert!(html.contains("<strong>Archived Links:</strong>"));
-        assert!(html.contains(" 200"));
+        // Check stats card grid structure
+        assert!(html.contains("stats-card-grid"));
+        assert!(html.contains("stats-card"));
+
+        // Check overview card content
+        assert!(html.contains("Overview"));
+        assert!(html.contains("Known Forum Posts"));
+        assert!(html.contains(">50<"));
+        assert!(html.contains("Archived Links"));
+        assert!(html.contains(">200<"));
+
+        // Check other cards are present
+        assert!(html.contains("Recent Activity"));
+        assert!(html.contains("Queue Health"));
+        assert!(html.contains("Storage"));
+        assert!(html.contains("Archive Quality"));
 
         // Check archives by content type section
         assert!(html.contains("<h2>Archives by Content Type</h2>"));

@@ -823,12 +823,36 @@ pub fn render_admin_forum_user_profile(
             @if let Some(linked_user) = user {
                 div class="linked-user-section" {
                     h2 { "Linked User Account" }
-                    (StatusBox::info(
-                        "Account Link",
-                        &format!("This forum user is linked to user account: {}", linked_user.username)
-                    ).render())
+                    table class="user-details-table" {
+                        tr {
+                            th { "User ID:" }
+                            td { (linked_user.id) }
+                        }
+                        tr {
+                            th { "Username:" }
+                            td { code { (&linked_user.username) } }
+                        }
+                        tr {
+                            th { "Display Name:" }
+                            td {
+                                @if let Some(ref dn) = linked_user.display_name {
+                                    @if !dn.is_empty() {
+                                        (dn)
+                                    } @else {
+                                        em class="text-muted" { "(not set)" }
+                                    }
+                                } @else {
+                                    em class="text-muted" { "(not set)" }
+                                }
+                            }
+                        }
+                        tr {
+                            th { "Status:" }
+                            td { (render_user_status_badge(linked_user)) }
+                        }
+                    }
 
-                    div class="action-buttons" style="display: flex; gap: var(--spacing-sm); align-items: center;" {
+                    div class="action-buttons" style="display: flex; gap: var(--spacing-sm); align-items: center; margin-top: var(--spacing-md);" {
                         (Button::primary("View User Profile")
                             .href(&format!("/admin/user/{}", linked_user.id)))
 
