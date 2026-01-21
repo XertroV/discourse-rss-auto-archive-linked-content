@@ -596,10 +596,20 @@ pub async fn admin_panel(
         }
     };
 
+    // Get all subtitle languages
+    let subtitle_languages = match queries::get_all_subtitle_languages(state.db.pool()).await {
+        Ok(sl) => sl,
+        Err(e) => {
+            tracing::error!("Failed to fetch subtitle languages: {e}");
+            vec![]
+        }
+    };
+
     let params = pages::AdminPanelParams {
         users: &users,
         audit_events: &audit_events,
         forum_links: &forum_links,
+        subtitle_languages: &subtitle_languages,
         current_user: &admin,
         active_tab: query.tab.as_deref(),
         message: query.message.as_deref(),
@@ -1285,4 +1295,69 @@ pub async fn admin_forum_user_profile(
 
     Html(pages::render_admin_forum_user_profile(&forum_link, user.as_ref(), &admin).into_string())
         .into_response()
+}
+
+/// Form data for subtitle language delete actions.
+#[derive(Debug, Deserialize)]
+pub struct SubtitleLanguageActionForm {
+    id: i64,
+}
+
+/// POST /admin/subtitle-language/delete - Delete a subtitle language entry.
+///
+/// Deleting a subtitle language entry will cause the language to be re-detected
+/// when the archive page is visited.
+pub async fn admin_delete_subtitle_language(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
+    RequireAdmin(admin): RequireAdmin,
+    Form(form): Form<SubtitleLanguageActionForm>,
+) -> Response {
+    let direct_ip = addr.ip().to_string();
+    let forwarded_for = headers
+        .get("x-forwarded-for")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+
+    match queries::delete_subtitle_language(state.db.pool(), form.id).await {
+        Ok(true) => {
+            tracing::info!(
+                admin_id = admin.id,
+                subtitle_language_id = form.id,
+                "Admin deleted subtitle language entry"
+            );
+
+            // Log audit event
+            let _ = queries::create_audit_event(
+                state.db.pool(),
+                Some(admin.id),
+                "admin_delete_subtitle_language",
+                Some("subtitle_language"),
+                Some(form.id),
+                None,
+                Some(&direct_ip),
+                forwarded_for.as_deref(),
+                None,
+            )
+            .await;
+
+            Redirect::to(
+                "/admin?tab=subtitle-langs&message=Subtitle%20language%20entry%20deleted%20successfully",
+            )
+            .into_response()
+        }
+        Ok(false) => Redirect::to(
+            "/admin?tab=subtitle-langs&message=Subtitle%20language%20entry%20not%20found",
+        )
+        .into_response(),
+        Err(e) => {
+            tracing::error!("Failed to delete subtitle language: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to delete subtitle language entry",
+            )
+                .into_response()
+        }
+    }
 }

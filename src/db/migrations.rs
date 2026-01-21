@@ -151,6 +151,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 24).await?;
     }
 
+    if current_version < 25 {
+        debug!("Running migration v25");
+        run_migration_v25(pool).await?;
+        set_schema_version(pool, 25).await?;
+    }
+
     Ok(())
 }
 
@@ -1286,6 +1292,50 @@ async fn run_migration_v24(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to add og_extraction_attempted column")?;
+
+    Ok(())
+}
+
+async fn run_migration_v25(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v25: adding subtitle_languages table for tracking detected subtitle languages");
+
+    // Create subtitle_languages table for explicit language tracking
+    // This enables:
+    // - Showing language beside subtitles in the Archived Files table
+    // - Admin management of subtitle language entries
+    // - Re-detection of language when entry is deleted
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS subtitle_languages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            artifact_id INTEGER NOT NULL UNIQUE REFERENCES archive_artifacts(id) ON DELETE CASCADE,
+            language TEXT NOT NULL,
+            detected_from TEXT NOT NULL,
+            is_auto INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create subtitle_languages table")?;
+
+    // Index for efficient lookup by artifact
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_subtitle_languages_artifact_id ON subtitle_languages(artifact_id)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create subtitle_languages artifact_id index")?;
+
+    // Index for admin listing by language
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_subtitle_languages_language ON subtitle_languages(language)",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create subtitle_languages language index")?;
 
     Ok(())
 }

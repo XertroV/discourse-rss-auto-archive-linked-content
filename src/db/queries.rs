@@ -1,11 +1,11 @@
 use anyhow::{Context, Result};
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 use std::collections::{HashMap, HashSet};
 
 use super::models::{
     Archive, ArchiveArtifact, ArchiveDisplay, ArchiveJob, ArchiveJobType, AuditEvent, Link,
     LinkOccurrence, NewLink, NewLinkOccurrence, NewPost, NewSubmission, Post, Session, Submission,
-    ThreadArchiveJob, ThreadDisplay, User, VideoFile,
+    SubtitleLanguage, ThreadArchiveJob, ThreadDisplay, User, VideoFile,
 };
 
 // ========== Posts ==========
@@ -4374,4 +4374,133 @@ pub async fn mark_og_extraction_attempted(pool: &SqlitePool, archive_id: i64) ->
     .context("Failed to mark OG extraction as attempted")?;
 
     Ok(())
+}
+
+// ========== Subtitle Languages ==========
+
+/// Insert or update a subtitle language entry.
+///
+/// Uses ON CONFLICT to upsert - if an entry already exists for the artifact,
+/// it will be updated instead of inserted.
+pub async fn upsert_subtitle_language(
+    pool: &SqlitePool,
+    artifact_id: i64,
+    language: &str,
+    detected_from: &str,
+    is_auto: bool,
+) -> Result<i64> {
+    let result = sqlx::query(
+        r"
+        INSERT INTO subtitle_languages (artifact_id, language, detected_from, is_auto)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(artifact_id) DO UPDATE SET
+            language = excluded.language,
+            detected_from = excluded.detected_from,
+            is_auto = excluded.is_auto,
+            updated_at = datetime('now')
+        RETURNING id
+        ",
+    )
+    .bind(artifact_id)
+    .bind(language)
+    .bind(detected_from)
+    .bind(is_auto)
+    .fetch_one(pool)
+    .await
+    .context("Failed to upsert subtitle language")?;
+
+    Ok(result.get::<i64, _>("id"))
+}
+
+/// Get subtitle language info for an artifact.
+pub async fn get_subtitle_language_for_artifact(
+    pool: &SqlitePool,
+    artifact_id: i64,
+) -> Result<Option<SubtitleLanguage>> {
+    sqlx::query_as("SELECT * FROM subtitle_languages WHERE artifact_id = ?")
+        .bind(artifact_id)
+        .fetch_optional(pool)
+        .await
+        .context("Failed to get subtitle language for artifact")
+}
+
+/// Get all subtitle language entries for admin listing.
+///
+/// Returns entries with additional archive info for context.
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct SubtitleLanguageWithContext {
+    pub id: i64,
+    pub artifact_id: i64,
+    pub language: String,
+    pub detected_from: String,
+    pub is_auto: bool,
+    pub created_at: String,
+    pub updated_at: String,
+    // Context from joins
+    pub archive_id: i64,
+    pub s3_key: String,
+    pub normalized_url: Option<String>,
+}
+
+/// Get all subtitle languages with context for admin panel.
+pub async fn get_all_subtitle_languages(
+    pool: &SqlitePool,
+) -> Result<Vec<SubtitleLanguageWithContext>> {
+    sqlx::query_as(
+        r"
+        SELECT
+            sl.id,
+            sl.artifact_id,
+            sl.language,
+            sl.detected_from,
+            sl.is_auto,
+            sl.created_at,
+            sl.updated_at,
+            aa.archive_id,
+            aa.s3_key,
+            l.normalized_url
+        FROM subtitle_languages sl
+        JOIN archive_artifacts aa ON sl.artifact_id = aa.id
+        JOIN archives a ON aa.archive_id = a.id
+        LEFT JOIN links l ON a.link_id = l.id
+        ORDER BY sl.created_at DESC
+        ",
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to get all subtitle languages")
+}
+
+/// Delete a subtitle language entry by ID.
+pub async fn delete_subtitle_language(pool: &SqlitePool, id: i64) -> Result<bool> {
+    let result = sqlx::query("DELETE FROM subtitle_languages WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await
+        .context("Failed to delete subtitle language")?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// Get subtitle languages for all artifacts of an archive.
+///
+/// Returns a map of artifact_id -> SubtitleLanguage for efficient lookup.
+pub async fn get_subtitle_languages_for_archive(
+    pool: &SqlitePool,
+    archive_id: i64,
+) -> Result<std::collections::HashMap<i64, SubtitleLanguage>> {
+    let rows: Vec<SubtitleLanguage> = sqlx::query_as(
+        r"
+        SELECT sl.*
+        FROM subtitle_languages sl
+        JOIN archive_artifacts aa ON sl.artifact_id = aa.id
+        WHERE aa.archive_id = ?
+        ",
+    )
+    .bind(archive_id)
+    .fetch_all(pool)
+    .await
+    .context("Failed to get subtitle languages for archive")?;
+
+    Ok(rows.into_iter().map(|sl| (sl.artifact_id, sl)).collect())
 }

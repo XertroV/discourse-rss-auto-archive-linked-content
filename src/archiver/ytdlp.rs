@@ -1020,6 +1020,35 @@ pub async fn parse_vtt_language_from_file(path: &Path) -> Option<String> {
     None
 }
 
+/// Parse language from VTT content bytes.
+///
+/// Same as `parse_vtt_language_from_file` but works with in-memory content.
+/// Useful for parsing content fetched from S3.
+#[must_use]
+pub fn parse_vtt_language_from_bytes(content: &[u8]) -> Option<String> {
+    // Only read first 1KB to find the header
+    let content_str = std::str::from_utf8(&content[..content.len().min(1024)]).ok()?;
+
+    for line in content_str.lines().take(10) {
+        let trimmed = line.trim();
+
+        // Stop if we hit an empty line (end of header) or a timestamp
+        if trimmed.is_empty() || trimmed.contains("-->") {
+            break;
+        }
+
+        // Look for "Language: xx" header
+        if let Some(lang) = trimmed.strip_prefix("Language:") {
+            let lang = lang.trim();
+            if !lang.is_empty() {
+                return Some(lang.to_string());
+            }
+        }
+    }
+
+    None
+}
+
 /// Check if yt-dlp is available.
 pub async fn is_available() -> bool {
     Command::new("yt-dlp")

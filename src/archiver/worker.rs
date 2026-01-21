@@ -2113,6 +2113,7 @@ async fn process_subtitle_files(
         }
 
         let (mut language, is_auto, format) = parse_subtitle_info(subtitle_file);
+        let mut detected_from = "filename";
 
         // If language is unknown or looks like a placeholder (NA, etc.),
         // try to read it from the VTT file header
@@ -2126,6 +2127,7 @@ async fn process_subtitle_files(
                     "Detected language from VTT header"
                 );
                 language = header_lang;
+                detected_from = "vtt_header";
             }
         }
         let key = format!("{s3_prefix}subtitles/{subtitle_file}");
@@ -2160,7 +2162,7 @@ async fn process_subtitle_files(
         });
 
         // Insert subtitle artifact with metadata
-        if let Err(e) = crate::db::insert_artifact_with_metadata(
+        match crate::db::insert_artifact_with_metadata(
             db.pool(),
             archive_id,
             ArtifactKind::Subtitles.as_str(),
@@ -2172,7 +2174,28 @@ async fn process_subtitle_files(
         )
         .await
         {
-            warn!(archive_id, file = %subtitle_file, error = %e, "Failed to insert subtitle artifact");
+            Ok(artifact_id) => {
+                // Insert language info into subtitle_languages table
+                if let Err(e) = crate::db::upsert_subtitle_language(
+                    db.pool(),
+                    artifact_id,
+                    &language,
+                    detected_from,
+                    is_auto,
+                )
+                .await
+                {
+                    warn!(
+                        archive_id,
+                        artifact_id,
+                        error = %e,
+                        "Failed to insert subtitle language"
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(archive_id, file = %subtitle_file, error = %e, "Failed to insert subtitle artifact");
+            }
         }
 
         // Select best subtitle for transcript generation

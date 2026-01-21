@@ -21,7 +21,9 @@ use crate::components::{
     render_media_player_with_options, BaseLayout, Button, KeyValueTable, MediaTypeBadge, NsfwBadge,
     NsfwWarning, OpenGraphMetadata, StatusBadge, Table, TableRow, TableVariant,
 };
-use crate::db::{Archive, ArchiveArtifact, ArchiveJob, Link, LinkOccurrenceWithPost, User};
+use crate::db::{
+    Archive, ArchiveArtifact, ArchiveJob, Link, LinkOccurrenceWithPost, SubtitleLanguage, User,
+};
 
 /// Parameters for rendering the archive detail page.
 #[derive(Debug)]
@@ -44,6 +46,8 @@ pub struct ArchiveDetailParams<'a> {
     pub has_missing_artifacts: bool,
     /// Optional Open Graph metadata for social media previews.
     pub og_metadata: Option<OpenGraphMetadata>,
+    /// Subtitle language info keyed by artifact ID.
+    pub subtitle_languages: &'a std::collections::HashMap<i64, SubtitleLanguage>,
 }
 
 /// Render the archive detail page.
@@ -114,7 +118,7 @@ pub fn render_archive_detail_page(params: &ArchiveDetailParams<'_>) -> Markup {
             (render_platform_comments_section(archive, params.artifacts))
 
             // Artifacts table
-            (render_artifacts_section(archive, link, params.artifacts))
+            (render_artifacts_section(archive, link, params.artifacts, params.subtitle_languages))
 
             // External archive links (Wayback, Archive.today, IPFS)
             (render_external_archives_section(archive))
@@ -1107,6 +1111,7 @@ fn render_artifacts_section(
     archive: &Archive,
     link: &Link,
     artifacts: &[ArchiveArtifact],
+    subtitle_languages: &std::collections::HashMap<i64, SubtitleLanguage>,
 ) -> Markup {
     if artifacts.is_empty() {
         return html! {};
@@ -1114,7 +1119,7 @@ fn render_artifacts_section(
 
     let rows: Vec<Markup> = artifacts
         .iter()
-        .map(|artifact| render_artifact_row(artifact, link, archive.id))
+        .map(|artifact| render_artifact_row(artifact, link, archive.id, subtitle_languages))
         .collect();
 
     let total_size: i64 = artifacts.iter().filter_map(|a| a.size_bytes).sum();
@@ -1136,7 +1141,12 @@ fn render_artifacts_section(
 }
 
 /// Render a single artifact row.
-fn render_artifact_row(artifact: &ArchiveArtifact, link: &Link, archive_id: i64) -> Markup {
+fn render_artifact_row(
+    artifact: &ArchiveArtifact,
+    link: &Link,
+    archive_id: i64,
+    subtitle_languages: &std::collections::HashMap<i64, SubtitleLanguage>,
+) -> Markup {
     let kind_display = artifact_kind_display(&artifact.kind);
     let filename = artifact
         .s3_key
@@ -1190,22 +1200,31 @@ fn render_artifact_row(artifact: &ArchiveArtifact, link: &Link, archive_id: i64)
         }
     };
 
-    // For subtitles, extract language info from metadata to display as a pill
+    // For subtitles, get language info from subtitle_languages table
     let language_pill = if artifact.kind == "subtitles" {
-        if let Some(ref metadata) = artifact.metadata {
-            if let Ok(meta_json) = serde_json::from_str::<serde_json::Value>(metadata) {
-                let lang = meta_json["language"].as_str().unwrap_or("unknown");
-                let is_auto = meta_json["is_auto"].as_bool().unwrap_or(false);
-                let auto_suffix = if is_auto { " (auto)" } else { "" };
-                let display_lang = format!("{}{}", lang, auto_suffix);
-                Some(html! {
-                    span class="language-pill" { (display_lang) }
-                })
+        if let Some(lang_info) = subtitle_languages.get(&artifact.id) {
+            let auto_suffix = if lang_info.is_auto { " (auto)" } else { "" };
+            let display_lang = format!("{}{}", lang_info.language, auto_suffix);
+            Some(html! {
+                span class="language-pill" { (display_lang) }
+            })
+        } else {
+            // Fallback to artifact metadata if not in subtitle_languages table
+            if let Some(ref metadata) = artifact.metadata {
+                if let Ok(meta_json) = serde_json::from_str::<serde_json::Value>(metadata) {
+                    let lang = meta_json["language"].as_str().unwrap_or("unknown");
+                    let is_auto = meta_json["is_auto"].as_bool().unwrap_or(false);
+                    let auto_suffix = if is_auto { " (auto)" } else { "" };
+                    let display_lang = format!("{}{}", lang, auto_suffix);
+                    Some(html! {
+                        span class="language-pill" { (display_lang) }
+                    })
+                } else {
+                    None
+                }
             } else {
                 None
             }
-        } else {
-            None
         }
     } else {
         None
@@ -1785,6 +1804,7 @@ mod tests {
         let link = sample_link();
         let artifacts = vec![sample_artifact()];
         let jobs = vec![sample_job()];
+        let subtitle_languages = std::collections::HashMap::new();
 
         let params = ArchiveDetailParams {
             archive: &archive,
@@ -1796,6 +1816,7 @@ mod tests {
             user: None,
             has_missing_artifacts: false,
             og_metadata: None,
+            subtitle_languages: &subtitle_languages,
         };
 
         let html = render_archive_detail_page(&params).into_string();
@@ -1812,6 +1833,7 @@ mod tests {
         let mut archive = sample_archive();
         archive.is_nsfw = true;
         let link = sample_link();
+        let subtitle_languages = std::collections::HashMap::new();
 
         let params = ArchiveDetailParams {
             archive: &archive,
@@ -1823,6 +1845,7 @@ mod tests {
             user: None,
             has_missing_artifacts: false,
             og_metadata: None,
+            subtitle_languages: &subtitle_languages,
         };
 
         let html = render_archive_detail_page(&params).into_string();
@@ -1838,6 +1861,7 @@ mod tests {
         archive.status = "failed".to_string();
         archive.error_message = Some("Connection timeout".to_string());
         let link = sample_link();
+        let subtitle_languages = std::collections::HashMap::new();
 
         let params = ArchiveDetailParams {
             archive: &archive,
@@ -1849,6 +1873,7 @@ mod tests {
             user: None,
             has_missing_artifacts: false,
             og_metadata: None,
+            subtitle_languages: &subtitle_languages,
         };
 
         let html = render_archive_detail_page(&params).into_string();
@@ -1878,8 +1903,9 @@ mod tests {
     fn test_render_artifact_row() {
         let artifact = sample_artifact();
         let link = sample_link();
+        let subtitle_languages = std::collections::HashMap::new();
 
-        let html = render_artifact_row(&artifact, &link, 1).into_string();
+        let html = render_artifact_row(&artifact, &link, 1, &subtitle_languages).into_string();
 
         assert!(html.contains("Video"));
         assert!(html.contains("video.mp4"));

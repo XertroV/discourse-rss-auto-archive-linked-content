@@ -10,7 +10,7 @@ use crate::components::{
     Alert, BaseLayout, Button, Form, FormGroup, HiddenInput, Input, ResponsiveTable, StatusBox,
     Table, TableRow, TableVariant,
 };
-use crate::db::{AuditEvent, ExcludedDomain, ForumAccountLink, User};
+use crate::db::{AuditEvent, ExcludedDomain, ForumAccountLink, SubtitleLanguageWithContext, User};
 
 /// User status badge for admin panel.
 #[derive(Debug, Clone, Copy)]
@@ -300,8 +300,9 @@ pub struct AdminPanelParams<'a> {
     pub users: &'a [User],
     pub audit_events: &'a [AuditEvent],
     pub forum_links: &'a [ForumAccountLink],
+    pub subtitle_languages: &'a [SubtitleLanguageWithContext],
     pub current_user: &'a User,
-    /// Optional active tab ("users", "forum-links", "audit")
+    /// Optional active tab ("users", "forum-links", "subtitle-langs", "audit")
     pub active_tab: Option<&'a str>,
     /// Optional success/error message
     pub message: Option<&'a str>,
@@ -338,6 +339,8 @@ pub fn render_admin_panel(params: &AdminPanelParams) -> Markup {
                     onclick="switchTab('users')" { "Users" }
                 button class=(if active_tab == "forum-links" { "active" } else { "" })
                     onclick="switchTab('forum-links')" { "Forum Links" }
+                button class=(if active_tab == "subtitle-langs" { "active" } else { "" })
+                    onclick="switchTab('subtitle-langs')" { "Subtitle Langs" }
                 button class=(if active_tab == "audit" { "active" } else { "" })
                     onclick="switchTab('audit')" { "Audit Log" }
             }
@@ -356,6 +359,11 @@ pub fn render_admin_panel(params: &AdminPanelParams) -> Markup {
             // Forum Links tab
             div id="tab-forum-links" class=(format!("tab-content {}", if active_tab == "forum-links" { "active" } else { "" })) {
                 (render_forum_links_section(params.forum_links, &user_lookup))
+            }
+
+            // Subtitle Languages tab
+            div id="tab-subtitle-langs" class=(format!("tab-content {}", if active_tab == "subtitle-langs" { "active" } else { "" })) {
+                (render_subtitle_languages_section(params.subtitle_languages))
             }
 
             // Audit Log tab
@@ -495,6 +503,83 @@ fn render_forum_links_table(
         "Archive User",
         "Display Name",
         "Linked Via",
+        "Created",
+        "Actions",
+    ])
+    .variant(TableVariant::Admin)
+    .rows(rows);
+
+    ResponsiveTable::new(table.render()).render()
+}
+
+/// Render the subtitle languages section.
+fn render_subtitle_languages_section(subtitle_languages: &[SubtitleLanguageWithContext]) -> Markup {
+    html! {
+        h3 { "Subtitle Languages" }
+        p class="page-description" {
+            "Manage detected subtitle languages. Deleting an entry will cause the language to be "
+            "re-detected when the archive page is viewed."
+        }
+        (render_subtitle_languages_table(subtitle_languages))
+    }
+}
+
+/// Render a single subtitle language row.
+fn render_subtitle_language_row(sl: &SubtitleLanguageWithContext) -> Markup {
+    let auto_label = if sl.is_auto { "Yes" } else { "No" };
+    let filename = sl.s3_key.rsplit('/').next().unwrap_or(&sl.s3_key);
+
+    let row = TableRow::new()
+        .cell(&sl.id.to_string())
+        .cell_markup(html! {
+            a href=(format!("/archive/{}", sl.archive_id)) {
+                "#" (sl.archive_id)
+            }
+        })
+        .cell_markup(html! {
+            span class="language-pill" { (&sl.language) }
+        })
+        .cell(&sl.detected_from)
+        .cell(auto_label)
+        .cell_markup(html! {
+            code class="filename" title=(&sl.s3_key) { (filename) }
+        })
+        .cell(sl.normalized_url.as_deref().unwrap_or("\u{2014}"))
+        .cell(&sl.created_at)
+        .cell_markup(html! {
+            (Form::post("/admin/subtitle-language/delete", html! {
+                (HiddenInput::new("id", &sl.id.to_string()))
+                (Button::danger("Delete")
+                    .r#type("submit")
+                    .class("btn-sm")
+                    .onclick("return confirm('Are you sure you want to delete this subtitle language entry? It will be re-detected when the archive page is viewed.')"))
+            }).class("inline-form"))
+        });
+
+    row.render()
+}
+
+/// Render the subtitle languages table.
+fn render_subtitle_languages_table(subtitle_languages: &[SubtitleLanguageWithContext]) -> Markup {
+    if subtitle_languages.is_empty() {
+        return html! {
+            p class="no-domains-message" { "No subtitle languages detected yet." }
+        };
+    }
+
+    let rows: Vec<Markup> = subtitle_languages
+        .iter()
+        .map(render_subtitle_language_row)
+        .collect();
+
+    let table = Table::new(vec![
+        "ID",
+        "Archive",
+        "Language",
+        "Detected From",
+        "Auto",
+        "File",
+        "URL",
         "Created",
         "Actions",
     ])
@@ -1130,6 +1215,7 @@ mod tests {
             users: &users,
             audit_events: &events,
             forum_links: &forum_links,
+            subtitle_languages: &[],
             current_user: &admin,
             active_tab: None,
             message: None,
@@ -1140,6 +1226,7 @@ mod tests {
         assert!(html.contains("Admin Panel"));
         assert!(html.contains("Users"));
         assert!(html.contains("Forum Links"));
+        assert!(html.contains("Subtitle Langs"));
         assert!(html.contains("Audit Log"));
 
         // Check user table content
@@ -1165,6 +1252,7 @@ mod tests {
             users: &[admin.clone()],
             audit_events: &[],
             forum_links: &[],
+            subtitle_languages: &[],
             current_user: &admin,
             active_tab: Some("forum-links"),
             message: Some("Test message"),

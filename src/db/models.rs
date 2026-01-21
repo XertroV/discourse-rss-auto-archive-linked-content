@@ -232,6 +232,28 @@ pub struct ArchiveArtifact {
     pub metadata: Option<String>,
 }
 
+/// Detected language information for a subtitle artifact.
+///
+/// Tracks the language of subtitle files, how it was detected, and whether it's auto-generated.
+/// This enables:
+/// - Displaying language info in the Archived Files table
+/// - Admin management of subtitle language entries
+/// - Re-detection when an entry is deleted
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct SubtitleLanguage {
+    pub id: i64,
+    /// The artifact ID this language info belongs to
+    pub artifact_id: i64,
+    /// Language code (e.g., "en", "ja", "unknown")
+    pub language: String,
+    /// How the language was detected: "filename", "vtt_header", "metadata", "manual"
+    pub detected_from: String,
+    /// Whether this is an auto-generated subtitle
+    pub is_auto: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 /// A canonical video file stored on S3.
 ///
 /// Videos are stored once at a predictable path (videos/{video_id}.{ext})

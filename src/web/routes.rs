@@ -29,14 +29,15 @@ use crate::db::{
     get_posts_by_thread_key, get_quality_metrics, get_queue_stats, get_quote_reply_chain,
     get_recent_activity_counts, get_recent_archives_display_filtered,
     get_recent_archives_filtered_full, get_recent_archives_with_filters,
-    get_recent_failed_archives, get_storage_stats, get_thread_archive_job, get_top_domains,
-    get_user_submission_stats, get_user_submissions, get_video_file, has_missing_artifacts,
-    insert_link, insert_submission, insert_thread_archive_job, mark_og_extraction_attempted,
-    pin_comment, remove_comment_reaction, reset_archive_for_rearchive,
-    reset_single_skipped_archive, reset_skipped_archives, search_archives_display_filtered,
-    search_archives_filtered_full, soft_delete_comment, submission_exists_for_url,
-    thread_archive_job_exists_recent, toggle_archive_nsfw, unpin_comment,
-    update_archive_og_metadata, update_comment, NewLink, NewSubmission, NewThreadArchiveJob,
+    get_recent_failed_archives, get_storage_stats, get_subtitle_languages_for_archive,
+    get_thread_archive_job, get_top_domains, get_user_submission_stats, get_user_submissions,
+    get_video_file, has_missing_artifacts, insert_link, insert_submission,
+    insert_thread_archive_job, mark_og_extraction_attempted, pin_comment, remove_comment_reaction,
+    reset_archive_for_rearchive, reset_single_skipped_archive, reset_skipped_archives,
+    search_archives_display_filtered, search_archives_filtered_full, soft_delete_comment,
+    submission_exists_for_url, thread_archive_job_exists_recent, toggle_archive_nsfw,
+    unpin_comment, update_archive_og_metadata, update_comment, upsert_subtitle_language, NewLink,
+    NewSubmission, NewThreadArchiveJob,
 };
 use crate::handlers::normalize_url;
 use crate::og_extractor;
@@ -98,6 +99,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/admin/forum-link/delete",
             post(auth::admin_delete_forum_link),
+        )
+        .route(
+            "/admin/subtitle-language/delete",
+            post(auth::admin_delete_subtitle_language),
         )
         .route("/archives/failed", get(recent_failed_archives))
         .route("/archives/all", get(recent_all_archives))
@@ -443,6 +448,83 @@ async fn archive_detail(
         }
     };
 
+    // Load and populate subtitle languages
+    let subtitle_languages = match get_subtitle_languages_for_archive(state.db.pool(), id).await {
+        Ok(langs) => langs,
+        Err(e) => {
+            tracing::error!("Failed to fetch subtitle languages: {e}");
+            std::collections::HashMap::new()
+        }
+    };
+
+    // Detect and store language for subtitle artifacts missing entries
+    for artifact in artifacts.iter().filter(|a| a.kind == "subtitles") {
+        if subtitle_languages.contains_key(&artifact.id) {
+            continue; // Already have language info
+        }
+
+        // Try to detect language from artifact metadata first
+        let (language, detected_from, is_auto) = if let Some(ref metadata) = artifact.metadata {
+            if let Ok(meta_json) = serde_json::from_str::<serde_json::Value>(metadata) {
+                let lang = meta_json["language"]
+                    .as_str()
+                    .unwrap_or("unknown")
+                    .to_string();
+                let is_auto = meta_json["is_auto"].as_bool().unwrap_or(false);
+
+                // If language is unknown and it's a VTT file, try S3
+                if (lang == "unknown" || lang == "NA" || lang.len() > 10)
+                    && artifact.s3_key.ends_with(".vtt")
+                {
+                    // Try to read VTT header from S3
+                    if let Ok(Some((content, _))) = state.s3.get_object(&artifact.s3_key).await {
+                        if let Some(vtt_lang) =
+                            crate::archiver::ytdlp::parse_vtt_language_from_bytes(&content)
+                        {
+                            (vtt_lang, "vtt_header", is_auto)
+                        } else {
+                            (lang, "metadata", is_auto)
+                        }
+                    } else {
+                        (lang, "metadata", is_auto)
+                    }
+                } else {
+                    (lang, "metadata", is_auto)
+                }
+            } else {
+                ("unknown".to_string(), "metadata", false)
+            }
+        } else {
+            ("unknown".to_string(), "metadata", false)
+        };
+
+        // Store the detected language
+        if let Err(e) = upsert_subtitle_language(
+            state.db.pool(),
+            artifact.id,
+            &language,
+            detected_from,
+            is_auto,
+        )
+        .await
+        {
+            tracing::warn!(
+                artifact_id = artifact.id,
+                error = %e,
+                "Failed to insert detected subtitle language"
+            );
+        }
+    }
+
+    // Re-fetch subtitle languages after detection
+    let subtitle_languages = match get_subtitle_languages_for_archive(state.db.pool(), id).await {
+        Ok(langs) => langs,
+        Err(e) => {
+            tracing::error!("Failed to re-fetch subtitle languages: {e}");
+            std::collections::HashMap::new()
+        }
+    };
+
     let occurrences = match get_link_occurrences_with_posts(state.db.pool(), archive.link_id).await
     {
         Ok(o) => o,
@@ -560,6 +642,7 @@ async fn archive_detail(
         user: user.as_ref(),
         has_missing_artifacts,
         og_metadata,
+        subtitle_languages: &subtitle_languages,
     };
     let markup = pages::render_archive_detail_page(&params);
     Html(markup.into_string()).into_response()
