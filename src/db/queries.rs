@@ -835,6 +835,36 @@ pub async fn search_archives_display(
 
     let url_pattern = format!("%{}%", query.trim());
 
+    // If FTS sanitization resulted in an empty string, only search URLs
+    if sanitized.is_empty() {
+        return sqlx::query_as(
+            r"
+            SELECT
+                a.id, a.link_id, a.status, a.archived_at,
+                a.content_title, a.content_author, a.content_type,
+                a.is_nsfw, a.error_message, a.retry_count,
+                l.original_url, l.domain,
+                COALESCE(SUM(aa.size_bytes), 0) as total_size_bytes
+            FROM archives a
+            JOIN links l ON a.link_id = l.id
+            LEFT JOIN archive_artifacts aa ON a.id = aa.archive_id
+            WHERE l.original_url LIKE ?
+            GROUP BY a.id, a.link_id, a.status, a.archived_at,
+                     a.content_title, a.content_author, a.content_type,
+                     a.is_nsfw, a.error_message, a.retry_count,
+                     l.original_url, l.domain
+            ORDER BY a.archived_at DESC
+            LIMIT ?
+            ",
+        )
+        .bind(url_pattern)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .context("Failed to search archives by URL");
+    }
+
+    // Search both FTS and URLs
     sqlx::query_as(
         r"
         SELECT
@@ -1069,8 +1099,15 @@ pub async fn search_archives_display_filtered(
     let url_pattern = format!("%{}%", query.trim());
 
     // Build WHERE clause dynamically based on filters
-    let mut where_clauses: Vec<String> =
-        vec!["(archives_fts MATCH ? OR l.original_url LIKE ?)".to_string()];
+    let mut where_clauses: Vec<String> = Vec::new();
+
+    // Add search clause (FTS + URL or just URL if FTS sanitization failed)
+    if sanitized.is_empty() {
+        where_clauses.push("l.original_url LIKE ?".to_string());
+    } else {
+        where_clauses.push("(archives_fts MATCH ? OR l.original_url LIKE ?)".to_string());
+    }
+
     let domain_filter = source.map(get_domain_filter);
 
     if content_type.is_some() {
@@ -1081,12 +1118,18 @@ pub async fn search_archives_display_filtered(
         where_clauses.push(df.sql.clone());
     }
 
-    if where_clauses.len() == 1 {
+    if where_clauses.len() == 1 && !sanitized.is_empty() {
         // Only MATCH clause, no additional filters
         return search_archives_display(pool, query, limit).await;
     }
 
     let where_clause = where_clauses.join(" AND ");
+    let order_clause = if sanitized.is_empty() {
+        "ORDER BY a.archived_at DESC"
+    } else {
+        "ORDER BY COALESCE(rank, 0) DESC"
+    };
+
     let sql = format!(
         r"
         SELECT
@@ -1104,16 +1147,18 @@ pub async fn search_archives_display_filtered(
                  a.content_title, a.content_author, a.content_type,
                  a.is_nsfw, a.error_message, a.retry_count,
                  l.original_url, l.domain
-        ORDER BY COALESCE(rank, 0) DESC
+        {}
         LIMIT ?
         ",
-        where_clause
+        where_clause, order_clause
     );
 
     let mut sql_query = sqlx::query_as(&sql);
 
     // Bind parameters in order
-    sql_query = sql_query.bind(sanitized);
+    if !sanitized.is_empty() {
+        sql_query = sql_query.bind(sanitized);
+    }
     sql_query = sql_query.bind(&url_pattern);
 
     if let Some(ct) = content_type {
@@ -1255,6 +1300,24 @@ pub async fn search_archives(pool: &SqlitePool, query: &str, limit: i64) -> Resu
 
     let url_pattern = format!("%{}%", query.trim());
 
+    // If FTS sanitization resulted in an empty string, only search URLs
+    if sanitized.is_empty() {
+        return sqlx::query_as(
+            r"
+            SELECT archives.* FROM archives
+            JOIN links l ON archives.link_id = l.id
+            WHERE l.original_url LIKE ?
+            ORDER BY archives.archived_at DESC
+            LIMIT ?
+            ",
+        )
+        .bind(url_pattern)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .context("Failed to search archives by URL");
+    }
+
     sqlx::query_as(
         r"
         SELECT archives.* FROM archives
@@ -1299,7 +1362,14 @@ pub async fn search_archives_filtered_full(
     let url_pattern = format!("%{}%", query.trim());
 
     // Build WHERE clause dynamically based on filters
-    let mut where_clauses = vec!["(archives_fts MATCH ? OR l.original_url LIKE ?)".to_string()];
+    let mut where_clauses = Vec::new();
+
+    // Add search clause (FTS + URL or just URL if FTS sanitization failed)
+    if sanitized.is_empty() {
+        where_clauses.push("l.original_url LIKE ?".to_string());
+    } else {
+        where_clauses.push("(archives_fts MATCH ? OR l.original_url LIKE ?)".to_string());
+    }
 
     match nsfw_filter {
         Some(true) => where_clauses.push("archives.is_nsfw = 1".to_string()),
@@ -1314,13 +1384,22 @@ pub async fn search_archives_filtered_full(
     }
 
     let where_clause = where_clauses.join(" AND ");
+    let order_clause = if sanitized.is_empty() {
+        "ORDER BY archives.archived_at DESC"
+    } else {
+        "ORDER BY COALESCE(rank, 0) DESC"
+    };
+
     let sql = format!(
-        "SELECT archives.* FROM archives JOIN links l ON archives.link_id = l.id LEFT JOIN archives_fts ON archives.id = archives_fts.rowid WHERE {} ORDER BY COALESCE(rank, 0) DESC LIMIT ?",
-        where_clause
+        "SELECT archives.* FROM archives JOIN links l ON archives.link_id = l.id LEFT JOIN archives_fts ON archives.id = archives_fts.rowid WHERE {} {} LIMIT ?",
+        where_clause,
+        order_clause
     );
 
     let mut q = sqlx::query_as(&sql);
-    q = q.bind(sanitized);
+    if !sanitized.is_empty() {
+        q = q.bind(sanitized);
+    }
     q = q.bind(&url_pattern);
 
     // Bind content_type if present (bind in order of ? placeholders)
