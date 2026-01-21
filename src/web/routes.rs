@@ -41,6 +41,7 @@ use crate::db::{
 };
 use crate::handlers::normalize_url;
 use crate::og_extractor;
+use urlencoding;
 
 /// Pagination query parameters.
 #[derive(Debug, Deserialize)]
@@ -1563,6 +1564,14 @@ async fn thread_detail(
     Path(thread_key): Path<String>,
     MaybeUser(user): MaybeUser,
 ) -> Response {
+    // URL decode the thread_key in case it's still encoded
+    let thread_key = match urlencoding::decode(&thread_key) {
+        Ok(decoded) => decoded.to_string(),
+        Err(_) => thread_key, // Use as-is if decoding fails
+    };
+
+    tracing::debug!("Thread detail request for thread_key: {}", thread_key);
+
     let posts = match get_posts_by_thread_key(state.db.pool(), &thread_key).await {
         Ok(p) => p,
         Err(e) => {
@@ -1572,6 +1581,7 @@ async fn thread_detail(
     };
 
     if posts.is_empty() {
+        tracing::warn!("No posts found for thread_key: {}", thread_key);
         return (StatusCode::NOT_FOUND, "Thread not found").into_response();
     }
 
