@@ -526,14 +526,14 @@ tr:hover {
 .header-search-form {
     display: flex;
     align-items: center;
-    gap: var(--spacing-xs);
+    gap: var(--spacing-md);
     width: 100%;
     max-width: 400px;
 }
 
 .header-search-input {
     flex: 1;
-    padding: var(--spacing-sm) var(--spacing-md);
+    padding: var(--spacing-xs) var(--spacing-sm);
     font-family: inherit;
     font-size: var(--font-size-sm);
     border: 1px solid var(--border-color);
