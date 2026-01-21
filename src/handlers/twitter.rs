@@ -318,6 +318,7 @@ async fn archive_twitter_direct(
 }
 
 /// Try to archive via nitter instances.
+#[allow(dead_code)]
 async fn try_nitter_archive(
     twitter_url: &str,
     work_dir: &Path,
