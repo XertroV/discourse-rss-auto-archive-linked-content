@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::process::Stdio;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -7,11 +6,9 @@ use async_trait::async_trait;
 use regex::Regex;
 use reqwest::header::COOKIE;
 use scraper::{Html, Selector};
-use tokio::process::Command;
 use tracing::{debug, info, warn};
 
-use crate::chromium_profile::chromium_user_data_and_profile_from_spec;
-use crate::fs_utils::copy_dir_best_effort;
+use crate::chromium_profile::fetch_html_with_chromium;
 
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::{ytdlp, CookieOptions};
@@ -337,8 +334,8 @@ async fn fetch_reddit_html(
     // Reddit frequently blocks datacenter IPs unless authenticated.
     // Prefer using cookies-from-browser (persisted Chromium profile) since that's the most
     // reliable way to mimic a real logged-in browser.
-    if cookies.browser_profile.is_some() {
-        match fetch_html_with_chromium_profile(url, work_dir, cookies).await {
+    if let Some(spec) = cookies.browser_profile {
+        match fetch_html_with_chromium(url, work_dir, spec, 45, "reddit html").await {
             Ok(html) => {
                 if is_reddit_block_page(&html) {
                     warn!("Reddit HTML looks like a block page on old.reddit.com; retrying via www.reddit.com");
@@ -355,7 +352,15 @@ async fn fetch_reddit_html(
         // Retry via www.reddit.com if old.reddit.com appears blocked.
         if url.contains("old.reddit.com") {
             let alt_url = url.replace("old.reddit.com", "www.reddit.com");
-            match fetch_html_with_chromium_profile(&alt_url, work_dir, cookies).await {
+            match fetch_html_with_chromium(
+                &alt_url,
+                work_dir,
+                spec,
+                45,
+                "reddit html (www fallback)",
+            )
+            .await
+            {
                 Ok(html) => {
                     if !is_reddit_block_page(&html) {
                         debug!(original = %url, alt = %alt_url, "Fetched Reddit HTML via Chromium profile (www fallback)");
@@ -491,158 +496,12 @@ fn extract_canonical_url_from_html(doc: &Html) -> Option<String> {
     }
 }
 
-async fn fetch_html_with_chromium_profile(
-    url: &str,
-    work_dir: &Path,
-    cookies: &CookieOptions<'_>,
-) -> Result<String> {
-    let spec = cookies
-        .browser_profile
-        .context("No browser_profile configured")?;
-
-    let (source_user_data_dir, profile_dir) = chromium_user_data_and_profile_from_spec(spec);
-
-    // Chromium will refuse to start if the same user-data-dir is in use (e.g. the cookie-browser
-    // container is running and has the profile open). To avoid lock contention, copy the
-    // user-data-dir to a per-archive temp directory and run Chromium against the copy.
-    let user_data_dir =
-        clone_chromium_user_data_dir(work_dir, &source_user_data_dir, profile_dir.as_deref())
-            .await
-            .context("Failed to clone Chromium user-data-dir for Reddit HTML fetch")?;
-
-    let chrome_path =
-        std::env::var("SCREENSHOT_CHROME_PATH").unwrap_or_else(|_| "chromium".to_string());
-
-    let mut cmd = Command::new(chrome_path);
-    cmd.arg("--headless=new")
-        .arg("--no-sandbox")
-        .arg("--disable-gpu")
-        .arg("--disable-dev-shm-usage")
-        .arg("--window-size=1280,2000")
-        .arg("--lang=en-US,en")
-        .arg("--disable-blink-features=AutomationControlled")
-        .arg("--no-first-run")
-        .arg("--no-default-browser-check")
-        .arg(format!("--user-agent={ARCHIVAL_USER_AGENT}"))
-        .arg(format!("--user-data-dir={}", user_data_dir.display()));
-
-    if let Some(profile_dir) = profile_dir {
-        cmd.arg(format!("--profile-directory={profile_dir}"));
-    }
-
-    // Dump final DOM after JS execution/navigation.
-    cmd.arg("--dump-dom").arg(url);
-
-    let output = tokio::time::timeout(Duration::from_secs(45), cmd.output())
-        .await
-        .context("Chromium dump-dom timed out")?
-        .context("Failed to execute Chromium")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!(
-            "Chromium dump-dom failed (exit {:?}): {}",
-            output.status.code(),
-            stderr.trim()
-        );
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let html = stdout.trim();
-    if html.is_empty() {
-        anyhow::bail!("Chromium dump-dom returned empty output");
-    }
-    Ok(html.to_string())
-}
-
 fn is_reddit_block_page(html: &str) -> bool {
     let s = html.to_ascii_lowercase();
     s.contains("you've been blocked by network security")
         || s.contains("you have been blocked by network security")
         || s.contains("whoa there")
         || s.contains("woah there")
-}
-
-async fn clone_chromium_user_data_dir(
-    work_dir: &Path,
-    source: &std::path::Path,
-    profile_dir: Option<&str>,
-) -> Result<std::path::PathBuf> {
-    let dest = work_dir.join("chromium-user-data");
-
-    // Clean up any previous attempt (best-effort). Work dirs are per-archive, but retries can
-    // happen when re-archiving.
-    let _ = tokio::fs::remove_dir_all(&dest).await;
-    tokio::fs::create_dir_all(&dest)
-        .await
-        .context("Failed to create chromium-user-data dir")?;
-
-    // Prefer `cp -a` to preserve Chromium's expected layout.
-    // However, the shared cookie volume may contain files that are not readable by the
-    // archiver user (e.g. root-owned 0600). In that case `cp` fails early; we fall back to a
-    // best-effort copy that skips unreadable files.
-    let cp_output = Command::new("cp")
-        .arg("-a")
-        .arg(format!("{}/.", source.display()))
-        .arg(&dest)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .await;
-
-    match cp_output {
-        Ok(output) if output.status.success() => {}
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            warn!(
-                status = %output.status,
-                source = %source.display(),
-                stderr = %stderr.trim(),
-                "cp -a failed while cloning Chromium profile; falling back to best-effort copy"
-            );
-            copy_dir_best_effort(source, &dest, "chromium profile clone (reddit html)").await?;
-        }
-        Err(e) => {
-            warn!(
-                error = %e,
-                source = %source.display(),
-                "Failed to spawn cp -a for Chromium profile copy; falling back to best-effort copy"
-            );
-            copy_dir_best_effort(source, &dest, "chromium profile clone (reddit html)").await?;
-        }
-    }
-
-    // Remove singleton lock/socket artifacts so Chromium doesn't think the copied profile is
-    // already in-use.
-    for name in ["SingletonLock", "SingletonCookie", "SingletonSocket"] {
-        let _ = tokio::fs::remove_file(dest.join(name)).await;
-    }
-
-    // Validate that the clone contains the critical cookie materials.
-    // `Local State` (in user-data-dir root) is commonly required to decrypt cookies.
-    let local_state = dest.join("Local State");
-    if !local_state.is_file() {
-        anyhow::bail!(
-            "Cloned Chromium profile is missing 'Local State'. This usually means the shared cookies volume has restrictive permissions (root-owned 0600 files).\n\nFix (recommended):\n  docker compose --profile manual exec cookie-browser bash -lc 'chmod -R a+rX /cookies/chromium-profile'\n\nOr run cookie-browser as a non-root user that matches the archiver container UID/GID."
-        );
-    }
-
-    // Cookies DB must also be present and readable.
-    let profile_name = profile_dir.unwrap_or("Default");
-    let cookie_db_candidates = [
-        dest.join(profile_name).join("Cookies"),
-        dest.join(profile_name).join("Network").join("Cookies"),
-        dest.join("Default").join("Cookies"),
-        dest.join("Default").join("Network").join("Cookies"),
-    ];
-    let has_cookie_db = cookie_db_candidates.iter().any(|p| p.is_file());
-    if !has_cookie_db {
-        anyhow::bail!(
-            "Cloned Chromium profile does not contain a readable Cookies database. This usually means the shared cookies volume has restrictive permissions.\n\nFix (recommended):\n  docker compose --profile manual exec cookie-browser bash -lc 'chmod -R a+rX /cookies/chromium-profile'\n\nAlternative: use COOKIES_FILE_PATH with an exported Netscape cookies.txt."
-        );
-    }
-
-    Ok(dest)
 }
 
 /// Build a cookie header string from CookieOptions for a specific domain.

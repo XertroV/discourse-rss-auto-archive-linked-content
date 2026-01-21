@@ -10,6 +10,7 @@ use tracing::{debug, info, warn};
 
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::{gallerydl, ytdlp, CookieOptions};
+use crate::chromium_profile::fetch_html_with_chromium;
 use crate::constants::ARCHIVAL_USER_AGENT;
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
@@ -164,11 +165,9 @@ impl SiteHandler for TwitterHandler {
         }
 
         // Fetch HTML snapshot if enabled (for monolith processing)
+        // Use chromium --dump-dom to get rendered HTML after JS execution
         if config.twitter_html_snapshot {
-            if let Err(e) =
-                fetch_html_snapshot(&normalized_url, work_dir, &config.twitter_nitter_instances)
-                    .await
-            {
+            if let Err(e) = fetch_html_snapshot(&normalized_url, work_dir, cookies).await {
                 warn!(url = %normalized_url, error = %e, "Failed to fetch HTML snapshot for Twitter");
                 // Non-fatal: continue with media archive even if HTML fails
             } else {
@@ -221,6 +220,19 @@ async fn archive_twitter_direct(
                         result.text = metadata.text.clone();
                     }
 
+                    // Fix content_type based on actual media count
+                    // gallery-dl often returns "image" even for text-only tweets
+                    if metadata.media_count == 0 {
+                        result.content_type = "text".to_string();
+                    } else if metadata.media_count == 1 {
+                        // Keep as "image" if that's what gallery-dl set, or default to image
+                        if result.content_type.is_empty() {
+                            result.content_type = "image".to_string();
+                        }
+                    } else if metadata.media_count > 1 {
+                        result.content_type = "gallery".to_string();
+                    }
+
                     // Store enhanced metadata
                     let enhanced_metadata = serde_json::json!({
                         "twitter": metadata,
@@ -228,6 +240,11 @@ async fn archive_twitter_direct(
                     });
                     result.metadata_json = Some(enhanced_metadata.to_string());
                 }
+            }
+
+            // Default to "text" if content_type wasn't set and no primary file
+            if result.content_type.is_empty() && result.primary_file.is_none() {
+                result.content_type = "text".to_string();
             }
 
             return Ok(result);
@@ -539,82 +556,57 @@ fn build_cookie_header_for_domain(cookies_path: &Path, domain: &str) -> Result<S
     Ok(cookies.join("; "))
 }
 
-/// Fetch HTML snapshot from nitter (preferred) or Twitter directly.
+/// Fetch HTML snapshot using chromium --dump-dom to get rendered HTML after JS execution.
 ///
-/// Prefers nitter because it has simpler HTML that works better with monolith.
-/// Falls back to Twitter if no nitter instances are configured.
+/// Twitter requires JavaScript to render content, so we use a headless browser to
+/// get the fully rendered DOM, similar to how Reddit HTML capture works.
 async fn fetch_html_snapshot(
     twitter_url: &str,
     work_dir: &Path,
-    _nitter_instances: &[String],
+    cookies: &CookieOptions<'_>,
 ) -> Result<()> {
+    // Try chromium --dump-dom first (preferred - gets rendered HTML after JS)
+    if let Some(spec) = cookies.browser_profile {
+        match fetch_html_with_chromium(twitter_url, work_dir, spec, 60, "twitter html").await {
+            Ok(html) => {
+                if html.trim().is_empty() {
+                    warn!("Chromium returned empty HTML for Twitter");
+                } else {
+                    let html_path = work_dir.join("raw.html");
+                    tokio::fs::write(&html_path, &html)
+                        .await
+                        .context("Failed to write raw.html")?;
+                    debug!(path = %html_path.display(), size = html.len(), "Saved rendered HTML snapshot via chromium");
+                    return Ok(());
+                }
+            }
+            Err(e) => {
+                warn!(url = %twitter_url, error = %e, "Chromium dump-dom failed for Twitter, falling back to HTTP");
+            }
+        }
+    }
+
+    // Fallback to HTTP fetch (won't have JS-rendered content, but better than nothing)
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .context("Failed to build HTTP client")?;
 
-    let mut html: Option<String> = None;
-
-    // TEMPORARILY DISABLED: Try nitter instances first (simpler HTML, better for monolith)
-    // Nitter appears to be returning empty responses, so we're going directly to Twitter for now
-    /*
-    for instance in nitter_instances {
-        let nitter_url = get_nitter_url(twitter_url, instance);
-        debug!(nitter_url = %nitter_url, "Trying nitter for HTML snapshot");
-
-        match fetch_html_from_url(&client, &nitter_url).await {
-            Ok(content) if !content.trim().is_empty() => {
-                info!(instance = %instance, size = content.len(), "Got HTML snapshot from nitter");
-                html = Some(content);
-                break;
-            }
-            Ok(_) => {
-                debug!(instance = %instance, "Nitter returned empty HTML");
-            }
-            Err(e) => {
-                debug!(instance = %instance, error = %e, "Nitter HTML fetch failed");
-            }
+    debug!(url = %twitter_url, "Trying HTTP fetch for Twitter HTML (JS content will be missing)");
+    match fetch_html_from_url(&client, twitter_url).await {
+        Ok(content) if !content.trim().is_empty() => {
+            let html_path = work_dir.join("raw.html");
+            tokio::fs::write(&html_path, &content)
+                .await
+                .context("Failed to write raw.html")?;
+            debug!(path = %html_path.display(), size = content.len(), "Saved HTML snapshot via HTTP (no JS rendering)");
+            Ok(())
         }
-    }
-    */
-
-    // Try Twitter directly (may have complex JS-heavy HTML)
-    // Note: This used to be a fallback after nitter, but nitter is currently disabled
-    if html.is_none() {
-        debug!(url = %twitter_url, "Trying Twitter directly for HTML snapshot");
-        match fetch_html_from_url(&client, twitter_url).await {
-            Ok(content) if !content.trim().is_empty() => {
-                debug!(
-                    size = content.len(),
-                    "Got HTML snapshot from Twitter directly"
-                );
-                html = Some(content);
-            }
-            Ok(_) => {
-                return Err(anyhow::anyhow!("Twitter returned empty HTML"));
-            }
-            Err(e) => {
-                return Err(e.context("Failed to fetch HTML from Twitter"));
-            }
+        Ok(_) => {
+            anyhow::bail!("Twitter returned empty HTML");
         }
-    }
-
-    // Save HTML to raw.html
-    if let Some(content) = html {
-        // Validate that we actually got content
-        if content.trim().is_empty() {
-            anyhow::bail!("Retrieved HTML is empty");
-        }
-
-        let html_path = work_dir.join("raw.html");
-        tokio::fs::write(&html_path, &content)
-            .await
-            .context("Failed to write raw.html")?;
-        debug!(path = %html_path.display(), size = content.len(), "Saved HTML snapshot");
-        Ok(())
-    } else {
-        anyhow::bail!("No HTML content retrieved");
+        Err(e) => Err(e.context("Failed to fetch HTML from Twitter")),
     }
 }
 
