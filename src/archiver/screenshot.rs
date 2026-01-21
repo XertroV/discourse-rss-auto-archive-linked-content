@@ -569,6 +569,97 @@ impl ScreenshotService {
         Ok(())
     }
 
+    /// Capture the rendered HTML content of a page after JavaScript execution.
+    ///
+    /// This uses the browser's DOM to get the fully rendered HTML, which is useful
+    /// for JavaScript-heavy sites like Twitter that don't render content server-side.
+    /// Returns the HTML content as a string.
+    pub async fn capture_html(&self, url: &str) -> Result<String> {
+        if !self.config.enabled {
+            anyhow::bail!("Screenshot service is disabled (required for HTML capture)");
+        }
+
+        self.ensure_browser().await?;
+
+        let browser_guard = self.browser.lock().await;
+        let browser = browser_guard.as_ref().context("Browser not initialized")?;
+
+        debug!(url = %url, "Capturing rendered HTML via CDP");
+
+        // Create a new page (start with about:blank to inject cookies first)
+        let page = browser
+            .new_page("about:blank")
+            .await
+            .context("Failed to create new page")?;
+
+        // Inject cookies if configured
+        if let Some(ref cookies_path) = self.config.cookies_file_path {
+            if cookies_path.exists() {
+                match load_cookies_for_url(cookies_path, url).await {
+                    Ok(cookies) if !cookies.is_empty() => {
+                        match SetCookiesParams::builder().cookies(cookies).build() {
+                            Ok(set_cookies) => {
+                                if let Err(e) = page.execute(set_cookies).await {
+                                    warn!(url = %url, error = %e, "Failed to set cookies for HTML capture");
+                                } else {
+                                    debug!(url = %url, "Cookies injected for HTML capture");
+                                }
+                            }
+                            Err(e) => {
+                                warn!(url = %url, error = %e, "Failed to build SetCookiesParams for HTML");
+                            }
+                        }
+                    }
+                    Ok(_) => debug!(url = %url, "No matching cookies found for HTML capture"),
+                    Err(e) => {
+                        warn!(url = %url, error = %e, "Failed to load cookies for HTML capture")
+                    }
+                }
+            }
+        }
+
+        // Navigate to the actual URL
+        page.goto(url).await.context("Failed to navigate to URL")?;
+
+        // Wait for the page to load
+        page.wait_for_navigation()
+            .await
+            .context("Navigation timeout")?;
+
+        // Wait for JavaScript to render content
+        // Twitter and similar SPA sites need time for React/JS to hydrate
+        tokio::time::sleep(Duration::from_secs(4)).await;
+
+        // Get the rendered HTML content
+        let html = page
+            .content()
+            .await
+            .context("Failed to get page HTML content")?;
+
+        // Close the page
+        if let Err(e) = page.close().await {
+            warn!("Failed to close page: {e}");
+        }
+
+        let size = html.len();
+        if size == 0 {
+            anyhow::bail!("Captured HTML is empty for {url}");
+        }
+
+        debug!(url = %url, size, "Rendered HTML captured via CDP");
+
+        Ok(html)
+    }
+
+    /// Capture rendered HTML and save it to a file.
+    pub async fn capture_html_to_file(&self, url: &str, output_path: &Path) -> Result<()> {
+        let html = self.capture_html(url).await?;
+        tokio::fs::write(output_path, &html)
+            .await
+            .with_context(|| format!("Failed to write HTML to {}", output_path.display()))?;
+        Ok(())
+    }
+
     /// Shutdown the browser gracefully.
     pub async fn shutdown(&self) {
         let mut browser_guard = self.browser.lock().await;

@@ -205,10 +205,21 @@ mod tests {
 /// - `browser_profile`: Browser profile spec for yt-dlp's --cookies-from-browser (yt-dlp only)
 ///
 /// If both are set, yt-dlp prefers browser_profile; gallery-dl only uses cookies_file.
-#[derive(Debug, Clone, Default)]
 pub struct CookieOptions<'a> {
     /// Path to cookies.txt file (Netscape format).
     pub cookies_file: Option<&'a Path>,
     /// Browser profile spec for yt-dlp (e.g., "chromium+basictext:/path/to/profile").
     pub browser_profile: Option<&'a str>,
+    /// Screenshot service for rendering HTML via CDP (optional, for JS-heavy sites).
+    pub screenshot_service: Option<&'a screenshot::ScreenshotService>,
+}
+
+impl Default for CookieOptions<'_> {
+    fn default() -> Self {
+        Self {
+            cookies_file: None,
+            browser_profile: None,
+            screenshot_service: None,
+        }
+    }
 }

@@ -780,6 +780,7 @@ async fn process_supplementary_artifacts_job(
     let cookies = CookieOptions {
         cookies_file,
         browser_profile: state.config.yt_dlp_cookies_from_browser.as_deref(),
+        screenshot_service: None,
     };
 
     // Download supplementary artifacts (subtitles and transcripts only)

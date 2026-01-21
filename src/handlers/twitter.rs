@@ -556,27 +556,51 @@ fn build_cookie_header_for_domain(cookies_path: &Path, domain: &str) -> Result<S
     Ok(cookies.join("; "))
 }
 
-/// Fetch HTML snapshot using chromium --dump-dom to get rendered HTML after JS execution.
+/// Fetch HTML snapshot using browser to get rendered HTML after JS execution.
 ///
 /// Twitter requires JavaScript to render content, so we use a headless browser to
-/// get the fully rendered DOM, similar to how Reddit HTML capture works.
+/// get the fully rendered DOM. This function tries multiple methods in order:
+/// 1. ScreenshotService CDP (best - uses persistent browser with proper waiting)
+/// 2. Chromium --dump-dom CLI (fallback - may not wait long enough for JS)
+/// 3. HTTP fetch (last resort - no JS rendering)
 async fn fetch_html_snapshot(
     twitter_url: &str,
     work_dir: &Path,
     cookies: &CookieOptions<'_>,
 ) -> Result<()> {
-    // Try chromium --dump-dom first (preferred - gets rendered HTML after JS)
+    let html_path = work_dir.join("raw.html");
+
+    // Try ScreenshotService CDP first (preferred - proper waiting for JS rendering)
+    if let Some(screenshot_service) = cookies.screenshot_service {
+        match screenshot_service.capture_html(twitter_url).await {
+            Ok(html) => {
+                if html.trim().is_empty() {
+                    warn!("ScreenshotService returned empty HTML for Twitter");
+                } else {
+                    tokio::fs::write(&html_path, &html)
+                        .await
+                        .context("Failed to write raw.html")?;
+                    debug!(path = %html_path.display(), size = html.len(), "Saved rendered HTML snapshot via CDP");
+                    return Ok(());
+                }
+            }
+            Err(e) => {
+                warn!(url = %twitter_url, error = %e, "CDP HTML capture failed for Twitter, falling back to dump-dom");
+            }
+        }
+    }
+
+    // Try chromium --dump-dom (may not wait long enough for full JS rendering)
     if let Some(spec) = cookies.browser_profile {
         match fetch_html_with_chromium(twitter_url, work_dir, spec, 60, "twitter html").await {
             Ok(html) => {
                 if html.trim().is_empty() {
-                    warn!("Chromium returned empty HTML for Twitter");
+                    warn!("Chromium dump-dom returned empty HTML for Twitter");
                 } else {
-                    let html_path = work_dir.join("raw.html");
                     tokio::fs::write(&html_path, &html)
                         .await
                         .context("Failed to write raw.html")?;
-                    debug!(path = %html_path.display(), size = html.len(), "Saved rendered HTML snapshot via chromium");
+                    debug!(path = %html_path.display(), size = html.len(), "Saved rendered HTML snapshot via chromium dump-dom");
                     return Ok(());
                 }
             }
@@ -596,7 +620,6 @@ async fn fetch_html_snapshot(
     debug!(url = %twitter_url, "Trying HTTP fetch for Twitter HTML (JS content will be missing)");
     match fetch_html_from_url(&client, twitter_url).await {
         Ok(content) if !content.trim().is_empty() => {
-            let html_path = work_dir.join("raw.html");
             tokio::fs::write(&html_path, &content)
                 .await
                 .context("Failed to write raw.html")?;

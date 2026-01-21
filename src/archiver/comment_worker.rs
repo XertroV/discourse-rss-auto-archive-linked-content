@@ -179,6 +179,7 @@ async fn extract_comments_for_archive(
         let cookies = CookieOptions {
             browser_profile: config.yt_dlp_cookies_from_browser.as_deref(),
             cookies_file: config.cookies_file_path.as_deref(),
+            screenshot_service: None,
         };
 
         comment_count = ytdlp::extract_comments_only(
