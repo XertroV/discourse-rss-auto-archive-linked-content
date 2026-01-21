@@ -538,7 +538,7 @@ form input.header-search-input {
 
 .header-search-input {
     flex: 1;
-    padding: var(--spacing-xs) var(--spacing-sm);
+    /* padding: var(--spacing-xs) var(--spacing-sm); */
     font-family: inherit;
     font-size: var(--font-size-sm);
     border: 1px solid var(--border-color);
@@ -767,6 +767,7 @@ form.header-search-form button[type="submit"] {
     font-size: var(--font-size-xs);
     font-weight: 600;
     margin-left: var(--spacing-xs);
+    margin-right: var(--spacing-xs);
     vertical-align: middle;
 }
 
