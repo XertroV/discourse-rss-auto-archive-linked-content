@@ -529,6 +529,11 @@ tr:hover {
     gap: var(--spacing-md);
     width: 100%;
     max-width: 400px;
+    margin-bottom: 0;
+}
+
+form input.header-search-input {
+    margin-bottom: 0;
 }
 
 .header-search-input {
@@ -541,6 +546,14 @@ tr:hover {
     color: var(--text-primary);
     outline: none;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+form.header-search-form {
+    margin-bottom: 0;
+}
+
+form.header-search-form button[type="submit"] {
+    margin-top: 0;
 }
 
 .header-search-input:focus {
