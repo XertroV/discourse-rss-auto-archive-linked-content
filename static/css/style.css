@@ -1933,6 +1933,91 @@ pre {
     text-align: center;
 }
 
+/* Twitter image gallery grid - displays images like Twitter does */
+.twitter-image-grid {
+    display: grid;
+    gap: 2px;
+    border-radius: 16px;
+    overflow: hidden;
+    max-width: 800px;
+}
+
+.twitter-image-item {
+    display: block;
+    overflow: hidden;
+}
+
+.twitter-image-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.2s ease;
+}
+
+.twitter-image-item:hover img {
+    transform: scale(1.02);
+}
+
+/* Single image - full width */
+.twitter-grid-1 {
+    grid-template-columns: 1fr;
+}
+
+.twitter-grid-1 .twitter-image-item img {
+    max-height: 600px;
+    object-fit: contain;
+    background: var(--bg-secondary);
+}
+
+/* Two images - side by side */
+.twitter-grid-2 {
+    grid-template-columns: 1fr 1fr;
+}
+
+.twitter-grid-2 .twitter-image-item img {
+    height: 300px;
+}
+
+/* Three images - one large on left, two stacked on right */
+.twitter-grid-3 {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+}
+
+.twitter-grid-3 .twitter-image-item:first-child {
+    grid-row: 1 / 3;
+}
+
+.twitter-grid-3 .twitter-image-item:first-child img {
+    height: 100%;
+}
+
+.twitter-grid-3 .twitter-image-item:not(:first-child) img {
+    height: 150px;
+}
+
+/* Four or more images - 2x2 grid */
+.twitter-grid-4 {
+    grid-template-columns: 1fr 1fr;
+}
+
+.twitter-grid-4 .twitter-image-item img {
+    height: 200px;
+}
+
+/* Mobile adjustments for Twitter grids */
+@media (max-width: 480px) {
+    .twitter-grid-2 .twitter-image-item img,
+    .twitter-grid-3 .twitter-image-item:not(:first-child) img,
+    .twitter-grid-4 .twitter-image-item img {
+        height: 150px;
+    }
+
+    .twitter-grid-3 .twitter-image-item:first-child img {
+        height: 300px;
+    }
+}
+
 /* Tweet content display */
 .tweet-content {
     padding: var(--spacing-md);

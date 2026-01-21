@@ -934,6 +934,56 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
         return html! {};
     }
 
+    // Check if this is a Twitter archive with images/gallery
+    let is_twitter = link.domain == "x.com"
+        || link.domain == "twitter.com"
+        || link.domain.ends_with(".x.com")
+        || link.domain.ends_with(".twitter.com");
+
+    let is_twitter_gallery = is_twitter
+        && matches!(
+            archive.content_type.as_deref(),
+            Some("gallery") | Some("image")
+        );
+
+    // For Twitter galleries, collect all image artifacts and display in a grid
+    if is_twitter_gallery {
+        let image_artifacts: Vec<_> = artifacts.iter().filter(|a| a.kind == "image").collect();
+
+        if !image_artifacts.is_empty() {
+            let image_count = image_artifacts.len();
+            let grid_class = match image_count {
+                1 => "twitter-image-grid twitter-grid-1",
+                2 => "twitter-image-grid twitter-grid-2",
+                3 => "twitter-image-grid twitter-grid-3",
+                _ => "twitter-image-grid twitter-grid-4",
+            };
+
+            let content_type = archive.content_type.as_deref().unwrap_or("gallery");
+            let type_badge = MediaTypeBadge::from_content_type(content_type);
+
+            return html! {
+                section {
+                    div class="section-header-with-badge" {
+                        h2 { "Media" }
+                        (type_badge)
+                    }
+                    div class=(grid_class) {
+                        @for artifact in &image_artifacts {
+                            a href=(format!("/s3/{}", html_escape(&artifact.s3_key)))
+                              target="_blank" rel="noopener"
+                              class="twitter-image-item" {
+                                img src=(format!("/s3/{}", html_escape(&artifact.s3_key)))
+                                    alt="Tweet image"
+                                    loading="lazy";
+                            }
+                        }
+                    }
+                }
+            };
+        }
+    }
+
     // Parse chapters from description if available (for video content)
     let chapters = archive
         .content_text
