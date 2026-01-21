@@ -1909,7 +1909,12 @@ async fn process_archive_inner(
     .await?;
 
     // Queue comment extraction job if this is a comments-supported platform
-    if config.comments_enabled && is_comments_supported_platform(&link.domain, config) {
+    // Skip comment extraction for playlists (they have no comments)
+    let is_playlist = result.content_type == "playlist";
+    if config.comments_enabled
+        && !is_playlist
+        && is_comments_supported_platform(&link.domain, config)
+    {
         match create_archive_job(db.pool(), archive_id, ArchiveJobType::CommentExtraction).await {
             Ok(job_id) => {
                 debug!(
@@ -1927,6 +1932,11 @@ async fn process_archive_inner(
                 );
             }
         }
+    } else if is_playlist {
+        debug!(
+            archive_id,
+            "Skipping comment extraction for playlist (playlists have no comments)"
+        );
     }
 
     // Store NSFW status if detected
