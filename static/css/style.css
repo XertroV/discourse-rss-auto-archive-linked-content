@@ -675,6 +675,72 @@ article header {
     border-bottom: 1px solid var(--border-color);
 }
 
+/* Remove border from archive card headers (used in thread/archive grids) */
+.archive-card header {
+    border-bottom: none;
+    padding: 0;
+    margin-bottom: var(--spacing-sm);
+}
+
+/* Archive detail page header - modern card layout */
+article > header {
+    border-bottom: none;
+    padding: 0;
+    margin-bottom: var(--spacing-lg);
+}
+
+.archive-header-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.archive-info-card {
+    background-color: var(--bg-secondary);
+    padding: var(--spacing-md);
+    border: 1px solid var(--border-color);
+    transition: box-shadow 0.2s ease;
+}
+
+.archive-info-card:hover {
+    box-shadow: var(--box-shadow);
+}
+
+.info-label {
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-xs);
+}
+
+.info-value {
+    font-size: var(--font-size-base);
+    color: var(--text-primary);
+    word-break: break-word;
+}
+
+.archive-url-section {
+    background-color: var(--bg-secondary);
+    padding: var(--spacing-md);
+    border: 1px solid var(--border-color);
+}
+
+.archive-url-link {
+    font-family: monospace;
+    font-size: var(--font-size-sm);
+    word-break: break-all;
+}
+
+/* Responsive: stack cards on mobile */
+@media (max-width: 640px) {
+    .archive-header-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 article section {
     margin-top: var(--spacing-lg);
     padding-top: var(--spacing-md);

@@ -167,15 +167,15 @@ impl Render for SortNav {
         ];
 
         html! {
-            nav class="sort-nav" style="margin-bottom: 1.5rem;" {
-                span { "Sort by: " }
-                @for (sort, label) in sort_options {
-                    @if sort == self.current_sort {
-                        strong { (label) }
-                        " "
-                    } @else {
-                        a href=(format!("/threads?sort={}", sort.as_str())) { (label) }
-                        " "
+            div class="filter-section" style="margin-bottom: 1.5rem;" {
+                h3 { "Sort by" }
+                div class="filter-buttons" {
+                    @for (sort, label) in sort_options {
+                        @let is_active = sort == self.current_sort;
+                        @let class = if is_active { "filter-btn active" } else { "filter-btn" };
+                        a href=(format!("/threads?sort={}", sort.as_str())) class=(class) {
+                            (label)
+                        }
                     }
                 }
             }
@@ -214,9 +214,7 @@ pub fn render_threads_list_page(params: &ThreadsListParams<'_>) -> Markup {
         }
     };
 
-    BaseLayout::new("Threads")
-        .with_user(params.user)
-        .render(content)
+    BaseLayout::new("Threads", params.user).render(content)
 }
 
 /// Parameters for the thread detail page.
@@ -339,9 +337,7 @@ pub fn render_thread_detail_page(params: &ThreadDetailParams<'_>) -> Markup {
         }
     };
 
-    BaseLayout::new(&format!("Thread: {title}"))
-        .with_user(params.user)
-        .render(content)
+    BaseLayout::new(&format!("Thread: {title}"), params.user).render(content)
 }
 
 /// Job status variant for display styling.
@@ -560,9 +556,7 @@ pub fn render_thread_job_status_page(params: &ThreadJobStatusParams<'_>) -> Mark
         }
     };
 
-    BaseLayout::new(&format!("Thread Archive Job #{}", job.id))
-        .with_user(params.user)
-        .render(content)
+    BaseLayout::new(&format!("Thread Archive Job #{}", job.id), params.user).render(content)
 }
 
 #[cfg(test)]
@@ -671,8 +665,9 @@ mod tests {
         let nav = SortNav::new(ThreadSortBy::Updated);
         let html = nav.render().into_string();
 
-        assert!(html.contains("Sort by:"));
-        assert!(html.contains("<strong>Recently Updated</strong>"));
+        assert!(html.contains("Sort by"));
+        assert!(html.contains("filter-btn active"));
+        assert!(html.contains("Recently Updated"));
         assert!(html.contains("href=\"/threads?sort=created\""));
         assert!(html.contains("href=\"/threads?sort=name\""));
     }

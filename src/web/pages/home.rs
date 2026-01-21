@@ -375,27 +375,33 @@ pub fn render_home_page(params: &HomePageParams) -> Markup {
         h1 { (heading) }
         (tabs)
 
-        // Show filters on paginated pages
-        @if params.total_pages > 0 {
+        // Show filters on paginated pages (including when no results)
+        @if params.total_pages > 0 || params.content_type_filter.is_some() || params.source_filter.is_some() {
             div class="filters-container" {
                 (content_filter)
                 (source_filter)
             }
         }
 
+        // Show pagination above the archive grid (even if empty)
+        @if pagination.should_display() {
+            (pagination)
+        }
+
+        // Show archive grid or empty state
         @if params.archives.is_empty() {
             (EmptyState::no_archives())
         } @else {
             (ArchiveGrid::new(params.archives))
+        }
 
-            // Show pagination if needed
-            @if pagination.should_display() {
-                (pagination)
-            }
+        // Show pagination below the archive grid (even if empty)
+        @if pagination.should_display() {
+            (pagination)
         }
     };
 
-    let mut layout = BaseLayout::new(page_title).with_user(params.user);
+    let mut layout = BaseLayout::new(page_title, params.user);
 
     if let Some(ref og) = params.og_metadata {
         layout = layout.with_og_metadata(og.clone());

@@ -147,7 +147,7 @@ pub fn render_archive_detail_page(params: &ArchiveDetailParams<'_>) -> Markup {
         }
     };
 
-    let mut layout = BaseLayout::new(title).with_user(params.user);
+    let mut layout = BaseLayout::new(title, params.user);
 
     if let Some(ref og) = params.og_metadata {
         layout = layout.with_og_metadata(og.clone());
@@ -166,23 +166,54 @@ fn render_archive_header(archive: &Archive, link: &Link) -> Markup {
         StatusBadge::from_status(&archive.status).with_error(archive.error_message.as_deref());
 
     html! {
-        p class="meta" {
-            strong { "Status:" } " " (status_badge) br;
-            // Progress bar for active downloads
-            @if archive.status == "processing" && archive.progress_percent.is_some() {
-                (render_progress_bar(archive))
+        div class="archive-header-grid" {
+            // Status card
+            div class="archive-info-card" {
+                div class="info-label" { "Status" }
+                div class="info-value" { (status_badge) }
+
+                // Progress bar for active downloads
+                @if archive.status == "processing" && archive.progress_percent.is_some() {
+                    (render_progress_bar(archive))
+                }
             }
-            strong { "Original URL:" } " "
-            a href=(link.normalized_url) target="_blank" rel="noopener" {
-                (link.normalized_url)
+
+            // Domain card
+            div class="archive-info-card" {
+                div class="info-label" { "Domain" }
+                div class="info-value" { (link.domain) }
             }
-            br;
-            strong { "Domain:" } " " (link.domain)
-            (render_http_status(archive))
-            (render_author(archive))
-            br;
-            strong { "Archived:" } " "
-            (archive.archived_at.as_deref().unwrap_or("pending"))
+
+            // Archived date card
+            div class="archive-info-card" {
+                div class="info-label" { "Archived" }
+                div class="info-value" {
+                    (archive.archived_at.as_deref().unwrap_or("pending"))
+                }
+            }
+
+            // HTTP Status card (if present)
+            @if let Some(code) = archive.http_status_code {
+                (render_http_status_card(code))
+            }
+
+            // Author card (if present)
+            @if let Some(ref author) = archive.content_author {
+                div class="archive-info-card" {
+                    div class="info-label" { "Author" }
+                    div class="info-value" { (author) }
+                }
+            }
+        }
+
+        // Original URL - full width below the cards
+        div class="archive-url-section" {
+            div class="info-label" { "Original URL" }
+            div class="info-value" {
+                a href=(link.normalized_url) target="_blank" rel="noopener" class="archive-url-link" {
+                    (link.normalized_url)
+                }
+            }
         }
     }
 }
@@ -218,35 +249,23 @@ fn render_progress_bar(archive: &Archive) -> Markup {
     }
 }
 
-/// Render HTTP status code with styling.
-fn render_http_status(archive: &Archive) -> Markup {
-    if let Some(code) = archive.http_status_code {
-        let (class, emoji) = match code {
-            200..=299 => ("http-status-success", "\u{2713}"), // ✓
-            301 | 302 | 303 | 307 | 308 => ("http-status-redirect", "\u{21BB}"), // ↻
-            400..=499 => ("http-status-client-error", "\u{2717}"), // ✗
-            500..=599 => ("http-status-server-error", "\u{26A0}"), // ⚠
-            _ => ("http-status-unknown", "?"),
-        };
-        html! {
-            br;
-            strong { "HTTP Status:" } " "
-            span class=(class) { (emoji) " " (code) }
-        }
-    } else {
-        html! {}
-    }
-}
+/// Render HTTP status code as a card.
+fn render_http_status_card(code: i32) -> Markup {
+    let (class, emoji) = match code {
+        200..=299 => ("http-status-success", "\u{2713}"), // ✓
+        301 | 302 | 303 | 307 | 308 => ("http-status-redirect", "\u{21BB}"), // ↻
+        400..=499 => ("http-status-client-error", "\u{2717}"), // ✗
+        500..=599 => ("http-status-server-error", "\u{26A0}"), // ⚠
+        _ => ("http-status-unknown", "?"),
+    };
 
-/// Render content author if present.
-fn render_author(archive: &Archive) -> Markup {
-    if let Some(ref author) = archive.content_author {
-        html! {
-            br;
-            strong { "Author:" } " " (author)
+    html! {
+        div class="archive-info-card" {
+            div class="info-label" { "HTTP Status" }
+            div class="info-value" {
+                span class=(class) { (emoji) " " (code) }
+            }
         }
-    } else {
-        html! {}
     }
 }
 
