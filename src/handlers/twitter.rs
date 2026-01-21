@@ -155,17 +155,21 @@ impl SiteHandler for TwitterHandler {
             }
         }
 
-        // Step 2: Detect if there's media in the HTML
-        let has_media = html_content
+        // Step 2: Detect what type of media is in the HTML
+        let media_type = html_content
             .as_ref()
-            .map(|html| detect_media_in_html(html))
-            .unwrap_or(false);
+            .map(|html| detect_media_type_in_html(html))
+            .unwrap_or(TweetMediaType::None);
 
-        // Step 3: Only call yt-dlp/gallery-dl if we detected media
-        if has_media {
-            debug!(url = %normalized_url, "Media detected in tweet, attempting download");
+        // Step 3: Call the appropriate tool based on media type
+        // - Videos and GIFs → yt-dlp
+        // - Images only → gallery-dl (skip yt-dlp to avoid unnecessary failure)
+        if media_type != TweetMediaType::None {
+            debug!(url = %normalized_url, media_type = ?media_type, "Media detected in tweet, attempting download");
 
-            match archive_twitter_direct(&normalized_url, work_dir, cookies, config).await {
+            match archive_twitter_media(&normalized_url, work_dir, cookies, config, media_type)
+                .await
+            {
                 Ok(media_result) => {
                     // Merge media result with our result
                     if media_result.primary_file.is_some() {
@@ -180,6 +184,10 @@ impl SiteHandler for TwitterHandler {
                     result.metadata_json = media_result.metadata_json.or(result.metadata_json);
                     result.is_nsfw = media_result.is_nsfw.or(result.is_nsfw);
                     result.nsfw_source = media_result.nsfw_source.or(result.nsfw_source);
+                    // Merge extra_files (important for galleries!)
+                    if !media_result.extra_files.is_empty() {
+                        result.extra_files = media_result.extra_files;
+                    }
                 }
                 Err(e) => {
                     // Media download failed, but we still have the HTML snapshot
@@ -211,61 +219,101 @@ impl SiteHandler for TwitterHandler {
     }
 }
 
-/// Archive Twitter content directly (via yt-dlp, with gallery-dl fallback for images).
+/// Archive Twitter media based on detected media type.
 ///
-/// We use yt-dlp first because:
-/// - It handles videos reliably
-/// - It provides good metadata for text-only tweets
-/// - gallery-dl can cause issues and is only needed for image galleries
-async fn archive_twitter_direct(
+/// - Videos and GIFs → yt-dlp (handles video content)
+/// - Images only → gallery-dl directly (faster, avoids yt-dlp "No video" error)
+/// - Cards → try yt-dlp first, fall back to gallery-dl
+async fn archive_twitter_media(
+    url: &str,
+    work_dir: &Path,
+    cookies: &CookieOptions<'_>,
+    config: &crate::config::Config,
+    media_type: TweetMediaType,
+) -> Result<ArchiveResult> {
+    match media_type {
+        TweetMediaType::Video | TweetMediaType::Gif => {
+            // Use yt-dlp for video and GIF content
+            debug!(url = %url, media_type = ?media_type, "Using yt-dlp for video/GIF content");
+            archive_with_ytdlp(url, work_dir, cookies, config).await
+        }
+        TweetMediaType::Images => {
+            // Use gallery-dl directly for image-only tweets (skip yt-dlp)
+            debug!(url = %url, "Using gallery-dl for image-only tweet");
+            archive_with_gallerydl(url, work_dir, cookies).await
+        }
+        TweetMediaType::Card => {
+            // Cards might be videos or images, try yt-dlp first
+            debug!(url = %url, "Card detected, trying yt-dlp first");
+            match archive_with_ytdlp(url, work_dir, cookies, config).await {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    let err_str = e.to_string();
+                    if is_rate_limit_error(&err_str) {
+                        return Err(e);
+                    }
+                    debug!("yt-dlp failed for card, trying gallery-dl: {e}");
+                    archive_with_gallerydl(url, work_dir, cookies).await
+                }
+            }
+        }
+        TweetMediaType::None => {
+            // No media - this shouldn't be called but handle gracefully
+            anyhow::bail!("No media detected in tweet")
+        }
+    }
+}
+
+/// Archive Twitter content using yt-dlp (for videos and GIFs).
+async fn archive_with_ytdlp(
     url: &str,
     work_dir: &Path,
     cookies: &CookieOptions<'_>,
     config: &crate::config::Config,
 ) -> Result<ArchiveResult> {
-    // Try yt-dlp first - handles videos and provides metadata
-    debug!(url = %url, "Trying yt-dlp for Twitter content");
-    match ytdlp::download(url, work_dir, cookies, config, None, None).await {
-        Ok(mut result) => {
-            debug!("yt-dlp succeeded for Twitter");
+    let mut result = ytdlp::download(url, work_dir, cookies, config, None, None).await?;
 
-            // Extract tweet ID for deduplication
-            if let Some(tweet_id) = extract_tweet_id(url) {
-                debug!(tweet_id = %tweet_id, "Extracted Twitter tweet ID");
-                result.video_id = Some(format!("twitter_{tweet_id}"));
-            }
+    debug!("yt-dlp succeeded for Twitter");
 
-            // Default to "thread" for text-only tweets (not "image")
-            if result.content_type.is_empty() && result.primary_file.is_none() {
-                result.content_type = "thread".to_string();
-            }
+    // Extract tweet ID for deduplication
+    if let Some(tweet_id) = extract_tweet_id(url) {
+        debug!(tweet_id = %tweet_id, "Extracted Twitter tweet ID");
+        result.video_id = Some(format!("twitter_{tweet_id}"));
+    }
 
-            // Detect NSFW from yt-dlp metadata
-            if result.is_nsfw.is_none() {
-                let (is_nsfw, nsfw_source) =
-                    detect_nsfw_from_ytdlp_metadata(result.metadata_json.as_deref());
-                if is_nsfw.unwrap_or(false) {
-                    result.is_nsfw = is_nsfw;
-                    result.nsfw_source = nsfw_source;
-                }
-            }
+    // Default to "video" for yt-dlp results (not "thread")
+    if result.content_type.is_empty() {
+        result.content_type = "video".to_string();
+    }
 
-            return Ok(result);
-        }
-        Err(e) => {
-            let err_str = e.to_string();
-            if is_rate_limit_error(&err_str) {
-                debug!("yt-dlp rate-limited for Twitter: {e}");
-                return Err(e);
-            }
-            // yt-dlp failed - might be an image-only tweet, try gallery-dl
-            debug!("yt-dlp failed for Twitter, trying gallery-dl for images: {e}");
+    // Detect NSFW from yt-dlp metadata
+    if result.is_nsfw.is_none() {
+        let (is_nsfw, nsfw_source) =
+            detect_nsfw_from_ytdlp_metadata(result.metadata_json.as_deref());
+        if is_nsfw.unwrap_or(false) {
+            result.is_nsfw = is_nsfw;
+            result.nsfw_source = nsfw_source;
         }
     }
 
-    // Fall back to gallery-dl for image-only tweets
-    debug!(url = %url, "Trying gallery-dl for Twitter images");
+    Ok(result)
+}
+
+/// Archive Twitter content using gallery-dl (for images).
+async fn archive_with_gallerydl(
+    url: &str,
+    work_dir: &Path,
+    cookies: &CookieOptions<'_>,
+) -> Result<ArchiveResult> {
     let mut result = gallerydl::download(url, work_dir, cookies).await?;
+
+    debug!(
+        url = %url,
+        primary_file = ?result.primary_file,
+        extra_files_count = result.extra_files.len(),
+        content_type = %result.content_type,
+        "gallery-dl succeeded for Twitter"
+    );
 
     // Extract Twitter-specific metadata from gallery-dl JSON
     if let Some(ref json_str) = result.metadata_json {
@@ -288,27 +336,14 @@ async fn archive_twitter_direct(
                 result.text = metadata.text.clone();
             }
 
-            // Set content_type based on actual media count
-            if metadata.media_count == 0 {
-                result.content_type = "thread".to_string();
-            } else if metadata.media_count == 1 {
-                result.content_type = "image".to_string();
-            } else if metadata.media_count > 1 {
-                result.content_type = "gallery".to_string();
-            }
-
-            // Store enhanced metadata
+            // Store enhanced metadata (but DON'T override content_type from gallerydl)
+            // The gallerydl result already has correct content_type based on actual files found
             let enhanced_metadata = serde_json::json!({
                 "twitter": metadata,
                 "original_metadata": serde_json::from_str::<serde_json::Value>(json_str).ok(),
             });
             result.metadata_json = Some(enhanced_metadata.to_string());
         }
-    }
-
-    // Default to "thread" if content_type wasn't set (not "image")
-    if result.content_type.is_empty() {
-        result.content_type = "thread".to_string();
     }
 
     // Extract tweet ID for deduplication
@@ -626,39 +661,80 @@ fn detect_nsfw_from_html(html: &str) -> bool {
         || html_lower.contains("sensitivemediawarning")
 }
 
-/// Detect if the Twitter HTML contains media (video, images, or GIFs).
+/// Type of media detected in tweet HTML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TweetMediaType {
+    /// No media detected (text-only tweet)
+    None,
+    /// Video content (use yt-dlp)
+    Video,
+    /// GIF content (use yt-dlp - Twitter GIFs are actually videos)
+    Gif,
+    /// Image(s) only, no video (use gallery-dl)
+    Images,
+    /// Card with media preview
+    Card,
+}
+
+/// Detect the type of media in Twitter HTML.
 ///
-/// This is used to decide whether to invoke yt-dlp/gallery-dl for downloading.
-/// For text-only tweets, we skip these tools to avoid unnecessary API calls.
-fn detect_media_in_html(html: &str) -> bool {
+/// This is used to decide whether to invoke yt-dlp or gallery-dl for downloading.
+/// - Videos and GIFs → yt-dlp
+/// - Images only → gallery-dl (faster, no unnecessary yt-dlp failure)
+/// - Text-only tweets → skip both tools
+fn detect_media_type_in_html(html: &str) -> TweetMediaType {
     let html_lower = html.to_ascii_lowercase();
 
-    // Video indicators
+    // Video indicators - check first since videos take priority
     let has_video = html_lower.contains("data-testid=\"videoplayer\"")
         || html_lower.contains("data-testid=\"videocomponent\"")
-        || html_lower.contains("\"video\"")
         || html_lower.contains("<video")
         || html_lower.contains("player.m3u8")
         || html_lower.contains("ext_tw_video")
         || html_lower.contains("amplify_video");
 
+    if has_video {
+        return TweetMediaType::Video;
+    }
+
+    // GIF indicators - Twitter GIFs are actually MP4 videos
+    // pbs.twimg.com/tweet_video/ is used for GIF thumbnails
+    let has_gif = html_lower.contains("data-testid=\"tweetgif\"")
+        || html_lower.contains("tweet_video_thumb")
+        || html_lower.contains("pbs.twimg.com/tweet_video");
+
+    if has_gif {
+        return TweetMediaType::Gif;
+    }
+
     // Image indicators (excluding profile pictures and icons)
     // Twitter uses data-testid="tweetPhoto" for tweet images
     let has_images = html_lower.contains("data-testid=\"tweetphoto\"")
-        || html_lower.contains("pbs.twimg.com/media/")
-        || html_lower.contains("pbs.twimg.com/tweet_video")
-        || html_lower.contains("pbs.twimg.com/ext_tw_video");
+        || html_lower.contains("pbs.twimg.com/media/");
 
-    // GIF indicators
-    let has_gif =
-        html_lower.contains("data-testid=\"tweetgif\"") || html_lower.contains("tweet_video_thumb");
+    if has_images {
+        return TweetMediaType::Images;
+    }
 
     // Card with media (preview cards with images/videos)
     let has_media_card = html_lower.contains("data-testid=\"card.wrapper\"")
         && (html_lower.contains("pbs.twimg.com/card_img/")
             || html_lower.contains("data-testid=\"card.layoutlarge.media\""));
 
-    has_video || has_images || has_gif || has_media_card
+    if has_media_card {
+        return TweetMediaType::Card;
+    }
+
+    TweetMediaType::None
+}
+
+/// Detect if the Twitter HTML contains media (video, images, or GIFs).
+///
+/// This is used to decide whether to invoke yt-dlp/gallery-dl for downloading.
+/// For text-only tweets, we skip these tools to avoid unnecessary API calls.
+#[cfg(test)]
+fn detect_media_in_html(html: &str) -> bool {
+    detect_media_type_in_html(html) != TweetMediaType::None
 }
 
 /// Remove `<noscript>` tags and their contents from HTML.

@@ -671,7 +671,7 @@ impl ScreenshotService {
 
         // Wait for JavaScript to render content
         // Twitter and similar SPA sites need time for React/JS to hydrate
-        tokio::time::sleep(Duration::from_secs(6)).await;
+        tokio::time::sleep(Duration::from_secs(4)).await;
 
         // Get the rendered HTML content
         let html = page

@@ -198,7 +198,8 @@ async fn find_and_parse_files(work_dir: &Path) -> Result<ArchiveResult> {
     let extra_files = sanitized_extra_files;
 
     // Determine content type based on file count
-    if extra_files.len() > 1 {
+    // If we have any extra files (2+ images total), it's a gallery
+    if !extra_files.is_empty() {
         content_type = "gallery".to_string();
     }
 
