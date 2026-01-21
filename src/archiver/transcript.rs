@@ -61,10 +61,14 @@ pub async fn parse_vtt(path: &Path) -> Result<Vec<SubtitleCue>> {
                     i += 1;
                 }
 
-                // Collect text lines until we hit an empty line
+                // Collect text lines until we hit an empty line or another timestamp
                 while i < lines.len() {
                     let text_line = lines[i].trim();
                     if text_line.is_empty() {
+                        break;
+                    }
+                    // If this line is another timestamp, don't collect it as text
+                    if text_line.contains("-->") {
                         break;
                     }
                     // Remove VTT tags like <c>, <v>, etc.

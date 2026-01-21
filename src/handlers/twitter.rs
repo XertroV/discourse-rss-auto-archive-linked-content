@@ -661,6 +661,112 @@ fn strip_noscript_tags(html: &str) -> String {
     NOSCRIPT_PATTERN.replace_all(html, "").into_owned()
 }
 
+/// Remove `<script>` tags and their contents from HTML.
+///
+/// When viewing captured HTML, embedded JavaScript can cause issues:
+/// - Twitter's JS tries to re-hydrate the page and fetch from APIs
+/// - This causes the page to show "page doesn't exist" errors
+/// - Layout breaks as JS tries to manipulate the DOM
+///
+/// By stripping scripts, we preserve the DOM state at capture time as a static snapshot.
+fn strip_script_tags(html: &str) -> String {
+    static SCRIPT_PATTERN: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"(?is)<script[^>]*>.*?</script>").unwrap());
+    SCRIPT_PATTERN.replace_all(html, "").into_owned()
+}
+
+/// Clean HTML for archiving by removing problematic tags.
+///
+/// Strips both `<noscript>` (misleading "JS required" messages) and
+/// `<script>` tags (prevents JS from breaking the static snapshot).
+/// Also injects CSS fixes for layout issues.
+fn clean_html_for_archive(html: &str) -> String {
+    let html = strip_noscript_tags(html);
+    let html = strip_script_tags(&html);
+    inject_archive_css(&html)
+}
+
+/// Inject CSS fixes into archived Twitter HTML to fix layout issues.
+///
+/// Twitter's layout expects a sidebar and uses responsive CSS that breaks
+/// when the page is viewed as a static archive. This injects styles to:
+/// - Center the main content
+/// - Hide navigation sidebars
+/// - Make the tweet take full width
+fn inject_archive_css(html: &str) -> String {
+    // CSS to fix Twitter's layout for archived viewing
+    let archive_css = r#"<style id="archive-layout-fix">
+/* Archive layout fixes for Twitter/X */
+/* Hide sidebars and navigation */
+[data-testid="sidebarColumn"],
+[data-testid="primaryColumn"] > div:first-child:not([data-testid="cellInnerDiv"]),
+header[role="banner"],
+nav[role="navigation"],
+[aria-label="Home timeline"] {
+    display: none !important;
+}
+
+/* Center the main content */
+main[role="main"] {
+    display: flex !important;
+    justify-content: center !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+[data-testid="primaryColumn"] {
+    max-width: 600px !important;
+    width: 100% !important;
+    margin: 0 auto !important;
+    border: none !important;
+}
+
+/* Fix the body/html to not expect sidebars */
+body, html {
+    overflow-x: hidden !important;
+}
+
+/* Ensure content is visible */
+article[data-testid="tweet"] {
+    max-width: 100% !important;
+}
+
+/* Hide "Sign up" prompts and login walls */
+[data-testid="BottomBar"],
+[data-testid="sheetDialog"],
+[role="dialog"],
+[data-testid="LoginForm"],
+[data-testid="signupButton"],
+[data-testid="loginButton"] {
+    display: none !important;
+}
+
+/* Fix any fixed/sticky positioning that breaks in iframes */
+[style*="position: fixed"],
+[style*="position:fixed"] {
+    position: absolute !important;
+}
+</style>"#;
+
+    // Inject the CSS right after <head> or at the start if no head
+    if let Some(head_pos) = html.to_lowercase().find("<head") {
+        // Find the end of the <head> tag
+        if let Some(head_end) = html[head_pos..].find('>') {
+            let insert_pos = head_pos + head_end + 1;
+            let mut result = String::with_capacity(html.len() + archive_css.len());
+            result.push_str(&html[..insert_pos]);
+            result.push_str(archive_css);
+            result.push_str(&html[insert_pos..]);
+            return result;
+        }
+    }
+
+    // Fallback: prepend to the HTML
+    format!("{archive_css}{html}")
+}
+
 /// Fetch HTML from Twitter/X or nitter for HTML snapshot.
 #[allow(dead_code)] // Will be used in Phase 5 (HTML snapshot)
 pub async fn fetch_tweet_html(url: &str, cookies: &CookieOptions<'_>) -> Result<String> {
@@ -750,8 +856,8 @@ async fn fetch_html_snapshot_cdp(
         anyhow::bail!("CDP returned empty HTML for Twitter");
     }
 
-    // Strip noscript tags to remove "JavaScript required" messages
-    let html = strip_noscript_tags(&html);
+    // Clean HTML for archiving (strip scripts and noscript tags)
+    let html = clean_html_for_archive(&html);
 
     tokio::fs::write(output_path, &html)
         .await
@@ -785,8 +891,8 @@ async fn fetch_html_snapshot_dump_dom(
         anyhow::bail!("Chromium dump-dom returned empty HTML for Twitter");
     }
 
-    // Strip noscript tags to remove "JavaScript required" messages
-    let html = strip_noscript_tags(&html);
+    // Clean HTML for archiving (strip scripts and noscript tags)
+    let html = clean_html_for_archive(&html);
 
     tokio::fs::write(output_path, &html)
         .await
@@ -816,8 +922,8 @@ async fn fetch_html_snapshot_http(twitter_url: &str, output_path: &Path) -> Resu
         anyhow::bail!("HTTP fetch returned empty HTML for Twitter");
     }
 
-    // Strip noscript tags to remove "JavaScript required" messages
-    let html = strip_noscript_tags(&html);
+    // Clean HTML for archiving (strip scripts and noscript tags)
+    let html = clean_html_for_archive(&html);
 
     tokio::fs::write(output_path, &html)
         .await
@@ -846,8 +952,8 @@ async fn fetch_html_snapshot_http_with_cookies(
         anyhow::bail!("HTTP with cookies returned empty HTML for Twitter");
     }
 
-    // Strip noscript tags to remove "JavaScript required" messages
-    let html = strip_noscript_tags(&html);
+    // Clean HTML for archiving (strip scripts and noscript tags)
+    let html = clean_html_for_archive(&html);
 
     tokio::fs::write(output_path, &html)
         .await

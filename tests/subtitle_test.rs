@@ -384,3 +384,102 @@ async fn test_vtt_with_tags() {
     assert_eq!(cues[0].text, "Colored text");
     assert_eq!(cues[1].text, "Speaker name");
 }
+
+#[tokio::test]
+async fn test_vtt_consecutive_timestamps_no_text() {
+    // Reproduces bug where consecutive timestamp lines with no text between them
+    // cause timestamp lines to be parsed as text content
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let vtt_path = temp_dir.path().join("consecutive.vtt");
+
+    let content = r#"WEBVTT
+Kind: captions
+Language: en
+
+00:00:05.600 --> 00:00:11.509 align:start position:0%
+
+Edward<00:00:06.000><c> Teller,</c><00:00:06.879><c> friend</c><00:00:07.200><c> and</c><00:00:07.520><c> colleague.</c>
+
+00:00:11.519 --> 00:00:15.589 align:start position:0%
+
+00:00:15.599 --> 00:00:19.429 align:start position:0%
+
+Many<00:00:11.840><c> people</c><00:00:12.240><c> have</c><00:00:12.480><c> wondered</c>
+
+00:00:19.439 --> 00:00:23.990 align:start position:0%
+how Jennifer Nyman
+
+00:00:24.000 --> 00:00:29.029 align:start position:0%
+could think so fast
+"#;
+
+    fs::write(&vtt_path, content)
+        .await
+        .expect("Failed to write VTT");
+
+    let cues = parse_vtt(&vtt_path).await.expect("Failed to parse VTT");
+
+    // Should only parse actual text cues, not timestamp-only lines
+    assert_eq!(cues.len(), 4, "Should have 4 text cues");
+
+    // First cue
+    assert!((cues[0].start_time - 5.6).abs() < 0.001);
+    assert!(cues[0].text.contains("Edward"));
+    assert!(cues[0].text.contains("Teller"));
+    assert!(
+        !cues[0].text.contains("-->"),
+        "Should not contain timestamp arrows"
+    );
+    assert!(
+        !cues[0].text.contains("00:00"),
+        "Should not contain timestamp"
+    );
+
+    // Third cue (after skipping the two timestamp-only lines)
+    assert!((cues[1].start_time - 15.599).abs() < 0.001);
+    assert!(cues[1].text.contains("Many"));
+    assert!(cues[1].text.contains("people"));
+    assert!(
+        !cues[1].text.contains("-->"),
+        "Should not contain timestamp arrows"
+    );
+
+    // Fourth cue
+    assert!((cues[2].start_time - 19.439).abs() < 0.001);
+    assert!(cues[2].text.contains("Jennifer Nyman"));
+
+    // Fifth cue
+    assert!((cues[3].start_time - 24.0).abs() < 0.001);
+    assert!(cues[3].text.contains("could think so fast"));
+}
+
+#[tokio::test]
+async fn test_vtt_empty_cues_between_text() {
+    // Test VTT with timestamp lines that have no associated text
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let vtt_path = temp_dir.path().join("empty_cues.vtt");
+
+    let content = r#"WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+First text
+
+00:00:02.000 --> 00:00:03.000
+
+00:00:03.000 --> 00:00:04.000
+
+00:00:04.000 --> 00:00:06.000
+Second text
+"#;
+
+    fs::write(&vtt_path, content)
+        .await
+        .expect("Failed to write VTT");
+
+    let cues = parse_vtt(&vtt_path).await.expect("Failed to parse VTT");
+
+    // Should only have cues with actual text
+    assert_eq!(cues.len(), 2);
+    assert_eq!(cues[0].text, "First text");
+    assert_eq!(cues[1].text, "Second text");
+}
