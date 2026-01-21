@@ -91,10 +91,10 @@ impl Render for ArchiveCard<'_> {
                 // Main card content - hidden when NSFW filter is active
                 div class="archive-card-content" {
                     h3 {
-                        a href=(format!("/archive/{}", archive.id)) { (title) }
                         @if archive.is_nsfw {
                             (NsfwBadge::new())
                         }
+                        a href=(format!("/archive/{}", archive.id)) { (title) }
                     }
                     p class="archive-url" {
                         code class="url-display" title="Click to copy" onclick=(PreEscaped(copy_js)) {
@@ -277,10 +277,10 @@ impl Render for ArchiveCardWithThumb<'_> {
                         img class="archive-thumb" src=(thumb) alt=(title) loading="lazy";
                     }
                     h3 {
-                        a href=(format!("/archive/{}", archive.id)) { (title) }
                         @if archive.is_nsfw {
                             (NsfwBadge::new())
                         }
+                        a href=(format!("/archive/{}", archive.id)) { (title) }
                     }
                     p class="archive-url" {
                         code class="url-display" title="Click to copy" onclick=(PreEscaped(copy_js)) {
