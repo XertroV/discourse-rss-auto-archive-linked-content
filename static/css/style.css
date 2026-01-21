@@ -1920,6 +1920,19 @@ pre {
     box-shadow: var(--box-shadow-hover);
 }
 
+/* Twitter text-only tweets: PDF and MHTML side by side beneath screenshot */
+.twitter-text-only .captures-secondary-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-md);
+    max-width: 800px;
+}
+
+.twitter-text-only .captures-secondary-row .capture-item {
+    text-align: center;
+}
+
 /* Tweet content display */
 .tweet-content {
     padding: var(--spacing-md);
