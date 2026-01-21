@@ -616,7 +616,7 @@ impl Config {
             )?,
             screenshot_viewport_width: parse_env_u32(
                 "SCREENSHOT_VIEWPORT_WIDTH",
-                fc.screenshot.viewport_width.unwrap_or(1280),
+                fc.screenshot.viewport_width.unwrap_or(1440),
             )?,
             screenshot_viewport_height: parse_env_u32(
                 "SCREENSHOT_VIEWPORT_HEIGHT",
@@ -999,8 +999,8 @@ impl Config {
             submission_enabled: false,
             submission_rate_limit_per_hour: 10,
             screenshot_enabled: false,
-            screenshot_viewport_width: 1280,
-            screenshot_viewport_height: 800,
+            screenshot_viewport_width: 1440,
+            screenshot_viewport_height: 900,
             screenshot_timeout_secs: 30,
             screenshot_chrome_path: None,
             pdf_enabled: false,

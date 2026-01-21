@@ -192,7 +192,7 @@ pub async fn fetch_html_with_chromium(
         .arg("--disable-blink-features=AutomationControlled")
         .arg("--no-first-run")
         .arg("--no-default-browser-check")
-        .arg("--window-size=1280,1600")
+        .arg("--window-size=1440,1600")
         .arg("--lang=en-US,en")
         .arg(format!(
             "--user-agent={}",

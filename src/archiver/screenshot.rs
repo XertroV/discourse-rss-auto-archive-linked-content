@@ -37,7 +37,7 @@ Object.defineProperty(navigator, 'webdriver', {
 "#;
 
 /// Default viewport width in pixels.
-pub const DEFAULT_VIEWPORT_WIDTH: u32 = 1280;
+pub const DEFAULT_VIEWPORT_WIDTH: u32 = 1440;
 
 /// Default viewport height in pixels.
 pub const DEFAULT_VIEWPORT_HEIGHT: u32 = 800;
