@@ -1952,7 +1952,7 @@ pre {
     gap: 2px;
     border-radius: 16px;
     overflow: hidden;
-    max-width: 800px;
+    width: 100%;
 }
 
 .twitter-image-item {

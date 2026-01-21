@@ -336,8 +336,15 @@ async fn archive_with_gallerydl(
             if result.author.is_none() {
                 result.author = metadata.author.clone();
             }
+
+            // Format text with quoted tweet if present
             if result.text.is_none() {
-                result.text = metadata.text.clone();
+                if metadata.quoted_tweet_url.is_some() {
+                    // This is a quote tweet - format with both outer and quoted content
+                    result.text = format_quote_tweet_text(&metadata).or_else(|| metadata.text.clone());
+                } else {
+                    result.text = metadata.text.clone();
+                }
             }
 
             // Store enhanced metadata (but DON'T override content_type from gallerydl)
@@ -1666,5 +1673,192 @@ mod tests {
         assert!(!result.contains("<script"));
         assert!(!result.contains("alert"));
         assert!(result.contains("Real content"));
+    }
+
+    #[test]
+    fn test_detect_deleted_quoted_tweet_from_html_unavailable() {
+        let html = r#"<div>This tweet is unavailable</div>"#;
+        assert!(detect_deleted_quoted_tweet_from_html(html));
+    }
+
+    #[test]
+    fn test_detect_deleted_quoted_tweet_from_html_deleted() {
+        let html = r#"<div>This post was deleted by the author</div>"#;
+        assert!(detect_deleted_quoted_tweet_from_html(html));
+    }
+
+    #[test]
+    fn test_detect_deleted_quoted_tweet_from_html_tombstone() {
+        let html = r#"<div class="tweet-tombstone">Content removed</div>"#;
+        assert!(detect_deleted_quoted_tweet_from_html(html));
+    }
+
+    #[test]
+    fn test_detect_deleted_quoted_tweet_from_html_normal() {
+        let html = r#"<div>Normal tweet content</div>"#;
+        assert!(!detect_deleted_quoted_tweet_from_html(html));
+    }
+
+    #[test]
+    fn test_format_quote_tweet_text_basic() {
+        let metadata = TwitterMetadata {
+            text: Some("Check out this tweet!".to_string()),
+            quoted_tweet_author: Some("testuser".to_string()),
+            quoted_tweet_text: Some("This is the quoted tweet".to_string()),
+            quoted_tweet_date: Some("2024-01-15T12:00:00".to_string()),
+            quoted_tweet_url: Some("https://x.com/testuser/status/123".to_string()),
+            quoted_tweet_deleted: false,
+            ..Default::default()
+        };
+
+        let result = format_quote_tweet_text(&metadata).unwrap();
+        assert!(result.contains("Check out this tweet!"));
+        assert!(result.contains("@testuser - 2024-01-15T12:00:00"));
+        assert!(result.contains("> This is the quoted tweet"));
+    }
+
+    #[test]
+    fn test_format_quote_tweet_text_deleted() {
+        let metadata = TwitterMetadata {
+            text: Some("Quoting a deleted tweet".to_string()),
+            quoted_tweet_author: Some("deleteduser".to_string()),
+            quoted_tweet_date: Some("2024-01-10T10:00:00".to_string()),
+            quoted_tweet_url: Some("https://x.com/deleteduser/status/456".to_string()),
+            quoted_tweet_deleted: true,
+            ..Default::default()
+        };
+
+        let result = format_quote_tweet_text(&metadata).unwrap();
+        assert!(result.contains("Quoting a deleted tweet"));
+        assert!(result.contains("@deleteduser - 2024-01-10T10:00:00"));
+        assert!(result.contains("> [This tweet has been deleted]"));
+    }
+
+    #[test]
+    fn test_format_quote_tweet_text_multiline() {
+        let metadata = TwitterMetadata {
+            text: Some("Check this out".to_string()),
+            quoted_tweet_author: Some("user".to_string()),
+            quoted_tweet_text: Some("Line 1\nLine 2\nLine 3".to_string()),
+            quoted_tweet_url: Some("https://x.com/user/status/789".to_string()),
+            quoted_tweet_deleted: false,
+            ..Default::default()
+        };
+
+        let result = format_quote_tweet_text(&metadata).unwrap();
+        assert!(result.contains("> Line 1\n> Line 2\n> Line 3"));
+    }
+
+    #[test]
+    fn test_format_quote_tweet_text_no_date() {
+        let metadata = TwitterMetadata {
+            text: Some("Outer tweet".to_string()),
+            quoted_tweet_author: Some("user".to_string()),
+            quoted_tweet_text: Some("Quoted content".to_string()),
+            quoted_tweet_url: Some("https://x.com/user/status/111".to_string()),
+            quoted_tweet_deleted: false,
+            ..Default::default()
+        };
+
+        let result = format_quote_tweet_text(&metadata).unwrap();
+        assert!(result.contains("@user\n>"));
+        assert!(!result.contains(" - "));
+    }
+
+    #[test]
+    fn test_format_quote_tweet_text_unavailable_content() {
+        let metadata = TwitterMetadata {
+            text: Some("Outer tweet".to_string()),
+            quoted_tweet_author: Some("user".to_string()),
+            quoted_tweet_url: Some("https://x.com/user/status/222".to_string()),
+            quoted_tweet_deleted: false,
+            // No quoted_tweet_text
+            ..Default::default()
+        };
+
+        let result = format_quote_tweet_text(&metadata).unwrap();
+        assert!(result.contains("> [Quoted tweet content unavailable]"));
+    }
+
+    #[test]
+    fn test_format_quote_tweet_text_missing_required_fields() {
+        // Missing outer text
+        let metadata1 = TwitterMetadata {
+            quoted_tweet_author: Some("user".to_string()),
+            quoted_tweet_text: Some("Quoted".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(format_quote_tweet_text(&metadata1), None);
+
+        // Missing quoted author
+        let metadata2 = TwitterMetadata {
+            text: Some("Outer".to_string()),
+            quoted_tweet_text: Some("Quoted".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(format_quote_tweet_text(&metadata2), None);
+    }
+
+    #[test]
+    fn test_extract_twitter_metadata_with_deleted_quoted_tweet() {
+        let json = r#"{
+            "tweet_id": 1234567890,
+            "author": {"name": "Test User", "screen_name": "testuser"},
+            "content": "This tweet quotes a deleted one",
+            "quoted_tweet": {
+                "id": 9876543210,
+                "user": {"screen_name": "deleteduser"},
+                "deleted": true
+            }
+        }"#;
+
+        let metadata = extract_twitter_metadata_from_json(json).unwrap();
+        assert_eq!(metadata.quoted_tweet_deleted, true);
+        assert_eq!(
+            metadata.quoted_tweet_url,
+            Some("https://x.com/deleteduser/status/9876543210".to_string())
+        );
+        assert_eq!(metadata.quoted_tweet_author, Some("deleteduser".to_string()));
+    }
+
+    #[test]
+    fn test_extract_twitter_metadata_with_tombstone_quoted_tweet() {
+        let json = r#"{
+            "tweet_id": 1234567890,
+            "author": {"name": "Test User", "screen_name": "testuser"},
+            "content": "This tweet quotes an unavailable one",
+            "quoted_tweet": {
+                "id": 9876543210,
+                "user": {"screen_name": "unavailableuser"},
+                "tombstone": {"text": "This Tweet is unavailable"}
+            }
+        }"#;
+
+        let metadata = extract_twitter_metadata_from_json(json).unwrap();
+        assert_eq!(metadata.quoted_tweet_deleted, true);
+    }
+
+    #[test]
+    fn test_extract_twitter_metadata_with_available_quoted_tweet() {
+        let json = r#"{
+            "tweet_id": 1234567890,
+            "author": {"name": "Test User", "screen_name": "testuser"},
+            "content": "Check this out!",
+            "quoted_tweet": {
+                "id": 9876543210,
+                "user": {"screen_name": "quoteduser"},
+                "content": "Original quoted content",
+                "date": "2024-01-15T12:00:00"
+            }
+        }"#;
+
+        let metadata = extract_twitter_metadata_from_json(json).unwrap();
+        assert_eq!(metadata.quoted_tweet_deleted, false);
+        assert_eq!(
+            metadata.quoted_tweet_text,
+            Some("Original quoted content".to_string())
+        );
+        assert_eq!(metadata.quoted_tweet_date, Some("2024-01-15T12:00:00".to_string()));
+        assert_eq!(metadata.quoted_tweet_author, Some("quoteduser".to_string()));
     }
 }
