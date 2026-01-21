@@ -221,6 +221,7 @@ impl ArchiveWorker {
         let cookies = super::CookieOptions {
             cookies_file,
             browser_profile: self.config.yt_dlp_cookies_from_browser.as_deref(),
+            screenshot_service: Some(&*self.screenshot),
         };
 
         // Download supplementary artifacts (subtitles, transcripts, comments)
@@ -882,6 +883,7 @@ async fn process_archive_inner(
         let cookies = super::CookieOptions {
             cookies_file,
             browser_profile: config.yt_dlp_cookies_from_browser.as_deref(),
+            screenshot_service: Some(screenshot),
         };
 
         let mut result =
@@ -1066,6 +1068,7 @@ async fn process_archive_inner(
         let cookies = super::CookieOptions {
             cookies_file,
             browser_profile: config.yt_dlp_cookies_from_browser.as_deref(),
+            screenshot_service: Some(screenshot),
         };
         let result = match handler
             .archive(&link.normalized_url, &work_dir, &cookies, config)
@@ -2095,7 +2098,7 @@ async fn process_subtitle_files(
     s3_prefix: &str,
 ) {
     use super::transcript::build_transcript_from_file;
-    use super::ytdlp::parse_subtitle_info;
+    use super::ytdlp::{parse_subtitle_info, parse_vtt_language_from_file};
 
     // Categorize subtitles by language and type
     // Tuple: (path, language, is_english, is_auto)
@@ -2109,7 +2112,22 @@ async fn process_subtitle_files(
             continue;
         }
 
-        let (language, is_auto, format) = parse_subtitle_info(subtitle_file);
+        let (mut language, is_auto, format) = parse_subtitle_info(subtitle_file);
+
+        // If language is unknown or looks like a placeholder (NA, etc.),
+        // try to read it from the VTT file header
+        if (language == "unknown" || language == "NA" || language.len() > 10) && format == "vtt" {
+            if let Some(header_lang) = parse_vtt_language_from_file(&local_path).await {
+                debug!(
+                    archive_id,
+                    file = %subtitle_file,
+                    filename_lang = %language,
+                    header_lang = %header_lang,
+                    "Detected language from VTT header"
+                );
+                language = header_lang;
+            }
+        }
         let key = format!("{s3_prefix}subtitles/{subtitle_file}");
         let metadata_result = tokio::fs::metadata(&local_path).await.ok();
         let size_bytes = metadata_result.map(|m| m.len() as i64);

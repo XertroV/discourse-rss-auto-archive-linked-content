@@ -977,6 +977,49 @@ pub fn parse_subtitle_info(filename: &str) -> (String, bool, String) {
     (lang.to_string(), is_auto, format.to_string())
 }
 
+/// Parse language from VTT file header.
+///
+/// VTT files can contain a Language header like:
+/// ```text
+/// WEBVTT
+/// Kind: captions
+/// Language: en
+/// ```
+///
+/// Returns the language code if found, or None if not present.
+pub async fn parse_vtt_language_from_file(path: &Path) -> Option<String> {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    let file = tokio::fs::File::open(path).await.ok()?;
+    let reader = BufReader::new(file);
+    let mut lines = reader.lines();
+
+    // Only check the first 10 lines for the header
+    for _ in 0..10 {
+        let line = match lines.next_line().await {
+            Ok(Some(line)) => line,
+            _ => break,
+        };
+
+        let trimmed = line.trim();
+
+        // Stop if we hit an empty line (end of header) or a timestamp
+        if trimmed.is_empty() || trimmed.contains("-->") {
+            break;
+        }
+
+        // Look for "Language: xx" header
+        if let Some(lang) = trimmed.strip_prefix("Language:") {
+            let lang = lang.trim();
+            if !lang.is_empty() {
+                return Some(lang.to_string());
+            }
+        }
+    }
+
+    None
+}
+
 /// Check if yt-dlp is available.
 pub async fn is_available() -> bool {
     Command::new("yt-dlp")
