@@ -73,7 +73,7 @@ pub async fn generate_unique_username(pool: &SqlitePool) -> Result<String> {
 }
 
 /// Validate a display name.
-/// Rules: 1-20 characters, no spaces.
+/// Rules: 1-20 characters, no spaces, cannot start with @ (reserved for forum accounts).
 /// Returns Ok(()) if valid, Err with message if invalid.
 pub fn validate_display_name(display_name: &str) -> Result<()> {
     if display_name.is_empty() {
@@ -86,6 +86,10 @@ pub fn validate_display_name(display_name: &str) -> Result<()> {
 
     if display_name.contains(' ') {
         anyhow::bail!("Display name cannot contain spaces");
+    }
+
+    if display_name.starts_with('@') {
+        anyhow::bail!("Display name cannot start with @ (reserved for forum accounts)");
     }
 
     Ok(())
@@ -176,5 +180,31 @@ mod tests {
             seen.len(),
             iterations
         );
+    }
+
+    #[test]
+    fn test_validate_display_name() {
+        // Valid display names
+        assert!(validate_display_name("ValidName").is_ok());
+        assert!(validate_display_name("a").is_ok());
+        assert!(validate_display_name("User123").is_ok());
+        assert!(validate_display_name("12345678901234567890").is_ok()); // 20 chars
+
+        // Empty
+        assert!(validate_display_name("").is_err());
+
+        // Too long (21 chars)
+        assert!(validate_display_name("123456789012345678901").is_err());
+
+        // Contains spaces
+        assert!(validate_display_name("User Name").is_err());
+        assert!(validate_display_name(" LeadingSpace").is_err());
+        assert!(validate_display_name("TrailingSpace ").is_err());
+
+        // Starts with @ (reserved for forum accounts)
+        assert!(validate_display_name("@Username").is_err());
+        assert!(validate_display_name("@").is_err());
+        let err = validate_display_name("@TestUser").unwrap_err();
+        assert!(err.to_string().contains("reserved for forum"));
     }
 }

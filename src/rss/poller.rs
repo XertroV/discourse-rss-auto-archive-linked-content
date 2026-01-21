@@ -453,6 +453,20 @@ fn extract_link_account_command(html: &str) -> Option<String> {
         .map(|m| m.as_str().to_string())
 }
 
+/// Extract the forum username from an RSS author name.
+///
+/// RSS author names are in the format `@Username Firstname Lastname`.
+/// This extracts just the `@Username` part (the @ followed by adjacent non-whitespace characters).
+fn extract_forum_display_name(author: &str) -> Option<String> {
+    let trimmed = author.trim();
+    if !trimmed.starts_with('@') {
+        return None;
+    }
+    // Find the first whitespace to get just @Username
+    let username = trimmed.split_whitespace().next().filter(|s| s.len() > 1)?; // Must have at least @ and one character
+    Some(username.to_string())
+}
+
 /// Process a link_archive_account command from a forum post.
 ///
 /// This links a forum account to an existing archive account, sets the display name,
@@ -473,6 +487,19 @@ async fn process_account_link_command(
                 post_guid = %post_guid,
                 target_username = %target_username,
                 "Cannot link account: post has no author"
+            );
+            return;
+        }
+    };
+
+    // Extract display name from forum author (e.g., "@Max Max" -> "@Max")
+    let forum_display_name = match extract_forum_display_name(forum_username) {
+        Some(name) => name,
+        None => {
+            warn!(
+                post_guid = %post_guid,
+                forum_username = %forum_username,
+                "Cannot extract display name from forum author (must start with @)"
             );
             return;
         }
@@ -537,20 +564,20 @@ async fn process_account_link_command(
         }
     }
 
-    // Check if the forum username is already taken as a display name by another user
-    match display_name_exists(db.pool(), forum_username, Some(target_user.id)).await {
+    // Check if the forum display name is already taken by another user
+    match display_name_exists(db.pool(), &forum_display_name, Some(target_user.id)).await {
         Ok(true) => {
             warn!(
-                forum_username = %forum_username,
+                forum_display_name = %forum_display_name,
                 target_username = %target_username,
-                "Forum username is already taken as display name, cannot link"
+                "Forum display name is already taken, cannot link"
             );
             return;
         }
         Ok(false) => {}
         Err(e) => {
             error!(
-                forum_username = %forum_username,
+                forum_display_name = %forum_display_name,
                 "Failed to check display name availability: {e:#}"
             );
             return;
@@ -564,7 +591,7 @@ async fn process_account_link_command(
         forum_username,
         post_guid,
         post_url,
-        Some(forum_username),
+        Some(&forum_display_name),
         post_title,
         published_at,
     )
@@ -578,12 +605,12 @@ async fn process_account_link_command(
         return;
     }
 
-    // Update user's display_name to forum username
+    // Update user's display_name to extracted forum username (e.g., "@Max")
     if let Err(e) = update_user_profile(
         db.pool(),
         target_user.id,
         target_user.email.as_deref(),
-        Some(forum_username),
+        Some(&forum_display_name),
     )
     .await
     {
@@ -771,5 +798,43 @@ mod tests {
             strip_html_tags("<p>Multiple</p><p>Paragraphs</p>"),
             "MultipleParagraphs"
         );
+    }
+
+    #[test]
+    fn test_extract_forum_display_name() {
+        // Standard case: @Username followed by real name
+        assert_eq!(
+            extract_forum_display_name("@Max Max"),
+            Some("@Max".to_string())
+        );
+
+        // Multiple name parts
+        assert_eq!(
+            extract_forum_display_name("@JohnDoe John Doe"),
+            Some("@JohnDoe".to_string())
+        );
+
+        // Just username, no real name
+        assert_eq!(
+            extract_forum_display_name("@Username"),
+            Some("@Username".to_string())
+        );
+
+        // With leading/trailing whitespace
+        assert_eq!(
+            extract_forum_display_name("  @User  Firstname Lastname  "),
+            Some("@User".to_string())
+        );
+
+        // No @ prefix - should return None
+        assert_eq!(extract_forum_display_name("Username"), None);
+        assert_eq!(extract_forum_display_name("User Name"), None);
+
+        // Empty string
+        assert_eq!(extract_forum_display_name(""), None);
+
+        // Just @ with no username - should return None
+        assert_eq!(extract_forum_display_name("@"), None);
+        assert_eq!(extract_forum_display_name("@ something"), None);
     }
 }
