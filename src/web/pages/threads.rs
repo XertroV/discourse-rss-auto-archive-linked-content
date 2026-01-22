@@ -6,7 +6,7 @@
 //! - Thread archive job status page
 
 use chrono::NaiveDateTime;
-use maud::{html, Markup, Render};
+use maud::{html, Markup, PreEscaped, Render};
 use std::collections::HashMap;
 use urlencoding::encode;
 
@@ -507,24 +507,17 @@ pub fn render_thread_job_status_page(params: &ThreadJobStatusParams<'_>) -> Mark
         0 // No refresh when complete
     };
 
-    let auto_refresh = if should_refresh {
-        Some(html! {
-            meta http-equiv="refresh" content=(refresh_interval.to_string());
-        })
-    } else {
-        None
-    };
-
     let content = html! {
-        @if let Some(refresh) = auto_refresh {
-            (refresh)
-        }
-
         h1 { "Thread Archive Job #" (job.id) }
 
         article class=(status_variant.css_class()) {
             p {
-                strong { "Status:" } " " (status_variant.label())
+                strong { "Status:" } " "
+                @if archiving_phase {
+                    "Archiving"
+                } @else {
+                    (status_variant.label())
+                }
             }
         }
 
@@ -658,8 +651,17 @@ pub fn render_thread_job_status_page(params: &ThreadJobStatusParams<'_>) -> Mark
             }
         }
 
-        // Auto-refresh notice
+        // Auto-refresh with JavaScript
         @if should_refresh {
+            script {
+                (PreEscaped(format!(r#"
+                (function() {{
+                    setTimeout(function() {{
+                        window.location.reload();
+                    }}, {});
+                }})();
+                "#, refresh_interval * 1000)))
+            }
             p style="color: var(--foreground-muted, #71717a); font-size: 0.875rem;" {
                 @if scanning_phase {
                     "This page will automatically refresh every second while scanning posts."
@@ -901,7 +903,7 @@ mod tests {
         assert!(html.contains("Processing"));
         assert!(html.contains("Progress"));
         assert!(html.contains("5 / 10")); // processed / total
-        assert!(html.contains("refresh")); // auto-refresh meta tag
+        assert!(html.contains("window.location.reload")); // JavaScript refresh
     }
 
     #[test]
@@ -912,13 +914,43 @@ mod tests {
         let params = ThreadJobStatusParams {
             job: &job,
             archives: &[],
-            archive_status_counts: ArchiveStatusCounts::default(),
+            archive_status_counts: ArchiveStatusCounts::default(), // No active archives
             user: None,
         };
         let html = render_thread_job_status_page(&params).into_string();
 
-        assert!(html.contains("Complete"));
-        assert!(!html.contains("http-equiv=\"refresh\"")); // no auto-refresh for complete
+        assert!(html.contains("Complete")); // Should show Complete when fully done
+        assert!(!html.contains("window.location.reload")); // No auto-refresh
+    }
+
+    #[test]
+    fn test_job_status_page_archiving_phase() {
+        let mut job = sample_job();
+        job.status = "complete".to_string();
+        job.completed_at = Some("2024-01-15 12:10:00".to_string());
+
+        let archive_status_counts = ArchiveStatusCounts {
+            pending: 5,
+            processing: 3,
+            complete: 2,
+            failed: 0,
+            skipped: 0,
+        };
+
+        let params = ThreadJobStatusParams {
+            job: &job,
+            archives: &[],
+            archive_status_counts,
+            user: None,
+        };
+        let html = render_thread_job_status_page(&params).into_string();
+
+        // Should show "Archiving" not "Complete"
+        assert!(html.contains("Archiving"));
+        assert!(!html.contains("Status: Complete"));
+        // Should auto-refresh every 5 seconds
+        assert!(html.contains("window.location.reload"));
+        assert!(html.contains("5000")); // 5 seconds in milliseconds
     }
 
     #[test]
