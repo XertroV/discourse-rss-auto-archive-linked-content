@@ -3636,23 +3636,26 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
 /* Override media container for vertical layout */
 #media-transcript-container.vertical-layout .media-column .media-container {
     max-width: 100%;
-    width: auto !important;
+    width: 100% !important;
 }
 
 /* Override video wrapper styles for vertical layout */
 #media-transcript-container.vertical-layout .media-column .video-wrapper {
     position: relative !important;
-    width: auto !important; /* Override width: 100% */
+    width: 100% !important; /* Full width of column */
     max-width: 100%;
     padding-bottom: 0 !important; /* Remove 16:9 aspect ratio hack */
     height: auto !important;
+    display: flex !important;
+    justify-content: center !important;
 }
 
 #media-transcript-container.vertical-layout .media-column .video-wrapper video {
     position: relative !important; /* Override absolute positioning */
     top: auto !important;
     left: auto !important;
-    width: 100%;
+    width: auto !important; /* Let video use natural width to maintain aspect ratio */
+    max-width: 100%; /* But don't exceed column width */
     height: auto !important;
     max-height: 800px; /* Prevent extremely tall videos */
 }
