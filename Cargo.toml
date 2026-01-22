@@ -92,6 +92,7 @@ tempfile = "3"
 wiremock = "0.6"
 tower = { version = "0.5", features = ["util"] }
 insta = "1.34"
+serial_test = "3"
 
 [profile.release]
 lto = true

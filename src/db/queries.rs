@@ -280,7 +280,7 @@ pub fn thread_key_from_url(url: &str) -> String {
 /// # Examples
 ///
 /// ```
-/// use discourse_rss_auto_archive_linked_content::db::queries::extract_topic_id_from_thread_key;
+/// use discourse_link_archiver::db::extract_topic_id_from_thread_key;
 ///
 /// assert_eq!(
 ///     extract_topic_id_from_thread_key("discuss.example.com:2147"),

@@ -7,6 +7,7 @@ use discourse_link_archiver::db::{
     get_comment_with_author, get_comments_for_archive, has_user_reacted, insert_link, pin_comment,
     remove_comment_reaction, soft_delete_comment, unpin_comment, update_comment, Database, NewLink,
 };
+use serial_test::serial;
 use tempfile::TempDir;
 
 async fn setup_test_db() -> (Database, TempDir) {
@@ -41,6 +42,7 @@ async fn create_test_archive(db: &Database) -> i64 {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_create_and_get_comment() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -71,6 +73,7 @@ async fn test_create_and_get_comment() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_create_comment_reply() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id1 = create_test_user(&db, "user1", false).await;
@@ -102,6 +105,7 @@ async fn test_create_comment_reply() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_get_comments_for_archive() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -130,6 +134,7 @@ async fn test_get_comments_for_archive() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_update_comment_creates_edit_history() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -165,6 +170,7 @@ async fn test_update_comment_creates_edit_history() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_update_comment_multiple_edits() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -203,6 +209,7 @@ async fn test_update_comment_multiple_edits() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_soft_delete_comment() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -232,6 +239,7 @@ async fn test_soft_delete_comment() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_soft_delete_comment_by_admin() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -260,6 +268,7 @@ async fn test_soft_delete_comment_by_admin() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_pin_and_unpin_comment() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -301,6 +310,7 @@ async fn test_pin_and_unpin_comment() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_pinned_comments_appear_first() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -335,6 +345,7 @@ async fn test_pinned_comments_appear_first() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_add_and_remove_comment_reaction() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -398,6 +409,7 @@ async fn test_add_and_remove_comment_reaction() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_multiple_users_can_react() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -441,6 +453,7 @@ async fn test_multiple_users_can_react() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_duplicate_reaction_ignored() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -468,6 +481,7 @@ async fn test_duplicate_reaction_ignored() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_can_user_edit_comment_owner() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -493,6 +507,7 @@ async fn test_can_user_edit_comment_owner() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_can_user_edit_comment_admin() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -512,6 +527,7 @@ async fn test_can_user_edit_comment_admin() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_nested_comment_threads() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -554,6 +570,7 @@ async fn test_nested_comment_threads() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_comments_for_different_archives_isolated() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -583,6 +600,7 @@ async fn test_comments_for_different_archives_isolated() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_edit_history_order() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;
@@ -618,6 +636,7 @@ async fn test_edit_history_order() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_comment_with_no_user() {
     let (db, _temp_dir) = setup_test_db().await;
     let archive_id = create_test_archive(&db).await;
@@ -645,6 +664,7 @@ async fn test_comment_with_no_user() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_deleted_comments_still_retrievable() {
     let (db, _temp_dir) = setup_test_db().await;
     let user_id = create_test_user(&db, "testuser", false).await;

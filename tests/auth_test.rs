@@ -10,6 +10,7 @@ use discourse_link_archiver::db::{
     lock_user_until, reset_failed_login_attempts, update_user_active, update_user_admin,
     update_user_approval, update_user_password, update_user_profile, Database,
 };
+use serial_test::serial;
 use tempfile::TempDir;
 
 async fn setup_test_db() -> (Database, TempDir) {
@@ -80,6 +81,7 @@ async fn test_password_generation() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_user_creation_first_user_is_admin() {
     let (db, _temp_dir) = setup_test_db().await;
 
@@ -101,6 +103,7 @@ async fn test_user_creation_first_user_is_admin() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_user_creation_subsequent_users_need_approval() {
     let (db, _temp_dir) = setup_test_db().await;
 
@@ -126,6 +129,7 @@ async fn test_user_creation_subsequent_users_need_approval() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_get_user_by_username() {
     let (db, _temp_dir) = setup_test_db().await;
 
@@ -150,6 +154,7 @@ async fn test_get_user_by_username() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_count_users() {
     let (db, _temp_dir) = setup_test_db().await;
 
@@ -170,6 +175,7 @@ async fn test_count_users() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_user_approval() {
     let (db, _temp_dir) = setup_test_db().await;
 
@@ -198,6 +204,7 @@ async fn test_user_approval() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_user_admin_promotion() {
     let (db, _temp_dir) = setup_test_db().await;
 
@@ -237,6 +244,7 @@ async fn test_user_admin_promotion() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_user_deactivation() {
     let (db, _temp_dir) = setup_test_db().await;
 
@@ -265,6 +273,7 @@ async fn test_user_deactivation() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_password_update() {
     let (db, _temp_dir) = setup_test_db().await;
 
@@ -299,6 +308,7 @@ async fn test_password_update() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_profile_update() {
     let (db, _temp_dir) = setup_test_db().await;
 
@@ -327,6 +337,7 @@ async fn test_profile_update() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_failed_login_attempts() {
     let (db, _temp_dir) = setup_test_db().await;
 
@@ -378,6 +389,7 @@ async fn test_failed_login_attempts() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_account_locking() {
     let (db, _temp_dir) = setup_test_db().await;
 
@@ -411,6 +423,7 @@ async fn test_account_locking() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_session_creation() {
     let (db, _temp_dir) = setup_test_db().await;
 
@@ -453,6 +466,7 @@ async fn test_session_creation() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_session_deletion() {
     let (db, _temp_dir) = setup_test_db().await;
 
@@ -494,6 +508,7 @@ async fn test_session_deletion() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_delete_user_sessions() {
     let (db, _temp_dir) = setup_test_db().await;
 
