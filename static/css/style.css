@@ -3636,11 +3636,12 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
     min-width: 0; /* Allows text wrapping */
 }
 
-/* Transcript section constrained to max height, uses flexbox for internal layout */
+/* Transcript section matches video's actual rendered height, uses flexbox for internal layout */
 #media-transcript-container.vertical-layout .transcript-column .transcript-section {
     display: flex;
     flex-direction: column;
-    max-height: var(--vertical-video-max-height); /* Match video max-height */
+    height: var(--video-rendered-height, auto); /* Match video's rendered height (set by JS) */
+    max-height: var(--video-rendered-height, var(--vertical-video-max-height)); /* Fallback to max */
 }
 
 /* Transcript details/content area fills available space and scrolls */
