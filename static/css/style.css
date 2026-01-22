@@ -3322,6 +3322,8 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
 /* Comments list */
 .comments-list {
     padding: var(--spacing-md);
+    max-height: 80vh;
+    overflow-y: auto;
 }
 
 /* Individual comment */
