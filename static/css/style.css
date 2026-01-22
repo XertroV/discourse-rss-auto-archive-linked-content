@@ -441,6 +441,9 @@ tr:hover {
 .archive-card h3 {
     margin-bottom: var(--spacing-sm);
     font-size: var(--font-size-base);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .archive-card h3 a {
@@ -470,7 +473,9 @@ tr:hover {
 .archive-url {
     margin: var(--spacing-xs) 0;
     font-size: var(--font-size-xs);
-    word-break: break-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .archive-url a {

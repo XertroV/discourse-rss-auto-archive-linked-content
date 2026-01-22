@@ -47,6 +47,15 @@ When Rust code changes, rebuild the container:
 
 **Note:** Update scripts (`dc-update.sh`, `dc-update-low-downtime.sh`) automatically force rebuild if the container image is >1 week old to keep yt-dlp and other dependencies current.
 
+## Development Database
+
+The repo includes a copy of the production database for local development and querying:
+
+- `archive.sqlite` - SQLite database copied from the server (not always up to date)
+- `archive.sqlite.ABOUT.md` - Notes about the database file
+
+Use this database when you need to run queries against real data during development. If you need a fresh copy, ask the user to update it from the server.
+
 ## New Session
 
 When a new session is started, start `cargo build` and `cargo test` in background terminals so that everything gets compiled while you work on the users request.
