@@ -298,7 +298,7 @@ pub fn render_thread_detail_page(params: &ThreadDetailParams<'_>) -> Markup {
                 }
                 tbody {
                     @for post in params.posts {
-                        @let post_title = post.title.as_deref().unwrap_or("Untitled Post");
+                        @let post_title = super::format_post_title(post.title.as_deref(), &post.discourse_url);
                         @let post_author = post.author.as_deref().unwrap_or("Unknown");
                         @let published_at = post.published_at.as_deref().unwrap_or("Unknown");
                         @let formatted_date = if published_at != "Unknown" {

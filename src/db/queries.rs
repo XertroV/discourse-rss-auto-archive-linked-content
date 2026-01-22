@@ -2436,6 +2436,7 @@ pub struct LinkOccurrenceWithPost {
     pub context_snippet: Option<String>,
     pub seen_at: String,
     pub post_guid: String,
+    pub post_discourse_url: String,
     pub post_title: Option<String>,
     pub post_author: Option<String>,
 }
@@ -2454,6 +2455,7 @@ pub async fn get_link_occurrences_with_posts(
             lo.context_snippet,
             lo.seen_at,
             p.guid as post_guid,
+            p.discourse_url as post_discourse_url,
             p.title as post_title,
             p.author as post_author
         FROM link_occurrences lo

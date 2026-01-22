@@ -20,7 +20,7 @@ pub struct PostDetailParams<'a> {
 #[must_use]
 pub fn render_post_detail_page(params: &PostDetailParams<'_>) -> Markup {
     let post = params.post;
-    let title = post.title.as_deref().unwrap_or("Untitled Post");
+    let title = super::format_post_title(post.title.as_deref(), &post.discourse_url);
     let author = post.author.as_deref().unwrap_or("Unknown");
     let published = post.published_at.as_deref().unwrap_or("Unknown");
 
@@ -133,9 +133,10 @@ mod tests {
     }
 
     #[test]
-    fn test_post_detail_page_untitled() {
+    fn test_post_detail_page_untitled_first_post() {
         let mut post = sample_post();
         post.title = None;
+        // URL ends with /1, so it's the first post -> shows "Topic"
         let archives: Vec<ArchiveDisplay> = vec![];
         let params = PostDetailParams {
             post: &post,
@@ -144,8 +145,44 @@ mod tests {
         };
         let html = render_post_detail_page(&params).into_string();
 
-        assert!(html.contains("Untitled Post"));
-        assert!(html.contains("<title>Post: Untitled Post"));
+        assert!(html.contains(">Topic<"));
+        assert!(html.contains("<title>Post: Topic"));
+    }
+
+    #[test]
+    fn test_post_detail_page_untitled_reply() {
+        let mut post = sample_post();
+        post.title = None;
+        post.discourse_url = "https://forum.example.com/t/test-thread/123/5".to_string();
+        // URL ends with /5, so it's a reply -> shows "Reply"
+        let archives: Vec<ArchiveDisplay> = vec![];
+        let params = PostDetailParams {
+            post: &post,
+            archives: &archives,
+            user: None,
+        };
+        let html = render_post_detail_page(&params).into_string();
+
+        assert!(html.contains(">Reply<"));
+        assert!(html.contains("<title>Post: Reply"));
+    }
+
+    #[test]
+    fn test_post_detail_page_reply_with_title() {
+        let mut post = sample_post();
+        post.title = Some("My Topic Title".to_string());
+        post.discourse_url = "https://forum.example.com/t/my-topic/123/3".to_string();
+        // URL ends with /3, so it's a reply -> shows "Re: My Topic Title"
+        let archives: Vec<ArchiveDisplay> = vec![];
+        let params = PostDetailParams {
+            post: &post,
+            archives: &archives,
+            user: None,
+        };
+        let html = render_post_detail_page(&params).into_string();
+
+        assert!(html.contains("Re: My Topic Title"));
+        assert!(html.contains("<title>Post: Re: My Topic Title"));
     }
 
     #[test]

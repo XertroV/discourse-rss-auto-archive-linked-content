@@ -3,6 +3,104 @@
 //! This module contains full page implementations using maud templates.
 //! Each page module exports a render function that produces the complete HTML.
 
+/// Generate a display title for a Discourse post.
+///
+/// For the first post in a topic (post_number == 1), returns the topic title.
+/// For replies (post_number > 1), returns "Re: {topic_title}".
+/// Falls back to "Reply" if no title is available.
+///
+/// Post number is extracted from the Discourse URL:
+/// - `/t/slug/123` -> post 1 (first post)
+/// - `/t/slug/123/4` -> post 4 (reply)
+pub fn format_post_title(title: Option<&str>, discourse_url: &str) -> String {
+    let is_reply = is_reply_post(discourse_url);
+
+    match (title, is_reply) {
+        (Some(t), true) => format!("Re: {}", t),
+        (Some(t), false) => t.to_string(),
+        (None, true) => "Reply".to_string(),
+        (None, false) => "Topic".to_string(),
+    }
+}
+
+/// Check if a Discourse URL points to a reply (post_number > 1).
+fn is_reply_post(discourse_url: &str) -> bool {
+    // URL format: /t/slug/topic_id or /t/slug/topic_id/post_number
+    // If there's a 4th path segment after /t/, it's a reply
+    let path = discourse_url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
+
+    // Find the path part after the domain
+    let path = if let Some(idx) = path.find('/') {
+        &path[idx..]
+    } else {
+        return false;
+    };
+
+    // Split path and check segments
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+
+    // Expected: ["t", "slug", "topic_id"] for first post
+    // Expected: ["t", "slug", "topic_id", "post_number"] for reply
+    if segments.len() >= 4 && segments[0] == "t" {
+        // Has post_number, check if > 1
+        if let Ok(post_num) = segments[3].parse::<i64>() {
+            return post_num > 1;
+        }
+    }
+
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_post_title_first_post_with_title() {
+        let title = format_post_title(Some("My Topic"), "https://forum.example.com/t/my-topic/123");
+        assert_eq!(title, "My Topic");
+    }
+
+    #[test]
+    fn test_format_post_title_reply_with_title() {
+        let title = format_post_title(
+            Some("My Topic"),
+            "https://forum.example.com/t/my-topic/123/5",
+        );
+        assert_eq!(title, "Re: My Topic");
+    }
+
+    #[test]
+    fn test_format_post_title_reply_no_title() {
+        let title = format_post_title(None, "https://forum.example.com/t/my-topic/123/5");
+        assert_eq!(title, "Reply");
+    }
+
+    #[test]
+    fn test_format_post_title_first_post_no_title() {
+        let title = format_post_title(None, "https://forum.example.com/t/my-topic/123");
+        assert_eq!(title, "Topic");
+    }
+
+    #[test]
+    fn test_is_reply_post_first_post() {
+        assert!(!is_reply_post("https://forum.example.com/t/slug/123"));
+    }
+
+    #[test]
+    fn test_is_reply_post_reply() {
+        assert!(is_reply_post("https://forum.example.com/t/slug/123/4"));
+    }
+
+    #[test]
+    fn test_is_reply_post_post_one_explicit() {
+        // Post 1 explicitly mentioned is still the first post
+        assert!(!is_reply_post("https://forum.example.com/t/slug/123/1"));
+    }
+}
+
 pub mod admin;
 pub mod all_archives;
 pub mod archive;

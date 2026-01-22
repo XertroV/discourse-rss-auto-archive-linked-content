@@ -1586,7 +1586,8 @@ fn render_occurrences_section(occurrences: &[LinkOccurrenceWithPost]) -> Markup 
     let rows: Vec<Markup> = occurrences
         .iter()
         .map(|occ| {
-            let post_title = occ.post_title.as_deref().unwrap_or("Untitled Post");
+            let post_title =
+                super::format_post_title(occ.post_title.as_deref(), &occ.post_discourse_url);
             let author = occ.post_author.as_deref().unwrap_or("Unknown");
             let in_quote = if occ.in_quote { "Yes" } else { "No" };
 
