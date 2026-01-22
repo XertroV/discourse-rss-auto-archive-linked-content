@@ -508,6 +508,8 @@ pub async fn download(
         "vtt".to_string(),
         "--output".to_string(),
         output_template.to_string_lossy().to_string(),
+        // Sanitize filenames to prevent filesystem issues with special characters
+        "--restrict-filenames".to_string(),
         // Use --newline for parseable progress output (each update on a new line)
         "--newline".to_string(),
         // Format selection: adaptive based on video characteristics
@@ -736,6 +738,8 @@ pub async fn download_supplementary_artifacts(
         "--write-info-json".to_string(),
         "--output".to_string(),
         output_template.to_string_lossy().to_string(),
+        // Sanitize filenames to prevent filesystem issues with special characters
+        "--restrict-filenames".to_string(),
         "--no-progress".to_string(),
         "--quiet".to_string(),
     ];
@@ -1454,6 +1458,8 @@ pub async fn extract_comments_only(
             .join("%(title)s.%(ext)s")
             .to_string_lossy()
             .to_string(),
+        // Sanitize filenames to prevent filesystem issues with special characters
+        "--restrict-filenames".to_string(),
         // Use --newline for parseable progress output
         "--newline".to_string(),
     ];
