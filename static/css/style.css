@@ -3634,12 +3634,30 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
 /* Transcript column - fills remaining space */
 #media-transcript-container.vertical-layout .transcript-column {
     min-width: 0; /* Allows text wrapping */
+    display: flex;
+    flex-direction: column;
 }
 
-/* Override transcript max-height to match video height */
+/* Constrain transcript section to match video height */
+#media-transcript-container.vertical-layout .transcript-column .transcript-section {
+    max-height: var(--vertical-video-max-height);
+    display: flex;
+    flex-direction: column;
+}
+
+/* Transcript content fills available space within the section */
 #media-transcript-container.vertical-layout .transcript-column #transcript-content {
-    max-height: var(--vertical-video-max-height) !important; /* Match video max-height */
+    flex: 1 1 auto; /* Grow to fill available space */
+    max-height: none !important; /* Remove fixed max-height, let flex handle it */
     overflow-y: auto !important; /* Scrollable if content exceeds height */
+}
+
+/* Make details element also flex to work with layout */
+#media-transcript-container.vertical-layout .transcript-column .transcript-section details {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0; /* Allow flex shrinking */
 }
 
 /* Override media container for vertical layout */
