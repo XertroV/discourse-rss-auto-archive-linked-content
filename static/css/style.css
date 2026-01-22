@@ -3616,10 +3616,10 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
 
 /* When vertical video detected, switch to side-by-side grid */
 #media-transcript-container.vertical-layout {
-    display: grid;
-    grid-template-columns: minmax(300px, 500px) 1fr;
-    gap: var(--spacing-lg);
-    align-items: start;
+    display: grid !important;
+    grid-template-columns: minmax(300px, 500px) 1fr !important;
+    gap: var(--spacing-lg) !important;
+    align-items: start !important;
 }
 
 /* Media column - constrained max width for vertical videos */
