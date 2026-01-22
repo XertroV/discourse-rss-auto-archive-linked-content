@@ -609,15 +609,11 @@ pub fn render_thread_job_status_page(params: &ThreadJobStatusParams<'_>) -> Mark
             section {
                 h2 { "Archived Links" }
 
-                @let pending_count = params.archives.iter()
-                    .filter(|a| a.status == "pending").count();
-                @let processing_count = params.archives.iter()
-                    .filter(|a| a.status == "processing").count();
-
-                @if pending_count + processing_count > 0 {
+                // Use archive_status_counts for accurate counts (not just what's in the archives array)
+                @if params.archive_status_counts.has_active() {
                     p style="color: var(--foreground-muted, #71717a);" {
                         "Found " (params.archives.len()) " archived link(s). "
-                        "Still processing: " (processing_count + pending_count)
+                        "Still processing: " (params.archive_status_counts.in_progress())
                     }
 
                     // Show progress bar
