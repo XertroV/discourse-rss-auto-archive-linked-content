@@ -27,8 +27,9 @@ pub fn extract_video_id(url: &str) -> Option<String> {
         return None;
     }
 
-    // Standard format: /video/ID
-    if let Some(pos) = url.find("/video/") {
+    // Standard format: /video/ID, or /photo/ID
+    let m_pos = url.find("/video/").or_else(|| url.find("/photo/"));
+    if let Some(pos) = m_pos {
         let id_start = pos + 7; // "/video/".len()
         let id_end = url[id_start..]
             .find(|c: char| !c.is_ascii_digit())
