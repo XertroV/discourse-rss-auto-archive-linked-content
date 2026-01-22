@@ -275,6 +275,54 @@ pub fn thread_key_from_url(url: &str) -> String {
     url.to_string()
 }
 
+/// Extract numeric topic ID from a thread key.
+///
+/// # Examples
+///
+/// ```
+/// use discourse_rss_auto_archive_linked_content::db::queries::extract_topic_id_from_thread_key;
+///
+/// assert_eq!(
+///     extract_topic_id_from_thread_key("discuss.example.com:2147"),
+///     Some(2147)
+/// );
+/// assert_eq!(
+///     extract_topic_id_from_thread_key("example.com:/path"),
+///     None
+/// );
+/// ```
+pub fn extract_topic_id_from_thread_key(thread_key: &str) -> Option<i64> {
+    let (_host, rest) = thread_key.split_once(':')?;
+    rest.parse::<i64>().ok()
+}
+
+/// Fetch all posts matching a numeric topic ID across all domains.
+///
+/// This queries posts by matching the discourse_url against patterns for
+/// standard Discourse topic URLs like `/t/<slug>/<topic_id>` and
+/// `/t/<slug>/<topic_id>/<post_number>`.
+///
+/// # Errors
+///
+/// Returns an error if the database query fails.
+pub async fn get_posts_by_topic_id(pool: &SqlitePool, topic_id: i64) -> Result<Vec<Post>> {
+    let pattern1 = format!("%/t/%/{}", topic_id);
+    let pattern2 = format!("%/t/%/{}/%", topic_id);
+
+    sqlx::query_as(
+        r#"
+        SELECT * FROM posts
+        WHERE discourse_url LIKE ? OR discourse_url LIKE ?
+        ORDER BY published_at IS NULL, published_at, processed_at
+        "#,
+    )
+    .bind(pattern1)
+    .bind(pattern2)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch posts for topic_id")
+}
+
 fn cmp_opt_desc(a: &Option<String>, b: &Option<String>) -> std::cmp::Ordering {
     match (a, b) {
         (Some(a), Some(b)) => b.cmp(a),
@@ -4766,4 +4814,57 @@ pub async fn get_subtitle_languages_for_archive(
     .context("Failed to get subtitle languages for archive")?;
 
     Ok(rows.into_iter().map(|sl| (sl.artifact_id, sl)).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_topic_id_from_thread_key() {
+        // Valid thread keys with numeric topic IDs
+        assert_eq!(
+            extract_topic_id_from_thread_key("discuss.example.com:2147"),
+            Some(2147)
+        );
+        assert_eq!(
+            extract_topic_id_from_thread_key("forum.test.org:123"),
+            Some(123)
+        );
+        assert_eq!(extract_topic_id_from_thread_key("example.com:1"), Some(1));
+
+        // Invalid thread keys (non-numeric after colon)
+        assert_eq!(
+            extract_topic_id_from_thread_key("example.com:/path/to/thing"),
+            None
+        );
+        assert_eq!(extract_topic_id_from_thread_key("example.com:abc"), None);
+
+        // Edge cases
+        assert_eq!(extract_topic_id_from_thread_key("no-colon"), None);
+        assert_eq!(extract_topic_id_from_thread_key(""), None);
+        assert_eq!(extract_topic_id_from_thread_key(":123"), Some(123));
+    }
+
+    #[test]
+    fn test_thread_key_from_url() {
+        // Standard Discourse URLs
+        assert_eq!(
+            thread_key_from_url("https://discuss.example.com/t/topic-slug/2147"),
+            "discuss.example.com:2147"
+        );
+        assert_eq!(
+            thread_key_from_url("https://discuss.example.com/t/topic-slug/2147/5"),
+            "discuss.example.com:2147"
+        );
+
+        // Non-standard URLs
+        assert_eq!(
+            thread_key_from_url("https://example.com/other/path"),
+            "example.com:/other/path"
+        );
+
+        // Invalid URLs
+        assert_eq!(thread_key_from_url("not-a-url"), "not-a-url");
+    }
 }

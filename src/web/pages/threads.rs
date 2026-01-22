@@ -11,7 +11,10 @@ use std::collections::HashMap;
 use urlencoding::encode;
 
 use crate::components::{Alert, ArchiveGrid, BaseLayout, EmptyState, KeyValueTable, Pagination};
-use crate::db::{thread_key_from_url, ArchiveDisplay, Post, ThreadArchiveJob, ThreadDisplay, User};
+use crate::db::{
+    extract_topic_id_from_thread_key, thread_key_from_url, ArchiveDisplay, Post, ThreadArchiveJob,
+    ThreadDisplay, User,
+};
 
 /// Format a SQLite datetime string into a more readable format.
 /// Input: "2024-01-15 12:34:56"
@@ -92,14 +95,20 @@ impl Render for ThreadCard<'_> {
             .as_deref()
             .unwrap_or("No archives yet");
 
+        // Extract topic_id for URL
         let thread_key = thread_key_from_url(&thread.discourse_url);
-        let thread_key_encoded = encode(&thread_key);
+        let thread_url = if let Some(topic_id) = extract_topic_id_from_thread_key(&thread_key) {
+            format!("/threads/{}", topic_id)
+        } else {
+            // Fallback for non-standard URLs
+            format!("/thread/{}", encode(&thread_key))
+        };
 
         html! {
             article class="archive-card" {
                 header {
                     h3 {
-                        a href=(format!("/thread/{}", thread_key_encoded)) { (title) }
+                        a href=(thread_url) { (title) }
                     }
                 }
                 div {
@@ -734,7 +743,7 @@ mod tests {
         assert!(html.contains("archive-card"));
         assert!(html.contains("Test Thread Title"));
         assert!(html.contains("testauthor"));
-        assert!(html.contains("/thread/"));
+        assert!(html.contains("/threads/123")); // Changed from /thread/ to /threads/123
         assert!(html.contains("View on Discourse"));
     }
 

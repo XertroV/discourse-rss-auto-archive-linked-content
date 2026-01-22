@@ -26,7 +26,7 @@ use crate::db::{
     get_archives_by_domain_display, get_archives_for_post_display, get_archives_for_posts_display,
     get_archives_for_thread_job, get_artifacts_for_archive, get_comment_edit_history,
     get_comment_with_author, get_jobs_for_archive, get_link, get_link_by_normalized_url,
-    get_link_occurrences_with_posts, get_nsfw_count, get_post_by_guid, get_posts_by_thread_key,
+    get_link_occurrences_with_posts, get_nsfw_count, get_post_by_guid, get_posts_by_topic_id,
     get_quality_metrics, get_queue_stats, get_quote_reply_chain, get_recent_activity_counts,
     get_recent_archives_display_filtered, get_recent_archives_filtered_full,
     get_recent_archives_with_filters, get_recent_failed_archives, get_storage_stats,
@@ -36,13 +36,12 @@ use crate::db::{
     pin_comment, remove_comment_reaction, reset_archive_for_rearchive,
     reset_single_skipped_archive, reset_skipped_archives, search_archives_display_filtered,
     search_archives_filtered_full, set_archive_nsfw, soft_delete_comment,
-    submission_exists_for_url, thread_archive_job_exists_recent, toggle_archive_nsfw,
-    unpin_comment, update_archive_og_metadata, update_comment, upsert_subtitle_language, NewLink,
-    NewSubmission, NewThreadArchiveJob,
+    submission_exists_for_url, thread_archive_job_exists_recent, thread_key_from_url,
+    toggle_archive_nsfw, unpin_comment, update_archive_og_metadata, update_comment,
+    upsert_subtitle_language, NewLink, NewSubmission, NewThreadArchiveJob,
 };
 use crate::handlers::normalize_url;
 use crate::og_extractor;
-use urlencoding;
 
 /// Pagination query parameters.
 #[derive(Debug, Deserialize)]
@@ -148,7 +147,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/compare/:id1/:id2", get(compare_archives))
         .route("/post/:guid", get(post_detail))
-        .route("/thread/:thread_key", get(thread_detail))
+        .route("/threads/:thread_id", get(thread_detail))
         .route("/threads", get(threads_list))
         .route("/site/:site", get(site_list))
         .route("/stats", get(stats))
@@ -1562,29 +1561,35 @@ async fn post_detail(
 
 async fn thread_detail(
     State(state): State<AppState>,
-    Path(thread_key): Path<String>,
+    Path(thread_id): Path<String>,
     MaybeUser(user): MaybeUser,
 ) -> Response {
-    // URL decode the thread_key in case it's still encoded
-    let thread_key = match urlencoding::decode(&thread_key) {
-        Ok(decoded) => decoded.to_string(),
-        Err(_) => thread_key, // Use as-is if decoding fails
+    // Parse thread_id as numeric topic ID
+    let topic_id = match thread_id.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => {
+            tracing::warn!("Invalid thread ID (not numeric): {}", thread_id);
+            return (StatusCode::BAD_REQUEST, "Thread ID must be numeric").into_response();
+        }
     };
 
-    tracing::debug!("Thread detail request for thread_key: {}", thread_key);
+    tracing::debug!("Thread detail request for topic_id: {}", topic_id);
 
-    let posts = match get_posts_by_thread_key(state.db.pool(), &thread_key).await {
+    let posts = match get_posts_by_topic_id(state.db.pool(), topic_id).await {
         Ok(p) => p,
         Err(e) => {
-            tracing::error!("Failed to fetch posts for thread: {e}");
+            tracing::error!("Failed to fetch posts for topic_id {}: {}", topic_id, e);
             return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
         }
     };
 
     if posts.is_empty() {
-        tracing::warn!("No posts found for thread_key: {}", thread_key);
+        tracing::warn!("No posts found for topic_id: {}", topic_id);
         return (StatusCode::NOT_FOUND, "Thread not found").into_response();
     }
+
+    // Compute thread_key from first post for display consistency
+    let thread_key = thread_key_from_url(&posts[0].discourse_url);
 
     let post_ids: Vec<i64> = posts.iter().map(|p| p.id).collect();
 
