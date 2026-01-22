@@ -24,3 +24,5 @@ cookies.txt
 Thumbs.db
 yt-cookies.json
 .claude
+archive.db
+archive.sqlite*
