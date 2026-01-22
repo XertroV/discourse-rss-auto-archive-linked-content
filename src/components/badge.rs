@@ -13,6 +13,7 @@ pub enum StatusVariant {
     Pending,
     Processing,
     Skipped,
+    AuthRequired,
 }
 
 impl StatusVariant {
@@ -25,6 +26,7 @@ impl StatusVariant {
             Self::Pending => "status-pending",
             Self::Processing => "status-processing",
             Self::Skipped => "status-skipped",
+            Self::AuthRequired => "status-auth-required",
         }
     }
 
@@ -32,11 +34,12 @@ impl StatusVariant {
     #[must_use]
     pub const fn icon(&self) -> &'static str {
         match self {
-            Self::Complete => "\u{2713}",   // ✓
-            Self::Failed => "\u{2717}",     // ✗
-            Self::Pending => "\u{23F3}",    // ⏳
-            Self::Processing => "\u{27F3}", // ⟳
-            Self::Skipped => "\u{2298}",    // ⊘
+            Self::Complete => "\u{2713}",      // ✓
+            Self::Failed => "\u{2717}",        // ✗
+            Self::Pending => "\u{23F3}",       // ⏳
+            Self::Processing => "\u{27F3}",    // ⟳
+            Self::Skipped => "\u{2298}",       // ⊘
+            Self::AuthRequired => "\u{1F512}", // 🔒
         }
     }
 
@@ -49,6 +52,7 @@ impl StatusVariant {
             Self::Pending => "pending",
             Self::Processing => "processing",
             Self::Skipped => "skipped",
+            Self::AuthRequired => "auth required",
         }
     }
 
@@ -61,6 +65,7 @@ impl StatusVariant {
             Self::Pending => "Archive pending",
             Self::Processing => "Archive in progress",
             Self::Skipped => "Archive skipped",
+            Self::AuthRequired => "Authentication required - can retry with cookies",
         }
     }
 
@@ -73,6 +78,7 @@ impl StatusVariant {
             "pending" => Some(Self::Pending),
             "processing" => Some(Self::Processing),
             "skipped" => Some(Self::Skipped),
+            "auth_required" => Some(Self::AuthRequired),
             _ => None,
         }
     }
@@ -119,8 +125,10 @@ impl Render for StatusBadge<'_> {
         let icon = self.variant.icon();
         let label = self.variant.label();
 
-        // Use error message as title for failed status, otherwise use default title
-        let title = if self.variant == StatusVariant::Failed {
+        // Use error message as title for failed/auth_required status, otherwise use default title
+        let title = if self.variant == StatusVariant::Failed
+            || self.variant == StatusVariant::AuthRequired
+        {
             self.error_message.unwrap_or(self.variant.title())
         } else {
             self.variant.title()
@@ -506,6 +514,25 @@ mod tests {
     fn test_status_badge_from_string() {
         let badge = StatusBadge::from_status("processing");
         assert_eq!(badge.variant, StatusVariant::Processing);
+    }
+
+    #[test]
+    fn test_status_badge_auth_required() {
+        let badge = StatusBadge::from_status("auth_required");
+        assert_eq!(badge.variant, StatusVariant::AuthRequired);
+        let html = badge.render().into_string();
+        assert!(html.contains("status-auth-required"));
+        assert!(html.contains("\u{1F512}")); // 🔒
+        assert!(html.contains("auth required"));
+    }
+
+    #[test]
+    fn test_status_badge_auth_required_with_error() {
+        let badge =
+            StatusBadge::new(StatusVariant::AuthRequired).with_error(Some("Login required"));
+        let html = badge.render().into_string();
+        assert!(html.contains("status-auth-required"));
+        assert!(html.contains("Login required"));
     }
 
     #[test]

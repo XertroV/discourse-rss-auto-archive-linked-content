@@ -687,6 +687,11 @@ form.header-search-form button[type="submit"] {
     font-weight: 500;
 }
 
+.status-auth-required {
+    color: var(--warning);
+    font-weight: 500;
+}
+
 /* Domain badge */
 .domain-badge {
     display: inline-block;

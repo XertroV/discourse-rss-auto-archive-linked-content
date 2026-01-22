@@ -539,9 +539,26 @@ fn is_auth_required_failure(error_msg: &str) -> bool {
 
     // TikTok-specific sensitive content message
     error_lower.contains("comfortable for some audiences")
+        // TikTok IP blocking (can sometimes be bypassed with cookies)
+        || error_lower.contains("ip address is blocked")
         // yt-dlp prompts for login
         || error_lower.contains("login with --cookies")
         || error_lower.contains("sign in to confirm")
+        // YouTube age-restricted content
+        || error_lower.contains("sign in to confirm your age")
+        || error_lower.contains("this video may be inappropriate for some users")
+        || error_lower.contains("this video is age-restricted")
+        // YouTube members-only content
+        || error_lower.contains("join this channel to get access")
+        || error_lower.contains("available to this channel's members")
+        || error_lower.contains("members-only")
+        // Reddit quarantined subreddits
+        || error_lower.contains("quarantined subreddit")
+        || error_lower.contains("opted in is required")
+        // Reddit private/gated subreddits
+        || error_lower.contains("this community is private")
+        || error_lower.contains("you must be invited")
+        || error_lower.contains("reason given: gated")
         // Generic authentication requirements
         || error_lower.contains("requires authentication")
         || error_lower.contains("login required")
@@ -2583,5 +2600,70 @@ mod tests {
                 err
             );
         }
+    }
+
+    #[test]
+    fn test_is_auth_required_failure_youtube_private() {
+        // YouTube private video (from real database error)
+        assert!(is_auth_required_failure(
+            "Video unavailable. This video is private"
+        ));
+        assert!(is_auth_required_failure(
+            "ERROR: [youtube] 4AB0SpDbDWk: Video unavailable. This video is private"
+        ));
+    }
+
+    #[test]
+    fn test_is_auth_required_failure_youtube_age_restricted() {
+        // YouTube age-restricted content
+        assert!(is_auth_required_failure("Sign in to confirm your age"));
+        assert!(is_auth_required_failure(
+            "This video may be inappropriate for some users"
+        ));
+        assert!(is_auth_required_failure("This video is age-restricted"));
+    }
+
+    #[test]
+    fn test_is_auth_required_failure_youtube_members_only() {
+        // YouTube members-only content
+        assert!(is_auth_required_failure(
+            "Join this channel to get access to members-only content"
+        ));
+        assert!(is_auth_required_failure(
+            "This video is available to this channel's members"
+        ));
+        assert!(is_auth_required_failure("This is members-only content"));
+    }
+
+    #[test]
+    fn test_is_auth_required_failure_tiktok_ip_blocked() {
+        // TikTok IP blocking (from real database error)
+        assert!(is_auth_required_failure(
+            "Your IP address is blocked from accessing this post"
+        ));
+        assert!(is_auth_required_failure(
+            "ERROR: [TikTok] 7546035731827920183: Your IP address is blocked from accessing this post"
+        ));
+    }
+
+    #[test]
+    fn test_is_auth_required_failure_reddit_quarantined() {
+        // Reddit quarantined subreddits
+        assert!(is_auth_required_failure("Quarantined subreddit"));
+        assert!(is_auth_required_failure(
+            "an account that has opted in is required"
+        ));
+    }
+
+    #[test]
+    fn test_is_auth_required_failure_reddit_private() {
+        // Reddit private/gated subreddits
+        assert!(is_auth_required_failure("This community is private"));
+        assert!(is_auth_required_failure(
+            "You must be invited to visit this community"
+        ));
+        assert!(is_auth_required_failure(
+            "HTTP Error 403 Forbidden; reason given: gated"
+        ));
     }
 }
