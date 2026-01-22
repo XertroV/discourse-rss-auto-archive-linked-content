@@ -1,0 +1,91 @@
+/**
+ * Vertical video layout detection
+ * Detects vertical videos and enables side-by-side layout with transcript
+ */
+
+(function() {
+    'use strict';
+
+    /**
+     * Check if video has vertical aspect ratio (portrait orientation).
+     * @param {HTMLVideoElement} video
+     * @returns {boolean}
+     */
+    function isVerticalVideo(video) {
+        return video.videoWidth > 0 &&
+               video.videoHeight > 0 &&
+               video.videoWidth < video.videoHeight;
+    }
+
+    /**
+     * Apply vertical layout class to container if video is vertical.
+     * @param {HTMLElement} container
+     * @param {HTMLVideoElement} video
+     */
+    function applyLayoutIfVertical(container, video) {
+        if (isVerticalVideo(video)) {
+            container.classList.add('vertical-layout');
+            console.log('[VerticalLayout] Vertical video detected:',
+                        video.videoWidth + 'x' + video.videoHeight);
+        } else {
+            container.classList.remove('vertical-layout');
+            console.log('[VerticalLayout] Horizontal video, using stacked layout:',
+                        video.videoWidth + 'x' + video.videoHeight);
+        }
+    }
+
+    /**
+     * Set up vertical layout detection for a container.
+     * @param {HTMLElement} container
+     */
+    function setupVerticalLayoutDetection(container) {
+        // Find video element within the media column
+        var video = container.querySelector('.media-column video');
+
+        if (!video) {
+            console.log('[VerticalLayout] No video found in container');
+            return;
+        }
+
+        // Check if metadata is already loaded
+        if (video.readyState >= 1) { // HAVE_METADATA or higher
+            applyLayoutIfVertical(container, video);
+        } else {
+            // Wait for metadata to load
+            video.addEventListener('loadedmetadata', function() {
+                applyLayoutIfVertical(container, video);
+            }, { once: true });
+        }
+
+        // Handle video source changes (edge case)
+        video.addEventListener('loadeddata', function() {
+            applyLayoutIfVertical(container, video);
+        });
+    }
+
+    /**
+     * Initialize vertical layout detection on page load.
+     */
+    function initVerticalLayout() {
+        var container = document.getElementById('media-transcript-container');
+
+        if (!container) {
+            // No container on this page
+            return;
+        }
+
+        // Check if this container is marked as a candidate for vertical layout
+        if (container.getAttribute('data-vertical-layout-candidate') !== 'true') {
+            return;
+        }
+
+        setupVerticalLayoutDetection(container);
+    }
+
+    // Initialize when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initVerticalLayout);
+    } else {
+        initVerticalLayout();
+    }
+})();

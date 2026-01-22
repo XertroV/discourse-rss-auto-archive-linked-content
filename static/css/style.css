@@ -3603,8 +3603,52 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
     will-change: transform;
 }
 
+/* ========================================
+   Vertical Video + Transcript Layout
+   ======================================== */
+
+/* Container - default stacked layout */
+#media-transcript-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+/* When vertical video detected, switch to side-by-side grid */
+#media-transcript-container.vertical-layout {
+    display: grid;
+    grid-template-columns: minmax(300px, 500px) 1fr;
+    gap: var(--spacing-lg);
+    align-items: start;
+}
+
+/* Media column - constrained max width for vertical videos */
+#media-transcript-container.vertical-layout .media-column {
+    max-width: 500px;
+    width: 100%;
+}
+
+/* Transcript column - fills remaining space */
+#media-transcript-container.vertical-layout .transcript-column {
+    min-width: 0; /* Allows text wrapping */
+}
+
+/* Smooth transition when layout changes */
+#media-transcript-container {
+    transition: grid-template-columns 0.2s ease;
+}
+
 /* Mobile responsive for controls */
 @media (max-width: 768px) {
+    /* Responsive: stack on mobile regardless of video orientation */
+    #media-transcript-container.vertical-layout {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-md);
+    }
+
+    #media-transcript-container.vertical-layout .media-column {
+        max-width: 100%;
+    }
     .comments-controls {
         flex-direction: column;
         align-items: stretch;

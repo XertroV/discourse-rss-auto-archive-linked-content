@@ -99,11 +99,8 @@ pub fn render_archive_detail_page(params: &ArchiveDetailParams<'_>) -> Markup {
                 (render_quote_reply_chain(archive, params.quote_reply_chain))
             }
 
-            // Content display sections
-            (render_content_sections(archive, link, params.artifacts, params.subtitle_languages))
-
-            // Media section (for non-HTML archives)
-            (render_media_section(archive, link, params.artifacts))
+            // Media and transcript sections (with optional side-by-side layout)
+            (render_media_and_transcript_sections(archive, link, params.artifacts, params.subtitle_languages))
 
             // Embedded HTML preview (for webpage archives)
             // Note: Twitter archives show screenshot instead (HTML embed skipped)
@@ -453,6 +450,66 @@ fn render_chain_item(target_id: i64, chain: &[Archive], item_type: &str) -> Mark
                     "Archive #" (target_id)
                 }
             }
+        }
+    }
+}
+
+/// Render media and transcript sections with optional side-by-side layout for vertical videos.
+///
+/// If both video and transcript exist, wraps them in a container that enables
+/// client-side detection for side-by-side layout. Otherwise, falls back to
+/// rendering them separately.
+fn render_media_and_transcript_sections(
+    archive: &Archive,
+    link: &Link,
+    artifacts: &[ArchiveArtifact],
+    subtitle_languages: &std::collections::HashMap<i64, SubtitleLanguage>,
+) -> Markup {
+    // Check if this archive has a video
+    let has_video = artifacts.iter().any(|a| a.kind == "video")
+        || (archive.content_type.as_deref() == Some("video") && archive.s3_key_primary.is_some());
+
+    // Check if this archive has a transcript
+    let has_transcript = artifacts.iter().any(|a| a.kind == "transcript");
+
+    // If both video and transcript exist, use the side-by-side layout container
+    if has_video && has_transcript {
+        html! {
+            div id="media-transcript-container" data-vertical-layout-candidate="true" {
+                div class="media-column" {
+                    (render_media_section(archive, link, artifacts))
+                }
+                div class="transcript-column" {
+                    // Render only the transcript from content sections
+                    @if let Some(transcript) = artifacts.iter().find(|a| a.kind == "transcript") {
+                        (render_transcript_section(transcript, artifacts, link, archive.id, subtitle_languages))
+                    }
+                    // Render playlist content if it's a playlist
+                    @if archive.content_type.as_deref() == Some("playlist") {
+                        @if let Some(ref metadata_json) = archive.content_text {
+                            (render_playlist_content(metadata_json))
+                        }
+                    }
+                }
+            }
+            script src="/static/js/vertical-video-layout.js" {}
+
+            // Render plaintext section separately if it exists
+            @if archive.content_type.as_deref() != Some("playlist") {
+                @if let Some(ref text) = archive.content_text {
+                    @let is_twitter = link.domain == "x.com"
+                        || link.domain == "twitter.com"
+                        || link.domain.ends_with(".x.com")
+                        || link.domain.ends_with(".twitter.com");
+                    (render_plaintext_section(text, is_twitter))
+                }
+            }
+        }
+    } else {
+        // Fall back to separate rendering when video or transcript is missing
+        html! {
+            (render_content_sections(archive, link, artifacts, subtitle_languages))
+            (render_media_section(archive, link, artifacts))
         }
     }
 }
