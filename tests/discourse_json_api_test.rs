@@ -18,15 +18,8 @@ async fn test_pagination_long_thread() {
     const PAGE_SIZE: i64 = 20;
 
     loop {
-        let url = if page_num == 0 {
-            format!("{}/t/{}/posts.json", base_url, topic_id)
-        } else {
-            let post_number = (page_num * PAGE_SIZE) + 1;
-            format!(
-                "{}/t/{}/posts.json?post_number={}",
-                base_url, topic_id, post_number
-            )
-        };
+        let post_number = (page_num * PAGE_SIZE) + 1;
+        let url = format!("{}/t/{}/{}.json", base_url, topic_id, post_number);
 
         println!("Fetching: {} (page {})", url, page_num);
 
@@ -70,6 +63,32 @@ async fn test_pagination_long_thread() {
         }
     }
 
+    // Final check: fetch the latest posts to ensure complete coverage
+    println!("\nFinal check: fetching latest posts");
+    let final_url = format!("{}/t/{}/9999.json", base_url, topic_id);
+    let final_response = client.get(&final_url).send().await.unwrap();
+
+    if final_response.status().is_success() {
+        let final_batch: DiscoursePostsResponse = final_response.json().await.unwrap();
+        let mut final_new_count = 0;
+
+        for post in final_batch.post_stream.posts {
+            if seen_post_ids.insert(post.id) {
+                final_new_count += 1;
+                all_posts.push(post);
+            }
+        }
+
+        if final_new_count > 0 {
+            println!(
+                "  Found {} additional posts in final check",
+                final_new_count
+            );
+        } else {
+            println!("  No additional posts found");
+        }
+    }
+
     println!("\nTotal posts fetched: {}", all_posts.len());
     println!("Unique posts: {}", seen_post_ids.len());
 
@@ -82,10 +101,10 @@ async fn test_pagination_long_thread() {
         min_post_number, max_post_number
     );
 
-    // Thread 2108 should have 446 posts
+    // Thread 2108 should have at least 446 posts (may have more if new posts were added)
     assert!(
-        all_posts.len() >= 445,
-        "Expected at least 445 posts, got {}",
+        all_posts.len() >= 446,
+        "Expected at least 446 posts, got {}",
         all_posts.len()
     );
 

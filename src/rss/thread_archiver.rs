@@ -68,21 +68,12 @@ pub async fn archive_thread_links(
     const PAGE_SIZE: i64 = 20; // Each request returns ~20 posts
 
     loop {
-        // Fetch page - use 1, 21, 41, 61, 81... pattern (increments of 20)
-        // First request: no param (gets posts 1-20)
-        // Second request: post_number=21 (gets posts 20-1, overlaps completely)
-        // Third request: post_number=41 (gets posts 40-21)
-        // Fourth request: post_number=61 (gets posts 59-37, overlaps with previous)
-        // Continue until we get all posts (deduplication handles overlaps)
-        let url = if page_num == 0 {
-            format!("{}/t/{}/posts.json", base_url, topic_id)
-        } else {
-            let post_number = (page_num * PAGE_SIZE) + 1;
-            format!(
-                "{}/t/{}/posts.json?post_number={}",
-                base_url, topic_id, post_number
-            )
-        };
+        // Fetch page - use /t/{topic_id}/{post_number}.json endpoint
+        // Pattern: 1, 21, 41, 61, 81... (increments of 20)
+        // This endpoint returns posts centered around the specified post_number
+        // When post_number is beyond the thread end, it clamps to the last ~20 posts
+        let post_number = (page_num * PAGE_SIZE) + 1;
+        let url = format!("{}/t/{}/{}.json", base_url, topic_id, post_number);
 
         debug!(
             job_id = job.id,
@@ -216,6 +207,82 @@ pub async fn archive_thread_links(
 
         // Rate limiting between requests
         tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+    // Final check: fetch the latest posts to ensure we didn't miss any
+    // Use a high post_number (9999) which will clamp to the last ~20 posts
+    debug!(
+        job_id = job.id,
+        "Fetching latest posts to ensure complete coverage"
+    );
+
+    let final_url = format!("{}/t/{}/9999.json", base_url, topic_id);
+    let final_response = client
+        .get(&final_url)
+        .header("User-Agent", ARCHIVER_HONEST_USER_AGENT)
+        .send()
+        .await
+        .context("Failed to fetch final posts batch")?;
+
+    if final_response.status().is_success() {
+        if let Ok(final_batch) = final_response.json::<DiscoursePostsResponse>().await {
+            let mut final_new_count = 0;
+            for post in &final_batch.post_stream.posts {
+                let guid = format!("topic-{}-post-{}", post.topic_id, post.id);
+
+                if processed_guids.contains(&guid) {
+                    continue;
+                }
+                processed_guids.insert(guid.clone());
+                final_new_count += 1;
+
+                let content_hash = compute_hash(&post.cooked);
+                let existing = get_post_by_guid(db.pool(), &guid).await?;
+
+                let post_id = if let Some(existing_post) = existing {
+                    if existing_post.content_hash.as_deref() == Some(&content_hash) {
+                        continue;
+                    }
+                    let new_post = build_new_post(post, &content_hash, forum_domain.as_deref());
+                    update_post(db.pool(), existing_post.id, &new_post).await?;
+                    existing_post.id
+                } else {
+                    let new_post = build_new_post(post, &content_hash, forum_domain.as_deref());
+                    insert_post(db.pool(), &new_post).await?
+                };
+
+                let post_progress = process_post_links(
+                    db,
+                    post_id,
+                    &post.cooked,
+                    forum_domain.as_deref(),
+                    Some(&post.created_at),
+                )
+                .await?;
+
+                progress.processed_posts += 1;
+                progress.new_links_found += post_progress.new_links_found;
+                progress.archives_created += post_progress.archives_created;
+                progress.skipped_links += post_progress.skipped_links;
+
+                update_thread_archive_job_progress(
+                    db.pool(),
+                    job.id,
+                    progress.processed_posts,
+                    progress.new_links_found,
+                    progress.archives_created,
+                    progress.skipped_links,
+                )
+                .await?;
+            }
+
+            if final_new_count > 0 {
+                debug!(
+                    job_id = job.id,
+                    final_new_count, "Found additional posts in final check"
+                );
+            }
+        }
     }
 
     info!(
