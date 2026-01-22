@@ -1,0 +1,1312 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0" xmlns:discourse="http://www.discourse.org/" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Critical Falliblism - Latest posts</title>
+    <link>https://discuss.criticalfallibilism.com</link>
+    <description>Latest posts</description>
+      <item>
+        <title>People Being Bad at Logic</title>
+        <dc:creator><![CDATA[@Elliot]]></dc:creator>
+        <description><![CDATA[ <p>I was talking with someone about people not being very good at math and logic and that being relevant to philosophy errors. Also from the conversation they brought up the book <em>Governed By Affect</em> by Michael Pettit. I found something potentially relevant there: a logic error by Pettit. Here’s the first paragraph I read (from early in chapter 5; I saw something familiar in the table of contents and skipped to it):</p>
+<blockquote>
+<p>The famous Linda Problem, first introduced in 1983, exemplified Kahneman and Taversky’s approach to understanding the fallacies of human judgments when the mind largely runs on automatic. They presented participants with the following description of a fictional person: “Linda is 31 years old, single, outspoken and very bright. She majored in philosophy. As a student, she was deeply concerned with issues of discrimination and social justice, and also participated in antinuclear demonstrations.” They then asked participants to rank a variety of statements about Linda in the order of their likelihood. Respondents tended to rank the conjunction of attributes “Linda is a bank teller and is active in the feminist movement” as more likely than either attribute appearing in isolation. <strong>The conjoined statement appeared to be more representative of her person as a whole, even though statistically speaking, she more likely possessed only one of the attributes.</strong>[4] People failed at reasoning by succumbing to quick, appeasing, intuitive shortcuts instead of slowing their thinking sufficiently to contemplate the problem to solve it correctly. [bold added]</p>
+</blockquote>
+<p>Here, Pettit is talking about laypeople being bad at logic. But he made his own mistakes.</p>
+<p>Pettit compared having both attributes to possessing “only one” of the attributes. That’s not the correct comparison. He’s comparing</p>
+<ol>
+<li>bank teller and feminist (this is the conjunction they’re talking about because it uses “and” to conjoin two attributes)</li>
+</ol>
+<p>to</p>
+<ol start="2">
+<li>bank teller and not feminist (wrong)</li>
+</ol>
+<p>rather than comparing to</p>
+<ol start="3">
+<li>bank teller and may or may not be feminist (right)</li>
+</ol>
+<p>which was originally presented as</p>
+<ol start="4">
+<li>bank teller (means the same thing as 3)</li>
+</ol>
+<p>In the correct comparison, the conjunction option (1) is <em>strictly worse</em> (3 is higher probability than 1). The argument is that, since people prefer a strictly worse thing, they must be irrational, biased, or something else bad.</p>
+<p>In Pettit’s version, he says having “only” one trait is more likely than having both. But that depends. X&amp;Y can be more likely than X&amp;!Y. By saying “only” one specific thing, in the context of two things, he’s actually comparing two conjunctions. Statement 2 is both an inaccurate description of the research and also not higher probability than statement 1 as Pettit claims.</p>
+<p>Here is the original paper for the Linda problem:</p>
+<aside class="onebox pdf" data-onebox-src="https://faculty.econ.ucdavis.edu/faculty/nehring/teaching/econ106/readings/Extensional%20Versus%20Intuitive.pdf">
+  <header class="source">
+
+      <a href="https://faculty.econ.ucdavis.edu/faculty/nehring/teaching/econ106/readings/Extensional%20Versus%20Intuitive.pdf" target="_blank" rel="noopener">faculty.econ.ucdavis.edu</a>
+  </header>
+
+  <article class="onebox-body">
+    <a href="https://faculty.econ.ucdavis.edu/faculty/nehring/teaching/econ106/readings/Extensional%20Versus%20Intuitive.pdf" target="_blank" rel="noopener"><span class="pdf-onebox-logo"></span></a>
+
+<h3><a href="https://faculty.econ.ucdavis.edu/faculty/nehring/teaching/econ106/readings/Extensional%20Versus%20Intuitive.pdf" target="_blank" rel="noopener">Extensional%20Versus%20Intuitive.pdf</a></h3>
+
+  <p class="filesize">1556.12 KB</p>
+
+  </article>
+
+  <div class="onebox-metadata">
+    
+    
+  </div>
+
+  <div style="clear: both"></div>
+</aside>
+
+<p>They even tried wording it as “Linda is a bank teller whether or not she is active in the feminist movement” and people still thought that was less likely than “Linda is a bank teller and is active in the feminist movement”. Despite this, Pettit somehow thought the alternative was that Linda was <em>only</em> a bank teller (not a feminist), and then he incorrectly judged the comparative probability for that.</p>
+<p>The original research involved multiple additional efforts to clarify this (to study participants, not directly to people reading the paper like Pettit). I wonder if Pettit read the paper while he was writing the book, years earlier, or never. But you can’t explain this as just bad research methods and bad memory. Even setting aside Pettit’s incorrect statement about what the original research said, he also made his own incorrect statement about probability. His logic/math error is visible without reading the original paper.</p>
+<p>Pettit continues:</p>
+<blockquote>
+<p>Such simple demonstrations of people’s incapacity to reason properly galvinized a wide of range of psychologists by offering them an exciting means of intervening in the most pressing issues of the day. Gone was the layperson functioning as a deliberative chess expert carefully testing hypotheses about the world.[5]</p>
+</blockquote>
+<p>I don’t like it when experts like Pettit talk about the incapacity of laypeople while making their own similar errors. Maybe you shouldn’t ever be condescending, but you at the very least shouldn’t be condescending if you can’t do a lot better than the people you’re disrespecting.</p>
+<p>I’m not trying to single out Pettit as worse than his peers. For me, quickly finding pretty basic errors is just a typical experience when reading books and papers by experts. I think it’s a widespread problem.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/people-being-bad-at-logic/2148#post_1</link>
+        <pubDate>Wed, 21 Jan 2026 23:29:42 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20218</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@ActiveMind]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="anonymous105" data-post="28" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/8797f3/48.png" class="avatar"> anonymous105:</div>
+<blockquote>
+<p>Is <em>We the Living</em> also short?</p>
+</blockquote>
+</aside>
+<p>For my physical copies with roughly same font size and page size, WTL is 443 pages and FH is 727 pages.</p>
+<aside class="quote no-group" data-username="anonymous105" data-post="26" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/8797f3/48.png" class="avatar"> anonymous105:</div>
+<blockquote>
+<p>I also think storytelling often follows guidelines about when it is or isn’t a good idea to have a bleak unhappy ending.</p>
+</blockquote>
+</aside>
+<p>This depends on the philosophical world view of the author. If they hold the malevolent universe premise then it’s inverted; tragic endings are the default and happy endings require justification.</p>
+<p>That applies mostly just for intellectual fiction. With such fiction you kind of make a trade off where you learn something about the human condition or society but have to get sad over the tragedy. For popular fiction the goal is more to make it enjoyable than to make it didactic.</p>
+<p>Surely there are people who enjoy sad stories without much philosophical substance in them, but I think they’re a minority. Though I can think up vague examples of people saying “the ending was so sad!” implying it was good without talking about what it teaches you. So maybe I’m underestimating how much people like sad endings.</p>
+<p>I can imagine that people like fiction that makes them feel <em>something</em>. Boring fiction that spark no emotions is worse than those that spark negative feelings, all else being equal.</p>
+<aside class="quote no-group" data-username="anonymous105" data-post="26" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/8797f3/48.png" class="avatar"> anonymous105:</div>
+<blockquote>
+<p>I haven’t read <em>We the Living</em> but my understanding is that it’s more of a true dystopian story. So that would track.</p>
+</blockquote>
+</aside>
+<p>For Rand, the justification for the tragic ending in WtL is not realism, but the philosophical meaning it implies about collectivism. She talks about this in the end of <em>The Art of Fiction</em>.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144?page=2#post_31</link>
+        <pubDate>Wed, 21 Jan 2026 22:40:40 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20217</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@anonymous105 anonymous105]]></dc:creator>
+        <description><![CDATA[ <p>Got it.</p>
+<aside class="quote no-group" data-username="anonymous105" data-post="28" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/8797f3/48.png" class="avatar"> anonymous105:</div>
+<blockquote>
+<p>Or I got them confused in my head and conflated them into one short dystopian book with a bleak ending.</p>
+</blockquote>
+</aside>
+<p>I must have done this then. They morphed into a single book in my mind.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144?page=2#post_30</link>
+        <pubDate>Wed, 21 Jan 2026 22:35:34 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20216</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@Elliot]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="anonymous105" data-post="28" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/8797f3/48.png" class="avatar"> anonymous105:</div>
+<blockquote>
+<p>Is <em>We the Living</em> also short?</p>
+</blockquote>
+</aside>
+<p>no</p>
+<aside class="quote no-group" data-username="anonymous105" data-post="28" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/8797f3/48.png" class="avatar"> anonymous105:</div>
+<blockquote>
+<p>Does <em>Anthem</em> have a bleak ending?</p>
+</blockquote>
+</aside>
+<p>no</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144?page=2#post_29</link>
+        <pubDate>Wed, 21 Jan 2026 21:38:39 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20215</guid>
+      </item>
+      <item>
+        <title>Dennis Hackethal&#39;s Website, Veritula, Is Worse than Plagiarism</title>
+        <dc:creator><![CDATA[@anonymous105 anonymous105]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="Neo" data-post="43" data-topic="2132">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/neo/48/5306_2.png" class="avatar"> Neo:</div>
+<blockquote>
+<p>What do you think autism is? I’m skeptical of some descriptions of autism I’ve heard, so I’m curious what smart people on this forum think.</p>
+</blockquote>
+</aside>
+<p>I think autism is a term for a cluster of traits that have been identified by psychologists. Those traits exist on a spectrum of intensity. Many of those traits overlap with other words we have for personality types and behaviors, e.g. some autistic traits overlap with traits we might describe as “picky” or “meticulous” or “socially awkward” or “literal” or “argumentative” or many many other examples.</p>
+<p>I think those traits exist. I don’t know what causes these traits any more than I know what causes any other traits. I’m not an expert on autism or psychology. I used to be very skeptical of people who claim that expertise. I still have some skepticism, but I’m not very interested in studying it in depth or arguing the issue. So I am a bit more cautious in expressing that skepticism with very strong/aggressive words.</p>
+<p>But whatever the cause may be, the word is still potentially useful to describe that trait cluster. It means something. Maybe it means something medical or neurological. Maybe it means something memetic. Maybe both, I don’t know. Regardless, it means something in a descriptive social sense. The word means something, people can understand what that meaning is, and therefore it has descriptive value.</p>
+<p>One reason people care a lot about differentiating biological vs. “learned” traits is that there is a common belief in society that it is easy to change non-biological traits and hard/impossible to change biological ones. I am skeptical of that claim. I think that skepticism is/has been common in CF and related communities. I think it can be hard to change behaviors regardless of where they come from, and many ideas/behaviors that are pretty hard to blame on biology are nonetheless hard for people to change. I suspect that humans are a pretty integrated mishmash of biology and ideas, and it is difficult to perfectly extract either element of that puzzle the way some people believe you can.</p>
+<p>So I don’t really care much whether autism is biological or not. I don’t have a strong opinion on that, and I am not sure it matters much to me regardless.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/dennis-hackethals-website-veritula-is-worse-than-plagiarism/2132?page=3#post_44</link>
+        <pubDate>Wed, 21 Jan 2026 21:07:03 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20214</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@anonymous105 anonymous105]]></dc:creator>
+        <description><![CDATA[ <p>Oh, oops! I was absolutely confusing <em>We the Living</em> with <em>Anthem</em>. <em>Anthem</em> is the short dystopia.</p>
+<p>Is <em>We the Living</em> also short? Does <em>Anthem</em> have a bleak ending?</p>
+<p>Guessing I wasn’t thinking of <em>We the Living</em> at all at any point and was only ever thinking of <em>Anthem</em> by mistake. Or I got them confused in my head and conflated them into one short dystopian book with a bleak ending. I have not read either of them.</p>
+<p>I think my broader comments still stand. Also, realistic historical dramas (whether fiction or not) are another genre that often have very bleak endings regardless of the story’s length. Depending on what era of history, at least. I think this makes sense… History can be very bleak, and people often know the broad strokes of the bleak historical period before they start the story. Both of those facts contribute to it being a more accepted type of ending.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144?page=2#post_28</link>
+        <pubDate>Wed, 21 Jan 2026 19:30:37 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20213</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@Elliot]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="anonymous105" data-post="26" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/8797f3/48.png" class="avatar"> anonymous105:</div>
+<blockquote>
+<p>I haven’t read <em>We the Living</em> but my understanding is that it’s more of a true dystopian story.</p>
+</blockquote>
+</aside>
+<p>No. Dystopia means:</p>
+<blockquote>
+<p>an imagined state or society in which there is great suffering or injustice, typically one that is totalitarian or post-apocalyptic.</p>
+</blockquote>
+<p><em>We the Living</em> is set in communist Russia. It’s realistic. It’s not like <em>1984</em> which tries to imagine a hypothetical society. Rand’s true dystopian book is <em>Anthem</em>, which is set in a hypothetical communist society which is worse than the USSR. FYI, <em>Anthem</em> is short and you could read it in one sitting.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144?page=2#post_27</link>
+        <pubDate>Wed, 21 Jan 2026 18:41:20 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20212</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@anonymous105 anonymous105]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="Elliot" data-post="20" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>If you watch TV shows, e.g. police procedurals, things tend to wrap up positively in under an hour, often with minimal adversity. Like the adversity is they had to go find some more evidence and their boss doubted them in the middle. Medical drama TV shows often follow the same structure.</p>
+</blockquote>
+</aside>
+<p>Depends a lot on the show. Sometimes police procedurals also include stuff like protagonists getting into gunfights, which would be adversity in real life but are often portrayed as mostly just thrilling and badass.</p>
+<p>But in general I mostly had long form stories such as novels and movies in mind. Serialized shows often don’t have the same adversity <em>every episode</em> but they might have the protagonists face some serious adversity periodically, e.g. season finales or dramatic 2-part episodes.</p>
+<p>Most episodes of House he is just snarky and the patient is the one facing adversity, but every so often he ends up in prison or has a traumatic drug induced hallucination or whatever. If you look at the totality of any given show’s run, most of them do have genuine non-trivial adversity pop up at least a couple times. But again I do agree it varies based on genre, and some genres are fairly low in adversity.</p>
+<aside class="quote no-group" data-username="Elliot" data-post="20" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p><em>Atlas Shrugged</em> and <em>The Fountainhead</em> are more in line with highly respected books for having more adversity, drama, ups and downs, etc. It’s different than a lot of plotlines you’d see with Superman, Star Trek, Law and Order, fanfiction.</p>
+</blockquote>
+</aside>
+<p>Yeah, I agree. I did intend to imply this with this line (bold added):</p>
+<blockquote>
+<p>Many protagonists in <strong>successful</strong> fiction experience very real, serious setbacks.</p>
+</blockquote>
+<p>You mentioned Star Trek… while many individual episodes may be fairly low stakes, over the course of their runs (mostly thinking of the ones I know well, from the 90s; TNG, DS9, VOY) there is a lot of really serious adversity! Characters are tortured, imprisoned, experimented on, stranded in hostile environments for extended periods, injured in critical condition, die, lose loved ones, face major moral dilemmas that challenge their beliefs, etc.</p>
+<p>I have become a much bigger fan of Star Trek after rewatching it recently, I think overall it does this sort of thing better than many other examples of serialized fiction (Law and Order, etc.) where I agree with you more.</p>
+<aside class="quote no-group" data-username="Elliot" data-post="20" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>If you don’t think AS and FH show success as hard, then do any stories (particularly about realistic scenarios, not zombie apocalypses)?</p>
+</blockquote>
+</aside>
+<p>No, I do think FH shows success as hard within the story. I was just saying that because it has a happy ending for the protagonist I think a lot of people can come away from it feeling good. And that can extend into feeling empowered, like they can do it too, like maybe it’s not <em>that</em> hard, etc.</p>
+<p>Some of these reactions are probably good, but my guess is that they can also lead to overconfidence. This feels like a classic difficult problem between confidence and overconfidence. You don’t want people to feel demoralized and hopeless, but it’s also not good if they get arrogant and sloppy.</p>
+<p>I don’t really have a solution to that problem. To the extent I don’t think a solution to it is present in Rand’s fiction, I don’t think that’s her fault. It’s not really the problem she was trying to solve anyway.</p>
+<aside class="quote no-group" data-username="Elliot" data-post="20" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>And <em>We the Living</em> doesn’t have a good ending despite having a deserving hero.</p>
+</blockquote>
+</aside>
+<p>Yeah I have not read that but I am aware of it and was pretty sure that it had a bleak ending. I only mentioned FH because that’s the only one I remembered well and was pretty confident about.</p>
+<p>I also think storytelling often follows guidelines about when it is or isn’t a good idea to have a bleak unhappy ending. Some genres and types of stories can more reliably get away with bleak endings.</p>
+<p>Dystopian stories are a good example. AS &amp; FH have elements of dystopianism in them but I think they are more like big dramas. I haven’t read <em>We the Living</em> but my  understanding is that it’s more of a true dystopian story. So that would track.</p>
+<p>Also, I have a theory that short stories can get away with bleak endings more reliably than long form stories. Not to say long form stories don’t have bleak endings sometimes. But I think it’s much more common in short stories. I have noticed this a lot in Science Fiction. Short speculative Sci-Fi is often bleak, dystopian, horrific, or otherwise has sad/bad endings. Long form Sci-Fi, even if it is overall bleak, will usually have some element of hope in the ending.</p>
+<p>My guess for why this is: Bleak endings can leave readers feeling bad. But the longer time you’ve spent with the protagonists, the more emotionally invested you are, the worse it can end up feeling. For shorter stories, the bleak ending can be sad but the thought-provoking and challenging elements can be interesting enough to be the primary thing the reader thinks about. For long stories, it can be harder to appreciate that stuff if the ending of the story is too bleak and all of the characters the reader grew attached to end the story in a horrible place.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144?page=2#post_26</link>
+        <pubDate>Wed, 21 Jan 2026 18:27:54 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20211</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@ActiveMind]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="ActiveMind" data-post="24" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/activemind/48/5560_2.png" class="avatar"> ActiveMind:</div>
+<blockquote>
+<p>Some people think that only tragic endings are respectable and that happy endings are naive. Which is because they hold the malevolent universe premise and believe that life is fundamentally tragic.</p>
+</blockquote>
+</aside>
+<p>Some of them would look down upon happy endings as “feel good stories”, whereas real art, they would say, is supposed to challenge you, to make you uncomfortable.</p>
+<p>Rand’s books aren’t about making you feel good, instead their effect should be to give you spiritual fuel and inspire you to pursue values in life. Her books <em>do</em> challenge you. They challenge you to strive for moral perfection and settling for nothing less. “Feel good stories” would tell you that you’re okay as you are and that you need to change nothing about yourself.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144?page=2#post_25</link>
+        <pubDate>Wed, 21 Jan 2026 02:26:09 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20210</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@ActiveMind]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="Elliot" data-post="20" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p><em>Atlas Shrugged</em> and <em>The Fountainhead</em> are more in line with highly respected books for having more adversity, drama, ups and downs, etc.</p>
+</blockquote>
+</aside>
+<p>Some people think that only tragic endings are respectable and that happy endings are naive. Which is because they hold the malevolent universe premise and believe that life is fundamentally tragic.</p>
+<aside class="quote no-group" data-username="Elliot" data-post="20" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>And <em>We the Living</em> doesn’t have a good ending despite having a deserving hero.</p>
+</blockquote>
+</aside>
+<p>Spoilers for <em>We the Living</em> and <em>1984</em>:</p>
+<div class="spoiler"><a href="https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144/24">spoiler</a></div> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144?page=2#post_24</link>
+        <pubDate>Wed, 21 Jan 2026 02:07:10 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20209</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@Jarrod]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group quote-modified" data-username="Eternity" data-post="15" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/eternity/48/5535_2.png" class="avatar"> Eternity:</div>
+<blockquote>
+<aside class="quote no-group" data-username="Apricus" data-post="4" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/apricus/48/855_2.png" class="avatar"> Apricus:</div>
+<blockquote>
+<p>It might also be that movies and media in general make it seem easier to be nice than it actually is in real life. Perhaps it idealizes or romanticizes the actual execution of those values.</p>
+</blockquote>
+</aside>
+<p>~yeah. I think media makes things feel easier than they are. reading something like Atlas Shrugged or The Fountainhead makes having integrity and being rational easy. I don’t think Rand wrote it in a way that said their easy. But something about reading about it makes it feel easy.</p>
+</blockquote>
+</aside>
+<p>I think that Apricus has a good point.</p>
+<p>I think that reading a stylized narration of a character’s actions can make it feel much clearer what the right and wrong decisions are. It can create a sense of moral clarity.</p>
+<p>It’d be like the difference between reading about a character who wastes time on Facebook instead of studying for an impending exam… versus actually being a person IRL who spends time on Facebook instead of studying.</p>
+<p>I think when you read about someone else doing it, it can feel more obvious when they’re making a mistake. Besides, authors often write in a slanted/stylized sort of way that makes it clearer what the right and wrong decisions are.</p>
+<p>(Also, viewing one’s own actions through someone else’s perspective can have the same effect. E.g., having a boss looking over one’s shoulder can make one more acutely aware of when one is doing something subpar.)</p>
+<aside class="quote no-group" data-username="Elliot" data-post="22" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>Do you feel that way with other fiction? Detective stuff? Superhero stuff? Outer space stuff? Doctors saving patients?</p>
+</blockquote>
+</aside>
+<p>I don’t think so. Perhaps because being a detective, astronaut, or doctor requires skills that I don’t have (and it’s intuitively obvious to me that I don’t have those skills).</p>
+<p>I don’t think I could be as good of a detective as Hercule Poirot or Sherlock Holmes. (At least not without decades of practice. And even then, I’d probably still fail to reach their skill level.)</p>
+<p>Maybe people view moral knowledge/skill as easier and more accessible than technical skill. Perhaps people feel that it’s easier to become a hero than a brain surgeon.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144?page=2#post_23</link>
+        <pubDate>Wed, 21 Jan 2026 01:30:59 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20208</guid>
+      </item>
+      <item>
+        <title>Capitalism Means Policing Big Companies</title>
+        <dc:creator><![CDATA[@Jarrod]]></dc:creator>
+        <description><![CDATA[ <p>Incidentally, I made up my mind about this stuff (even before reading ET’s post):</p>
+<p>I don’t think companies should be required to have nutritional labels, disclose discriminatory pricing, etc. The reason why is because requiring that feels way too intrusive and anti-freedom. I think prosecuting only outright lies and not requiring affirmative disclosure is better. At least, that’s my current opinion. I’m not super confident about it though.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/capitalism-means-policing-big-companies/1491?page=10#post_192</link>
+        <pubDate>Wed, 21 Jan 2026 01:18:44 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20207</guid>
+      </item>
+      <item>
+        <title>Capitalism Means Policing Big Companies</title>
+        <dc:creator><![CDATA[@Jarrod]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="Elliot" data-post="190" data-topic="1491">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>then I think they’d just get exposed fast, so their own silence wouldn’t matter much.</p>
+</blockquote>
+</aside>
+<p>That makes sense. Thank you for your explanation.</p>
+<aside class="quote no-group" data-username="Elliot" data-post="190" data-topic="1491">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>Whistleblowers are stopped by things like fear of being fired</p>
+</blockquote>
+</aside>
+<p>I think freedom of association (and at-will employment) would mean that a company could fire whistleblowers. (Assuming there were no long-term employment contract.)</p>
+<p>Though perhaps a company wouldn’t fire whistleblowers because firing them would almost be tantamount to admitting that the whistleblowers were right. Besides, the company couldn’t lie about the reason why they fired a whistleblower. The company could just say “no comment” about why they fired a whistleblower though.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/capitalism-means-policing-big-companies/1491?page=10#post_191</link>
+        <pubDate>Wed, 21 Jan 2026 01:16:43 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20206</guid>
+      </item>
+      <item>
+        <title>CF Archiver webapp/bot (for linked material -- reddit, tiktok, etc)</title>
+        <dc:creator><![CDATA[@Max Max]]></dc:creator>
+        <description><![CDATA[ <p>For testing, here is an archived page marked NSFW that is SFW.</p>
+<aside class="onebox allowlistedgeneric" data-onebox-src="https://cf-archiver.xk.io/archive/70">
+  <header class="source">
+      <img class="site-icon" alt="">
+
+      <a href="https://cf-archiver.xk.io/archive/70" target="_blank" rel="noopener nofollow ugc">CF Archive</a>
+  </header>
+
+  <article class="onebox-body">
+    
+
+<h3><a href="https://cf-archiver.xk.io/archive/70" target="_blank" rel="noopener nofollow ugc">[NSFW] GitHub - XertroV/discourse-rss-auto-archive-linked-content: A Rust...</a></h3>
+
+  <p>A Rust service that monitors a Discourse forum's RSS feed, detects links to ephemeral user-generated content (Reddit, TikTok, Twitter/X, YouTube, etc.), archives that content to S3, and provide...</p>
+
+
+  </article>
+
+  <div class="onebox-metadata">
+    
+    
+  </div>
+
+  <div style="clear: both"></div>
+</aside>
+
+<p>Also, latency for auto-archiving is maybe 10 to 70 seconds if there’s nothing in the queue. It polls the forum’s rss feed once per minute, and then archiving starts pretty quickly after that. There is some rate limiting on parallel archiving, so if there are 20 links in a post it will be a little while before they’re all processed, especially if some are videos. Under some views of All Archives you can see the pending, inprog, and failed archives.</p>
+<p>Update: twitter threads are harder than anticipated. yt-dlp has a thing for it but my account got blocked pretty quickly. I’m just going to ignore twitter replies and threads for now.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/cf-archiver-webapp-bot-for-linked-material-reddit-tiktok-etc/2147#post_3</link>
+        <pubDate>Wed, 21 Jan 2026 00:25:38 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20205</guid>
+      </item>
+      <item>
+        <title>CF Archiver webapp/bot (for linked material -- reddit, tiktok, etc)</title>
+        <dc:creator><![CDATA[@Max Max]]></dc:creator>
+        <description><![CDATA[ <p>link_archive_account:BrightSphinx8636</p>
+<p>The above is how you can link an archive account to your forum account (find it on the “Profile” page). At the moment this just sets your display name on the archive site (which isn’t visible anywhere yet), but maybe we can do something in future.</p>
+<p>Misc notes:</p>
+<p>The account auto link feature seems to work. Please report any bugs. It should set your display name to <code>@Username</code> exactly. Also it just occurred to me that anon accounts probably work with it too, so you can link an anon account if you like.</p>
+<p>There is a small chance of some interruption from the VPS host (account verification related). If this happens, it should be within the next few days but ideally won’t happen (account verification stuff).</p>
+<p>Ongoing costs are ~4 euro / mo via Hetzner + Cloudflare R2 ($0.015 / GB-month; first 10 GB is free).</p>
+<p>Also, another link that you should not be able to access: <a href="https://cf-archiver.xk.io/admin/forum-user/@Max%20Max" rel="noopener nofollow ugc">https://cf-archiver.xk.io/admin/forum-user/@Max%20Max</a></p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/cf-archiver-webapp-bot-for-linked-material-reddit-tiktok-etc/2147#post_2</link>
+        <pubDate>Wed, 21 Jan 2026 00:04:13 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20204</guid>
+      </item>
+      <item>
+        <title>CF Archiver webapp/bot (for linked material -- reddit, tiktok, etc)</title>
+        <dc:creator><![CDATA[@Max Max]]></dc:creator>
+        <description><![CDATA[ <p>I have written a webapp to archive linked materials from posts to this forum. It’s really annoying reading a discussion and finding that the reddit post or tiktok video that was linked has since been deleted. This should solve both those problems. It also archives YT videos and some other things. Feature requests are welcome.</p>
+<aside class="onebox allowlistedgeneric" data-onebox-src="https://cf-archiver.xk.io/?nonce=1">
+  <header class="source">
+      <img class="site-icon" alt="">
+
+      <a href="https://cf-archiver.xk.io/?nonce=1" target="_blank" rel="noopener nofollow ugc">CF Archive</a>
+  </header>
+
+  <article class="onebox-body">
+    
+
+<h3><a href="https://cf-archiver.xk.io/?nonce=1" target="_blank" rel="noopener nofollow ugc">CF Archive</a></h3>
+
+  <p>52 archives | 35 text posts, 11 videos, 5 threads</p>
+
+
+  </article>
+
+  <div class="onebox-metadata">
+    
+    
+  </div>
+
+  <div style="clear: both"></div>
+</aside>
+
+<p>The site also allows users to submit URLs for archival. To do so, you need to register an account and become an ‘approved’ user. The easiest way to do become one is to copy the string from your profile page (after logging in) and paste that as the first thing in a public message on the forum. See the post after this for an example where I do that. If automatic way doesn’t work, then you can DM me and I can manually do it. A forum account can only be linked once, so make sure you save the generated username and pw in your password manager.</p>
+<p></p><div class="lightbox-wrapper"><a class="lightbox" href="https://discuss.criticalfallibilism.com/uploads/default/original/2X/c/c4211398808a5b4768470bb5f33239c38a10f03a.png" data-download-href="https://discuss.criticalfallibilism.com/uploads/default/c4211398808a5b4768470bb5f33239c38a10f03a" title="image"><img src="https://discuss.criticalfallibilism.com/uploads/default/original/2X/c/c4211398808a5b4768470bb5f33239c38a10f03a.png" alt="image" data-base62-sha1="rZ2rVggOzeSKowGYwFP7MWDvfWW" width="690" height="207" data-dominant-color="141416"></a></div><p></p>
+<p>If you find that you can do anything that seems like it should be admin only, please report it as a bug (eg deleting an archived item, forcing a re-archive, you can access <a href="https://cf-archiver.xk.io/admin/user/1" rel="noopener nofollow ugc">https://cf-archiver.xk.io/admin/user/1</a>, etc).</p>
+<p>Please note: this has not been tested very much. I have made sure that reddit and YT work, but it might not work for other sites. Some sites are skipped like wayback machine or archive.today and aliases. You are welcome to submit archival links to test and report bugs here (and/or make feature requests). YT videos over 1hr won’t be archived but it’s possible to add if we want it.</p>
+<p>Currently, all approved users can toggle the NSFW status of a post. Please don’t abuse this. I figure this is okay for now since only people who post here (or long time community members who unlurk to DM me) will be approved. The NSFW feature is mostly there as a safeguard. Visibility of NSFW posts can be toggle via the button in the top right. The only reliable NSFW detection is for reddit posts (poorly tested; bugs aside, it should be easy to do reliably).</p>
+<p>The site was 99% vibe coded via various claude models. I do the deployment stuff manually, but I wonder whether claude could do all that if I ran claude code on a fresh ubuntu server.</p>
+<p>Links to content will usually 307 redirect to the bucket via public URL.</p>
+<p></p><div class="lightbox-wrapper"><a class="lightbox" href="https://discuss.criticalfallibilism.com/uploads/default/original/2X/f/fd1d271596c12ca0e7f5d3fd3e265460066a899b.png" data-download-href="https://discuss.criticalfallibilism.com/uploads/default/fd1d271596c12ca0e7f5d3fd3e265460066a899b" title="image"><img src="https://discuss.criticalfallibilism.com/uploads/default/original/2X/f/fd1d271596c12ca0e7f5d3fd3e265460066a899b.png" alt="image" data-base62-sha1="A79g4TsJYqMMUItVTXvX6DdzcPV" width="446" height="500" data-dominant-color="161619"></a></div><br>
+<div class="lightbox-wrapper"><a class="lightbox" href="https://discuss.criticalfallibilism.com/uploads/default/original/2X/1/14a1571029154f28005079462b63cba806e05129.png" data-download-href="https://discuss.criticalfallibilism.com/uploads/default/14a1571029154f28005079462b63cba806e05129" title="image"><img src="https://discuss.criticalfallibilism.com/uploads/default/original/2X/1/14a1571029154f28005079462b63cba806e05129.png" alt="image" data-base62-sha1="2WvdzFTJUOrl3eD3VfIq1nMAoiJ" width="675" height="500" data-dominant-color="151417"></a></div><br>
+<div class="lightbox-wrapper"><a class="lightbox" href="https://discuss.criticalfallibilism.com/uploads/default/original/2X/6/6519f4dadfcd4614c750a5b1de748243edd2af3c.png" data-download-href="https://discuss.criticalfallibilism.com/uploads/default/6519f4dadfcd4614c750a5b1de748243edd2af3c" title="image"><img src="https://discuss.criticalfallibilism.com/uploads/default/original/2X/6/6519f4dadfcd4614c750a5b1de748243edd2af3c.png" alt="image" data-base62-sha1="eqnPPwxzJr1qKG3k2MZcUGQ2CMk" width="458" height="500" data-dominant-color="1D1B1D"></a></div><p></p>
+<p>Note: the Archived Page Preview is open on page load by default. I collapsed it in the above image so you could see more of the page.</p>
+<p>Videos are saved for YT, tiktok, twitter*, and some other providers (search for <code>streamable</code> on the <a href="https://github.com/XertroV/discourse-rss-auto-archive-linked-content" rel="noopener nofollow ugc">github repo</a> to find a list)</p>
+<p>Comments are saved for YT, tiktok, and twitter*.</p>
+<p></p><div class="lightbox-wrapper"><a class="lightbox" href="https://discuss.criticalfallibilism.com/uploads/default/original/2X/6/66066fdcbe8331abd4b6d9e994c06ce0d0eb258b.jpeg" data-download-href="https://discuss.criticalfallibilism.com/uploads/default/66066fdcbe8331abd4b6d9e994c06ce0d0eb258b" title="image"><img src="https://discuss.criticalfallibilism.com/uploads/default/original/2X/6/66066fdcbe8331abd4b6d9e994c06ce0d0eb258b.jpeg" alt="image" data-base62-sha1="eyyuzwIOjYdEuFJkMNBSs2RbpLd" width="346" height="375" data-dominant-color="414243"></a></div> <div class="lightbox-wrapper"><a class="lightbox" href="https://discuss.criticalfallibilism.com/uploads/default/original/2X/d/dea9ff4a70d9d92b157177918368a69ba7d79aa1.png" data-download-href="https://discuss.criticalfallibilism.com/uploads/default/dea9ff4a70d9d92b157177918368a69ba7d79aa1" title="image"><img src="https://discuss.criticalfallibilism.com/uploads/default/original/2X/d/dea9ff4a70d9d92b157177918368a69ba7d79aa1.png" alt="image" data-base62-sha1="vLMdnD02oyA5qXEelegZD1yS7wR" width="343" height="375" data-dominant-color="161417"></a></div><p></p>
+<p>* Most of the twitter stuff is untested; I need to set up an account and log in on the server, and probably debug a bit after that.</p>
+<p>Also, a comments section on <code>/archive/X</code> pages might appear at some point. I instructed claude to code it, but it doesn’t show up. I am not sure if a comments section is actually useful enough to bother fixing.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/cf-archiver-webapp-bot-for-linked-material-reddit-tiktok-etc/2147#post_1</link>
+        <pubDate>Wed, 21 Jan 2026 00:03:53 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20203</guid>
+      </item>
+      <item>
+        <title>Dennis Hackethal&#39;s Website, Veritula, Is Worse than Plagiarism</title>
+        <dc:creator><![CDATA[@Neo]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="anonymous105" data-post="16" data-topic="2132">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/8797f3/48.png" class="avatar"> anonymous105:</div>
+<blockquote>
+<p>The first thing I wanted to touch on is speculation of a personal nature. Feel free to disregard this, as it is basically armchair psychoanalysis. But basically… to the extent Hackethal’s complaints were ever true, I suspect a major factor of this is <strong>neurodivergence.</strong></p>
+<p>I think Elliot exhibits some common autistic traits. I don’t mean this as an insult, just an observation (I think I also exhibit some common autistic traits). But many of the underlying issues throughout this entire post trace back to this idea.</p>
+</blockquote>
+</aside>
+<p>What do you think autism is? I’m skeptical of some descriptions of autism I’ve heard, so I’m curious what smart people on this forum think.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/dennis-hackethals-website-veritula-is-worse-than-plagiarism/2132?page=3#post_43</link>
+        <pubDate>Tue, 20 Jan 2026 23:26:04 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20202</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@Elliot]]></dc:creator>
+        <description><![CDATA[ <p>Do you feel that way with other fiction? Detective stuff? Superhero stuff? Outer space stuff? Doctors saving patients?</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144?page=2#post_22</link>
+        <pubDate>Tue, 20 Jan 2026 23:00:23 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20201</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@Eternity Nihal Noorunnabi]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="Elliot" data-post="18" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>There is media where everything always works out for the protagonist and their setbacks are only superficial. But Rand’s books aren’t like that.</p>
+</blockquote>
+</aside>
+<p>I agree. I was just saying that something about reading makes things feel easy. I wasn’t talking about how the setbacks the characters face per se. Its more so something about just reading it makes it feel easier to achieve than it actually is. Like, idk, when Rearden refuses to work with the government and instead chooses to fight the issue with the regulation in court (I hope I’m remembering that correctly). Do I think I can as easily make decisions as Rearden makes, or any of the other protagonists in Miss Reardens books? No, but something about reading those actions makes it feel like something I can do. Its like by reading I felt like I did it.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144#post_21</link>
+        <pubDate>Tue, 20 Jan 2026 22:52:28 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20200</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@Elliot]]></dc:creator>
+        <description><![CDATA[ <p>If you watch TV shows, e.g. police procedurals, things tend to wrap up positively in under an hour, often with minimal adversity. Like the adversity is they had to go find some more evidence and their boss doubted them in the middle. Medical drama TV shows often follow the same structure.</p>
+<p><em>Atlas Shrugged</em> and <em>The Fountainhead</em> are more in line with highly respected books for having more adversity, drama, ups and downs, etc. It’s different than a lot of plotlines you’d see with Superman, Star Trek, Law and Order, fanfiction. If you don’t think AS and FH show success as hard, then do any stories (particularly about realistic scenarios, not zombie apocalypses)?</p>
+<p>And <em>We the Living</em> doesn’t have a good ending despite having a deserving hero.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144#post_20</link>
+        <pubDate>Tue, 20 Jan 2026 20:10:52 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20199</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@anonymous105 anonymous105]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="Elliot" data-post="18" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>There is media where everything always works out for the protagonist and their setbacks are only superficial. But Rand’s books aren’t like that.</p>
+</blockquote>
+</aside>
+<p>There’s also media where everything works out for the protagonist <strong>in the end</strong>, and their setbacks are only <strong>temporary</strong>. I think at least Fountainhead is like this — Roark ends the book in a triumphant way, his life is going well, he is doing architecture and he got the girl.</p>
+<p>That is meaningfully different from the setbacks being <strong>superficial</strong>. Many protagonists in successful fiction experience very real, serious setbacks. They get badly injured, or lose their job, or have their reputation smeared, or have close friends die, or get their heart broken, etc. But in most fiction, the protagonist overcomes the setbacks and ends the story in a triumphant way.</p>
+<p>My guess would be the exceptions in either direction — the story ending sadly with the setbacks having broken the protagonist, or the story being an easy experience where most stuff just works out with minimal problems for the protagonist — aren’t uncommon but might be a relative minority. Though it varies some across genres, too.</p>
+<aside class="quote no-group" data-username="Apricus" data-post="4" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/apricus/48/855_2.png" class="avatar"> Apricus:</div>
+<blockquote>
+<p>It might also be that movies and media in general make it seem easier to be nice than it actually is in real life. Perhaps it idealizes or romanticizes the actual execution of those values.</p>
+</blockquote>
+</aside>
+<p>I wonder if this feeling might occur even if the setbacks are serious but temporary. Not just when the setbacks are superficial/trivial.</p>
+<p>Because by the end of the story things worked out okay. People often are biased to most remember their feeling at the end of a story rather than how they felt throughout it (e.g. when the hero was at their lowest). So if things worked out in the end, I wouldn’t be surprised if many people come away from that feeling like it wasn’t all that bad and they, too, could have done what the protagonist did.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144#post_19</link>
+        <pubDate>Tue, 20 Jan 2026 19:46:17 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20198</guid>
+      </item>
+      <item>
+        <title>Capitalism Means Policing Big Companies</title>
+        <dc:creator><![CDATA[@Elliot]]></dc:creator>
+        <description><![CDATA[ <p>Imagine Walmart was doing a bunch of price discrimination while not making any claims about it. Target or some blogger would find out. What happens IRL when they point it out? Walmart sues them for defamation, which involves lying that they aren’t doing it, since you can’t sue over true statements.</p>
+<p>If Walmart wouldn’t sue people for exposing them, and also wouldn’t contradict anyone who exposed them, saying only “no comment”, then I think they’d just get exposed fast, so their own silence wouldn’t matter much. Silence would matter for a small company but not for Walmart.</p>
+<p>You know who else would find out? Walmart employees. If Walmart did nothing to retaliate against whistleblowers, and no one else was exposing them, then their own employees would expose them. Whistleblowers are stopped by things like fear of being fired, fear of not being believed (a lot less of an issue if Walmart never calls you a liar, just says “no comment”), fear of other nasty responses. If the response would just be nothing, no comment, then people would whistleblow way more.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/capitalism-means-policing-big-companies/1491?page=10#post_190</link>
+        <pubDate>Tue, 20 Jan 2026 18:32:51 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20197</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@Elliot]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group quote-modified" data-username="Eternity" data-post="15" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/eternity/48/5535_2.png" class="avatar"> Eternity:</div>
+<blockquote>
+<aside class="quote no-group" data-username="Apricus" data-post="4" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/apricus/48/855_2.png" class="avatar"> Apricus:</div>
+<blockquote>
+<p>It might also be that movies and media in general make it seem easier to be nice than it actually is in real life. Perhaps it idealizes or romanticizes the actual execution of those values.</p>
+</blockquote>
+</aside>
+<p>~yeah. I think media makes things feel easier than they are. reading something like Atlas Shrugged or The Fountainhead makes having integrity and being rational easy. I don’t think Rand wrote it in a way that said their easy. But something about reading about it makes it feel easy.</p>
+</blockquote>
+</aside>
+<p>Rand made multiple attempts to present it as hard. Roark closed his architecture office and worked as a manual laborer. Dagny quit her job at the railroad and had a rough time at the cabin – and then returned to the railroad against the advice of Galt and others. Kira had it even harder.</p>
+<p>There is media where everything always works out for the protagonist and their setbacks are only superficial. But Rand’s books aren’t like that.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144#post_18</link>
+        <pubDate>Tue, 20 Jan 2026 18:13:17 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20196</guid>
+      </item>
+      <item>
+        <title>Capitalism Means Policing Big Companies</title>
+        <dc:creator><![CDATA[@Jarrod]]></dc:creator>
+        <description><![CDATA[ <p>Regarding the bleached and deodorized beef tallow:</p>
+<p>In the past, I’ve wondered whether anti-fraud laws would require nutritional labels.</p>
+<p>Some capitalists might argue that as long as the company doesn’t outright lie (e.g., sell vegetable oil disguised as olive oil), then let the market determine if companies with minimal nutritional labels lose customers to companies with detailed nutritional labels.</p>
+<p>I think principles like win-win and informed consent require that companies disclose any information that could alter the purchase decision of a reasonable customer. IOW, don’t hide info that—if disclosed—could cause reasonable customers not to want to buy the product.</p>
+<p>But I’m not sure to what extent anti-fraud laws overlap with principles such as win-win and informed consent.</p>
+<p>Does anti-fraud just mean to avoid outright lies? Or does it mean fully informed consent?</p>
+<p>In another post, ET said:</p>
+<aside class="quote no-group" data-username="Elliot" data-post="193" data-topic="1714">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"><a href="https://discuss.criticalfallibilism.com/t/what-kind-of-world-do-we-live-in/1714/193">What Kind of World Do We Live In?</a></div>
+<blockquote>
+<p>Imagine Walmart had big signs up in every store that said “We charge different customers different prices based on algorithms and tons of data we have about you. Shop here to enter the low price lottery: we might give you low prices! Avoid some of our competitors that charge everyone the same price so you can’t get extra low prices there.”</p>
+<p>And imagine Target had signs up saying “We charge everyone the same price instead of buying data from shady stalker mobile apps and then charging extra to people for not being desperately poor. We think that’s more fair and ethical.”</p>
+</blockquote>
+</aside>
+<p>I imagine that even if fraud (in the sense of no outright lies) were well-policed, companies that practiced discriminatory pricing wouldn’t advertise it on “big signs up in every store”. They couldn’t lie about it if fraud were well-policed, but they wouldn’t advertise the fact on “big signs” either (IMO). So even if fraud were well-policed, it mightn’t necessarily be stark clear to prospective customers.</p>
+<p>Unless one equates criminal fraud not merely with outright lies but with less-than-fully-informed consent (in the sense of failing to disclose information that a reasonable customer would consider relevant to their purchase decision).</p>
+<p>Now that I’ve thought about it, I’ve decided: I think that anti-fraud laws should require companies to disclose information that a reasonable customer would consider relevant to their purchase decision. (Or something like that. Obviously articulating an exact law would require volumes more thought.)</p>
+<hr>
+<p>Applying my new “reasonable customer” standard to stuff I wondered about before:</p>
+<ul>
+<li>
+<p><strong>Discriminatory Pricing:</strong> Companies could have a label/disclaimer on price tags or checkout or wherever saying that the price is based on one’s purchase history or “dynamic pricing in effect” or something like that</p>
+<ul>
+<li><strong>B2B &amp; Bulk Buying:</strong> What about Microsoft secretly charging OEMs different prices or 19th century railways giving better deals to Rockefeller? Should that be disclosed? What about bulk buying in general? Idk.</li>
+</ul>
+</li>
+<li>
+<p><strong>Nutritional Labels:</strong> I think reasonable people would consider this relevant. Many reasonable people wanna know how many calories, etc. It could be balanced with burden/practicality. E.g., small restaurants (i.e., not a large chain restaurant like McDonald’s) could be exempted if it places undue burden on them or isn’t practical.</p>
+</li>
+</ul>
+<p>Actually, now that I try to apply it, it seems a little trickier. Hmm. I guess it’s a pretty complex issue. Now I’m back to not being sure. Haha.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/capitalism-means-policing-big-companies/1491?page=10#post_189</link>
+        <pubDate>Tue, 20 Jan 2026 01:21:21 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20195</guid>
+      </item>
+      <item>
+        <title>Capitalism Means Policing Big Companies</title>
+        <dc:creator><![CDATA[@Elliot]]></dc:creator>
+        <description><![CDATA[ <p><a href="https://www.tiktok.com/@ericfixes/video/7596729990910496031">Wells Fargo messed with the wrong one. They lied to a woman that I charged her...</a></p>
+
+<p><a href="https://www.tiktok.com/@shoppuregood/video/7595986130546330910">Let’s talk about the skincare industry. #tallowskincare #tallow #tallowbalm...</a></p>
+ ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/capitalism-means-policing-big-companies/1491?page=10#post_188</link>
+        <pubDate>Mon, 19 Jan 2026 22:34:40 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20194</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@anonymous105 anonymous105]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group quote-modified" data-username="Eternity" data-post="13" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/eternity/48/5535_2.png" class="avatar"> Eternity:</div>
+<blockquote>
+<aside class="quote no-group" data-username="anonymous45" data-post="3" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/a87d85/48.png" class="avatar"> anonymous45:</div>
+<blockquote>
+<p>LoLE dynamics</p>
+</blockquote>
+</aside>
+<p>What’s that? I tried googling it. Sadge.</p>
+</blockquote>
+</aside>
+<p>It can be helpful to append “acronym” when googling an unfamiliar set of initials like that. Just googling “lole” you get a ton of stuff for a clothing brand. But if you add the word acronym to the search it immediately finds Law of Least Effort.</p>
+<p>Still good to ask if you don’t know, since maybe Anon45 was referring to some other identical acronym. Good to clarify so you know for sure.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144#post_17</link>
+        <pubDate>Mon, 19 Jan 2026 18:02:07 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20193</guid>
+      </item>
+      <item>
+        <title>Eternity Async Tutoring</title>
+        <dc:creator><![CDATA[@Elliot]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="Eternity" data-post="1164" data-topic="1932">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/eternity/48/5535_2.png" class="avatar"> Eternity:</div>
+<blockquote>
+<p>4.) Got it kinda right?</p>
+</blockquote>
+</aside>
+<p>You understood part of it, but you also got it wrong twice. There are two errors to learn from here.</p>
+<p>First, how did you come up with 6s?</p>
+<p>Second, you should know offhand and intuitively that a 150% or 125% increase is more than doubling, and know that’s wrong here (going from 4 to 5 or 6 is less than double). You should know a 10% increase is a small increase while a 110% increase is a big increase. That’s part of understanding percents.</p>
+<p>Also, how did you calculate the percentage increase? Did you guess intuitively or use arithmetic? What do you think the right formula is to figure out the percentage increase?</p>
+<p>Do you know a formula for percentage increase? If yes, did you use it, or what happened? If no, try to figure out the right formula, then look it up and compare.</p>
+<aside class="quote no-group" data-username="Eternity" data-post="1164" data-topic="1932">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/eternity/48/5535_2.png" class="avatar"> Eternity:</div>
+<blockquote>
+<p>1.) This is the problem I was working on a while ago. I’m replying to the original post where I first started attempting it. I got it wrong. Haven’t reviewed/looked at the solution. Will come back to it later. Wanted to move on and do other problems.</p>
+</blockquote>
+</aside>
+<p>ok</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932?page=59#post_1169</link>
+        <pubDate>Mon, 19 Jan 2026 18:00:18 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20192</guid>
+      </item>
+      <item>
+        <title>Eternity Async Tutoring</title>
+        <dc:creator><![CDATA[@Elliot]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="Eternity" data-post="1165" data-topic="1932">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/eternity/48/5535_2.png" class="avatar"> Eternity:</div>
+<blockquote>
+<p>So I googled what imparting could be. Well. I knew it could be either a gerund or present participle. I don’t think its acting as a noun and when I googled “what is a present participle” gemini mentioned this that I thought could work:</p>
+</blockquote>
+</aside>
+<p>yes its a modifier. “imparting” modifies either “hung” or a group of multiple words which “hung” is the root of.</p>
+<aside class="quote no-group" data-username="Eternity" data-post="1165" data-topic="1932">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/eternity/48/5535_2.png" class="avatar"> Eternity:</div>
+<blockquote>
+<p>what can they achieve by glancing up at a public tower? “citizens might tell the day of the month” and “they told the hours of the day”</p>
+</blockquote>
+</aside>
+<p>yes. so those are what “by glancing up at a public tower” modifies (it tells you the manner in which they achieve those things). now revisit your tree and see if you’re happy with how it presents this.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932?page=59#post_1168</link>
+        <pubDate>Mon, 19 Jan 2026 17:53:26 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20191</guid>
+      </item>
+      <item>
+        <title>Eternity Async Tutoring</title>
+        <dc:creator><![CDATA[@Elliot]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="Eternity" data-post="1166" data-topic="1932">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/eternity/48/5535_2.png" class="avatar"> Eternity:</div>
+<blockquote>
+<p>i cant imagine going into debt for this.</p>
+</blockquote>
+</aside>
+<p>One reason people do it is because they want the degree more than the learning.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932?page=59#post_1167</link>
+        <pubDate>Mon, 19 Jan 2026 17:44:57 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20190</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@Eternity Nihal Noorunnabi]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="anonymous45" data-post="14" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/a87d85/48.png" class="avatar"> anonymous45:</div>
+<blockquote>
+<p>Law of Least Effort. Basically that people convey being high up in a social hierarchy by appearing as though they don’t put much effort in to things. Basically, stuff you do looks cooler.</p>
+</blockquote>
+</aside>
+<p>Ahh. Ok. I’m kind of aware of what that is. Wasn’t used to seeing it abbreviated.</p>
+<aside class="quote no-group" data-username="anonymous45" data-post="14" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/a87d85/48.png" class="avatar"> anonymous45:</div>
+<blockquote>
+<p>This query is useful: <code>site:curi.us LoLE</code> for any CF specific terms/ideas. (I don’t think LoLE is CF specific, but searching <a href="http://curi.us">curi.us</a> is useful in this case)</p>
+</blockquote>
+</aside>
+<p>I didn’t know you can search like that. Thats neat. Thanks!</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144#post_16</link>
+        <pubDate>Mon, 19 Jan 2026 03:36:46 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20189</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@Eternity Nihal Noorunnabi]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="Apricus" data-post="4" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/apricus/48/855_2.png" class="avatar"> Apricus:</div>
+<blockquote>
+<p>Maybe there’s a gap between the girl’s understanding of the values in the movie vs. the decisions she faces in real life?</p>
+</blockquote>
+</aside>
+<p>Maybe? I think people in general struggle to match values they talk about. This kind of reminds of me something related to Rand. I think Peikoff mentioned how when Atlas Shrugged was first published. He and others (and maybe Rand?) thought the world would get better fast because of the convincingness of Atlas Shrugged. Instead people read it, some (maybe a lot, idk) liked it, said they agreed with it, and changed pmuch nothing on their lives.</p>
+<p>I wonder if it has something to do with something else I’ve heard of before (I think from Rand?): the church mentality (or smth like that). People care about their values only at like important times. Not in their general lives. You go to church and you’ll do charity and stuff. The rest of the week you’re your average self.</p>
+<aside class="quote no-group" data-username="Apricus" data-post="4" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/apricus/48/855_2.png" class="avatar"> Apricus:</div>
+<blockquote>
+<p>It might also be that movies and media in general make it seem easier to be nice than it actually is in real life. Perhaps it idealizes or romanticizes the actual execution of those values.</p>
+</blockquote>
+</aside>
+<p>~yeah. I think media makes things feel easier than they are. reading something like Atlas Shrugged or The Fountainhead makes having integrity and being rational easy. I don’t think Rand wrote it in a way that said their easy. But something about reading about it makes it feel easy.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144#post_15</link>
+        <pubDate>Mon, 19 Jan 2026 03:35:37 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20188</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@anonymous45 anonymous45]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group quote-modified" data-username="Eternity" data-post="13" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/eternity/48/5535_2.png" class="avatar"> Eternity:</div>
+<blockquote>
+<aside class="quote no-group" data-username="anonymous45" data-post="3" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/a87d85/48.png" class="avatar"> anonymous45:</div>
+<blockquote>
+<p>LoLE dynamics</p>
+</blockquote>
+</aside>
+<p>What’s that? I tried googling it. Sadge.</p>
+</blockquote>
+</aside>
+<p>Law of Least Effort. Basically that people convey being high up in a social hierarchy by appearing as though they don’t put much effort in to things. Basically, stuff you do looks cooler.</p>
+<p>This query is useful: <code>site:curi.us LoLE</code> for any CF specific terms/ideas. (I don’t think LoLE is CF specific, but searching <a href="http://curi.us">curi.us</a> is useful in this case)</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144#post_14</link>
+        <pubDate>Mon, 19 Jan 2026 03:31:12 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20187</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@Eternity Nihal Noorunnabi]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="anonymous45" data-post="3" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/a87d85/48.png" class="avatar"> anonymous45:</div>
+<blockquote>
+<p>LoLE dynamics</p>
+</blockquote>
+</aside>
+<p>What’s that? I tried googling it. Sadge.</p>
+<aside class="quote no-group" data-username="anonymous45" data-post="3" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/a87d85/48.png" class="avatar"> anonymous45:</div>
+<blockquote>
+<p>One thing I wonder about is how much people pick up on, respond to, or internalize less explicit parts of films like this. If people subconsciously respond less to the explicit parts and more to the implicit parts, it might explain why media that moralizes is not particularly effective.</p>
+</blockquote>
+</aside>
+<p>I could be reading this wrong. Uhh. Oh. Hmm.</p>
+<p>Are you saying that the moralizing is explicit in films like this? I think what you say makes sense. I kinda just assumed that a lot of the stuff Elliot mentioned is implicit. Woops. I just assumed they wanted to make a movie and the themes are whatever to them. The fun movie takes priority and then they add themes and stuff. Hope that makes sense?</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144#post_13</link>
+        <pubDate>Mon, 19 Jan 2026 03:26:40 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20186</guid>
+      </item>
+      <item>
+        <title>Eternity Async Tutoring</title>
+        <dc:creator><![CDATA[@Eternity Nihal Noorunnabi]]></dc:creator>
+        <description><![CDATA[ <p>Started classes again. I got set up and I’m trying to now make sure I make time for philosophy and stuff.</p>
+<p>One thing I found funny(?)/sad(?) is my accounting class. I have to take two classes on the basics of accounting. The first class covered financial accounting. The second class is covering what they call managerial accounting. I have the same professor for both classes.</p>
+<p>What I find funny is how he teaches his class. I’ve made a similar complaint before but idk if I mentioned with my accounting class. I think his financial accounting class was a bit better, or, at least, a bit more honest? During financial accounting he at least used his own recorded lectures and used his own exams. for managerial accounting he is using third party resources for everything. pearsons textbook programs run our homework and quizzes. all the lectures have been by other professors. the exams are done through pearson. he isn’t even available to help you. there’s a TA(?) for that. idc really but it feels kinda wack. i cant imagine going into debt for this. especially considering the textbook (which is doing a lot of the teaching) is like ~150.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932?page=59#post_1166</link>
+        <pubDate>Mon, 19 Jan 2026 03:21:21 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20185</guid>
+      </item>
+      <item>
+        <title>Eternity Async Tutoring</title>
+        <dc:creator><![CDATA[@Eternity Nihal Noorunnabi]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="Elliot" data-post="1163" data-topic="1932">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>Tree what you can of it. Figure out what doesn’t have a parent within that part, so it must connect to the other part or be the overall root. Label parts of speech. Make sure your parent/child connections follow grammar rules based on parts of speech.</p>
+</blockquote>
+</aside>
+<p>So I googled what imparting could be. Well. I knew it could be either a gerund or present participle. I don’t think its acting as a noun and when I googled “what is a present participle” gemini mentioned this that I thought could work:</p>
+<blockquote>
+<p>t can also function as part of a participial phrase, adding descriptive detail (e.g., “<strong>Running quickly</strong>, he caught the ball”).</p>
+</blockquote>
+<p>So I tree’d it like this:</p>
+<p></p><div class="lightbox-wrapper"><a class="lightbox" href="https://discuss.criticalfallibilism.com/uploads/default/original/2X/1/1880b6795bacf6cc3f1e5243a827554f68afd084.png" data-download-href="https://discuss.criticalfallibilism.com/uploads/default/1880b6795bacf6cc3f1e5243a827554f68afd084" title="image"><img src="https://discuss.criticalfallibilism.com/uploads/default/original/2X/1/1880b6795bacf6cc3f1e5243a827554f68afd084.png" alt="image" data-base62-sha1="3uLdXyjneD1m4hGUPqTQmUKieag" width="310" height="500" data-dominant-color="505C65"></a></div><p></p>
+<aside class="quote no-group" data-username="Elliot" data-post="1163" data-topic="1932">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>Which of these is “by glancing up at a public tower” talking about (you can pick more than one):</p>
+<ul>
+<li>It was the calendar</li>
+<li>the mayor of New York had erected last year</li>
+<li>on the top of a building</li>
+<li>citizens might tell the day of the month</li>
+<li>they told the hours of the day</li>
+<li>some specific sub-parts of any of the above</li>
+</ul>
+</blockquote>
+</aside>
+<aside class="quote no-group quote-modified" data-username="Eternity" data-post="1161" data-topic="1932">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/eternity/48/5535_2.png" class="avatar"> Eternity:</div>
+<blockquote>
+<blockquote>
+<p>It was the calendar that the mayor of New York had erected last year on the top of a building, so that citizens might tell the day of the month as they told the hours of the day, by glancing up at a public tower.</p>
+</blockquote>
+</blockquote>
+</aside>
+<p>by is a preposition. i think this definition is whats going on here (from apple):</p>
+<blockquote>
+<p>indicating the means of achieving something</p>
+</blockquote>
+<p>what can they achieve by glancing up at a public tower? “citizens might tell the day of the month” and “they told the hours of the day”</p>
+<aside class="quote no-group" data-username="Elliot" data-post="1163" data-topic="1932">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>What else might it be? Write out your list of possibilities you’re considering. And, when in doubt, label the parts of speech of some words around it and check what follows grammar rules (regarding what parent and children different parts of speech can have) in relation to nearby nodes.</p>
+</blockquote>
+</aside>
+<p>Hmm. I’m unsure of what possibilities I was considering. It can’t be an infinitive. it would be tell and to tell doesn’t work. its not a gerund. I don’t think its a participle. I think what bothered me was I was unsure as to what “as” was doing there. so I think my use of as as a conjunction is fine. using this definition (apple):</p>
+<blockquote>
+<p>used to indicate that something happens during the time when something is taking place</p>
+</blockquote>
+<p>hmm. i think that works and then “they told the hours of the day” is fine then how I tree’d it.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932?page=59#post_1165</link>
+        <pubDate>Mon, 19 Jan 2026 03:15:57 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20184</guid>
+      </item>
+      <item>
+        <title>Eternity Async Tutoring</title>
+        <dc:creator><![CDATA[@Eternity Nihal Noorunnabi]]></dc:creator>
+        <description><![CDATA[ <p>1.) This is the problem I was working on a while ago. I’m replying to the original post where I first started attempting it. I got it wrong. Haven’t reviewed/looked at the solution. Will come back to it later. Wanted to move on and do other problems.</p>
+<p></p><div class="lightbox-wrapper"><a class="lightbox" href="https://discuss.criticalfallibilism.com/uploads/default/original/2X/f/ff650d1486eac27fe55f3cb0a055280e82604eca.png" data-download-href="https://discuss.criticalfallibilism.com/uploads/default/ff650d1486eac27fe55f3cb0a055280e82604eca" title="image"><img src="https://discuss.criticalfallibilism.com/uploads/default/original/2X/f/ff650d1486eac27fe55f3cb0a055280e82604eca.png" alt="image" data-base62-sha1="ArkfROH31eMeOTJeXTzCHUR9G1s" width="690" height="53" data-dominant-color="EEEEEE"></a></div><p></p>
+
+My Work <a href="https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932/1164">(click for more details)</a>
+
+Solution <a href="https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932/1164">(click for more details)</a>
+<p>2.) Got it right.</p>
+<p><img src="https://discuss.criticalfallibilism.com/uploads/default/original/2X/6/67aa8dbe2c1a92756dc3ec4224831250be00c673.png" alt="image" data-base62-sha1="eN4AwfZDXtnOX1IQit9fMDFjtTl" width="690" height="45" data-dominant-color="F0F0F0"></p>
+
+My Work <a href="https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932/1164">(click for more details)</a>
+
+Solution <a href="https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932/1164">(click for more details)</a>
+<p>3.) Got it right.</p>
+<p></p><div class="lightbox-wrapper"><a class="lightbox" href="https://discuss.criticalfallibilism.com/uploads/default/original/2X/d/d6d5aee895e80f0df82f62133c20127e198d5b27.png" data-download-href="https://discuss.criticalfallibilism.com/uploads/default/d6d5aee895e80f0df82f62133c20127e198d5b27" title="image"><img src="https://discuss.criticalfallibilism.com/uploads/default/original/2X/d/d6d5aee895e80f0df82f62133c20127e198d5b27.png" alt="image" data-base62-sha1="uEvZyHAG0CHLogq2VgkE6QGHyKP" width="689" height="58" data-dominant-color="F1F1F1"></a></div><p></p>
+
+My Work <a href="https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932/1164">(click for more details)</a>
+
+Solution <a href="https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932/1164">(click for more details)</a>
+<p>4.) Got it kinda right? Well I got it wrong, but I had the right idea. 5s/4s gave me 1.25. 5s is 125% bigger than 4s, but thats not how much it increased by I guess? It only increased by 25%?</p>
+<p></p><div class="lightbox-wrapper"><a class="lightbox" href="https://discuss.criticalfallibilism.com/uploads/default/original/2X/3/3a8c8d542526758f6eabb246e140531ab31aaf52.png" data-download-href="https://discuss.criticalfallibilism.com/uploads/default/3a8c8d542526758f6eabb246e140531ab31aaf52" title="image"><img src="https://discuss.criticalfallibilism.com/uploads/default/original/2X/3/3a8c8d542526758f6eabb246e140531ab31aaf52.png" alt="image" data-base62-sha1="8lWP88n3NDa701I3CGC0y2IeExA" width="690" height="200" data-dominant-color="FAFBFB"></a></div><p></p>
+
+My Work <a href="https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932/1164">(click for more details)</a>
+
+Solution <a href="https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932/1164">(click for more details)</a>
+<p>5.) Got it right</p>
+<p><img src="https://discuss.criticalfallibilism.com/uploads/default/original/2X/b/b9f8916efc3a95d2caf5e8d9c5d3fa82dc1741d1.png" alt="image" data-base62-sha1="qxaSYAKouj6UOcBepVm7ySqD34B" width="690" height="45" data-dominant-color="E8ECEC"></p>
+
+My Work <a href="https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932/1164">(click for more details)</a>
+
+Solution <a href="https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932/1164">(click for more details)</a> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/eternity-async-tutoring/1932?page=59#post_1164</link>
+        <pubDate>Mon, 19 Jan 2026 02:56:43 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20183</guid>
+      </item>
+      <item>
+        <title>KPop Demon Hunters</title>
+        <dc:creator><![CDATA[@Dface]]></dc:creator>
+        <description><![CDATA[ <p>Most of these thoughts I think are half-baked. I feel like im getting somewhere with them but I’m missing the bigger picture:</p>
+<aside class="quote no-group quote-modified" data-username="Elliot" data-post="1" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>Popularity is, to some extent, a zero sum game. There is a limited amount of attention that people can pay to others. Some people getting a lot of attention doesn’t increase the total amount of attention available. Attention is a scarce resource.</p>
+</blockquote>
+</aside>
+<p>I’m thinking you say “to some extent” cuz there may be some exceptions. I have to look up what to some extent means and figure why you said it.</p>
+<p>I think since popularity has to do with being paid attention to and being praised or liked or whatever, people either pay attention to you or not. Maybe sometimes one person pays more attention to others and the resource goes higher? Idk, I think looking at the meaning of what popularity is may say why you say “to some extent.” I don’t think looking that up makes a whole lot of difference to your point tho.</p>
+<aside class="quote no-group quote-modified" data-username="Elliot" data-post="1" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>So of course people aren’t great at actually being nice and accepting in the way KDH says to. Even in KDH itself, there are conflicting themes. KDH normalizes a small number of people being ultra-popular while ignoring that some people in the huge audience can also sing well but will never get similar recognition for their talent. And either that’s unfair or else the less popular people have less merit in which case being dismissive of them in some ways is valid.</p>
+</blockquote>
+</aside>
+<p>You say “And either that’s unfair” cuz why do people with as much merit not get popular too, I think. Why do a small number of people have to be ultra-popular? Why not just popular? Have the popularity go around more.</p>
+<p>And I think you say “And either that’s unfair or else” cuz if it isn’t unfair then it’s the case I think that the less popular people have less merit. I don’t know how less popular people are seen as having less merit if they can sing just as well.</p>
+<aside class="quote no-group quote-modified" data-username="Elliot" data-post="1" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>KDH normalizes being accepting of flaws from ultra-popular people. It illustrates that. It doesn’t illustrate any regular fans in the crowd having flaws and being accepted anyway. It doesn’t even illustrate people in the crowd with no notable flaws being important, interesting or talented, or getting much attention.</p>
+</blockquote>
+</aside>
+<p>It’s interesting how the movie may serve to be beneficial to very popular people. Like, by logic and how not everybody can be popular, people will be dismissed and treated intolerably. That makes me think there’s not a lot of rational thinking going into making these kinds of movies, and that that can cause harm I guess. I say “I guess” cuz I don’t want to just say something causes harm readily, I don’t know a lot about what causes others harm.</p>
+<p>For the third sentence of the quote above:</p>
+<p>I think if someone saw that as a point in a casual convo, they would respond: ‘Why them? It’s not about them?’ Or ‘That doesn’t make sense. You’re overthinking the movie’ or ‘I don’t see how that all connects, why are you bringing up regular fans being the center of the story?’ Or why pay attention to those average joes??? KDH is so likeable.’</p>
+<aside class="quote no-group quote-modified" data-username="Elliot" data-post="1" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>KDH shows a main character, who is extremely talented and popular, having anxiety. I think it’s partly meant to normalize such struggles for everyone.</p>
+</blockquote>
+</aside>
+<p>Oh, she’s already popular? I think her being popular just makes it easier to illustrate the theme. I think it’s harder to show how an unpopular person is good enough. I think that’s cuz there is truth to how much merit doesn’t matter to being popular. You could be a really good singer but not be liked. Idk</p>
+<aside class="quote no-group quote-modified" data-username="Elliot" data-post="1" data-topic="2144">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>Even those people you look up to struggle. But then it turns out she is good enough, is enough, didn’t need to have so much anxiety. OK but does that apply to a high school student with no fans, no talents, no skills, no direction in life, no special merit at anything? Does it apply to a young adult with a mundane job? Is everyone already good enough, or just impressive people?</p>
+</blockquote>
+</aside>
+<p>That’s where things don’t make sense. Like, I don’t think the movie or the people who made the movie know what’s good enough in somebody. Cuz why not apply that to show how everyone is good enough? Maybe if the viewer just doesn’t overthink their anxiety they can find that they are a really good singer. Ok, what about the people who are good enough at singing high notes, but need to work on having a more consistent tone or sing low notes or soemthing(idk a lot about music). That’s the thing, I don’t think people know what success is, like how does look like for someone who isn’t super popular or doesn’t want to be. How does success look like for them?</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/kpop-demon-hunters/2144#post_12</link>
+        <pubDate>Mon, 19 Jan 2026 02:09:41 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20182</guid>
+      </item>
+      <item>
+        <title>Comments on The Boyfriend&#39;s Introduction to Feminism</title>
+        <dc:creator><![CDATA[@anonymous45 anonymous45]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="anonymous105" data-post="451" data-topic="2108">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/8797f3/48.png" class="avatar"> anonymous105:</div>
+<blockquote>
+<p>That’s not a sanity check. And IPV by a man against a lesbian is not an inconsistency.</p>
+</blockquote>
+</aside>
+<p>yeah okay I see your point.</p>
+<p>I’m surprised by the guttmacher article (talking about lesbian survey respondents):</p>
+<blockquote>
+<p>Six percent of the sample had had sex with a male partner in the past year.</p>
+</blockquote>
+<hr>
+<aside class="quote no-group" data-username="anonymous105" data-post="451" data-topic="2108">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/8797f3/48.png" class="avatar"> anonymous105:</div>
+<blockquote>
+<p>So for a survey that is specifically overrepresenting younger people, this all makes sense to me. I don’t think I’m grasping at straws at all, I think I am presenting a coherent, logical possible explanation of the facts.</p>
+</blockquote>
+</aside>
+<p>Yeah, okay. I am not sure that all this fully explains discrepancies (between IPV incidence rates), but the uncertainty is higher than I guessed.</p>
+<aside class="quote no-group" data-username="anonymous105" data-post="451" data-topic="2108">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/letter_avatar_proxy/v4/letter/a/8797f3/48.png" class="avatar"> anonymous105:</div>
+<blockquote>
+<p>Sure, maybe not. Feel free to bow out of the discussion if you like. I figured it might be useful to state my disagreements in case anyone could learn from them, or noticed any flaws in my thinking.</p>
+</blockquote>
+</aside>
+<p>It was, thanks.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/comments-on-the-boyfriends-introduction-to-feminism/2108?page=23#post_452</link>
+        <pubDate>Mon, 19 Jan 2026 00:47:25 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20181</guid>
+      </item>
+      <item>
+        <title>Learning Updates Thread</title>
+        <dc:creator><![CDATA[@Jarrod]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group quote-modified" data-username="Elliot" data-post="16" data-topic="2138">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<aside class="quote no-group" data-username="Jarrod" data-post="15" data-topic="2138">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/jarrod/48/5459_2.png" class="avatar"> Jarrod:</div>
+<blockquote>
+<p>I finished watching all of the videos in the Critical Fallibilism Videos Course product.</p>
+</blockquote>
+</aside>
+<p>Great. I hope you’ll share some thoughts, opinions, comments, notes, feedback or something.</p>
+</blockquote>
+</aside>
+<p>I will. I’m planning on studying/practicing the content this week.</p>
+<p>Some thoughts to start off with:</p>
+<p>I liked the course a lot. I liked lectures 4 and 5 the most. I took by far the most notes on them. (My notes are too messy to share atm and are mostly just copying points from slides and quotes from you speaking. I might try to summarize some of the lectures or key concepts to help me retain the ideas better. I can share that.)</p>
+<p>I think recognizing that degree criticism and praise (if they can’t be converted into decisive criticism) aren’t cognitively meaningful is a big deal. I found that super exciting. I think it’s exciting to learn to differentiate between arguments that work (i.e., actual arguments) versus arguments that don’t work (i.e., non-arguments). It reminds me of learning about informal logical fallacies (e.g., ad hominem, appeal to popularity, appeal to nature, etc.) in high school. I found that super exciting because it made me realize that so much of what people say in arguments is actually irrelevant. I feel the same way about learning about this CF idea.</p>
+<p>There’s other stuff that I like as well (e.g., meta problem solving technique, IGC charts, etc.). I’m looking forward to studying them more and practicing them. I’ll share that.</p>
+<p>Here’s my current (rough) idea for how I might proceed with learning and practicing the concepts and methods from the Yes or No Philosophy and Critical Fallibilism Course Videos products:</p>
+<ul>
+<li>
+<p>Try to write some summaries of the key concepts</p>
+</li>
+<li>
+<p>Try to think of some examples of the key concepts; practice using them</p>
+</li>
+<li>
+<p>Consider how I might apply them to my own life and thinking; consider whether I find that helpful or not</p>
+</li>
+</ul>
+<p>I think I’ll start by practicing IGC charts.</p>
+<p>If you have any ideas/tips (or better plans) for how I should proceed, I’d be very glad to know.</p>
+<p>I also wondered if I should practice the Yes/No and CF Course stuff first before reading Multi-Factor Decision Making Math. I think I should because I haven’t properly digested the Yes/No &amp; CF Course content I’ve consumed so far.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/learning-updates-thread/2138#post_17</link>
+        <pubDate>Sun, 18 Jan 2026 23:03:37 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20180</guid>
+      </item>
+      <item>
+        <title>Rational Confidence and Standards for Knowledge [CF Article]</title>
+        <dc:creator><![CDATA[@ActiveMind]]></dc:creator>
+        <description><![CDATA[ <p>I think some knowledge can be more difficult than others based on how much prerequisite knowledge they require. But once you have the prerequisite knowledge then that knowledge isn’t particularly difficult anymore. For example building rockets is harder than baking cakes in this view. However for some people building rockets could be easier than baking cakes, that depends on their skills for each topic.</p>
+<p>Maybe each step in whatever field is inherently equally difficult. The difficulties in steps between fields can vary based on the educational material available. So more difficult knowledge would be knowledge that requires more steps. That also depends on which step you can start on. Though can’t there be some knowledge we think of as more difficult because from birth, or zero knowledge, they require more steps than other fields? Could there be more steps to reach major milestones in certain fields rather than others?</p>
+<blockquote>
+<p>Also, our current society is biased towards math, measurement and science over philosophy, explanations and conceptual arguments.</p>
+</blockquote>
+<p>Example (1.5 minute clip):<br>
+<a href="https://www.youtube.com/watch?v=HQD2cMVuNWk" rel="noopener nofollow ugc">learn math instead - YouTube</a></p>
+<p>According to Hotz the only way to really know something is to know math or physics rather than knowing stuff in philosophy or any other field.</p>
+<p>Hmm, when I watch it again it looks like he doesn’t necessarily say only math and physics are the only way to truly understand the world. But I think it’s implied because they are singled out. Otherwise he would say something like “when you use rational methods and have proper standards for knowledge you can learn to know how the world works”.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/rational-confidence-and-standards-for-knowledge-cf-article/514#post_5</link>
+        <pubDate>Sun, 18 Jan 2026 20:33:39 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20179</guid>
+      </item>
+      <item>
+        <title>Dennis Hackethal&#39;s Website, Veritula, Is Worse than Plagiarism</title>
+        <dc:creator><![CDATA[@Neo]]></dc:creator>
+        <description><![CDATA[ <p>I no longer think there’s a problem. Here’s my latest post on the matter:</p>
+<aside class="quote quote-modified" data-post="4" data-topic="2145">
+  <div class="title">
+    <div class="quote-controls"></div>
+    <img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/neo/48/5306_2.png" class="avatar">
+    <div class="quote-title__text-content">
+      <a href="https://discuss.criticalfallibilism.com/t/dennis-hackethals-defense-for-plagiarism/2145/4">Dennis Hackethal's Defense for Plagiarism</a> <a class="badge-category__wrapper " href="https://discuss.criticalfallibilism.com/c/elliot-temple/13"><span data-category-id="13" style="--category-badge-color: #BF1E2E; --category-badge-text-color: #FFFFFF;" data-drop-close="true" class="badge-category --style-square " title="Discuss Elliot Temple’s articles and ideas."><span class="badge-category__name">Elliot Temple</span></span></a>
+    </div>
+  </div>
+  <blockquote>
+    Yes, it does. 
+My main concerns about the plagiarism dispute were basically these: 
+
+
+I wasn’t sure what your definition of plagiarism actually was. It didn’t feel clearly stated to me. 
+
+
+Whatever standard you were using, I wasn’t sure you were applying it consistently, including to your own writing. 
+
+
+On concern #1 you do clarify your definition here: 
+
+To me, that definition sounds pretty standard, and between this post and your earlier essays, you’ve given enough examples that I get what y…
+  </blockquote>
+</aside>
+ ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/dennis-hackethals-website-veritula-is-worse-than-plagiarism/2132?page=3#post_42</link>
+        <pubDate>Sun, 18 Jan 2026 19:57:32 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20178</guid>
+      </item>
+      <item>
+        <title>Dennis Hackethal&#39;s Defense for Plagiarism</title>
+        <dc:creator><![CDATA[@Neo]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="Elliot" data-post="2" data-topic="2145">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>Does this and <a href="https://curi.us/2605-dennis-hackethal-is-a-bully">Curiosity – Dennis Hackethal Is a Bully</a> address your concerns?</p>
+</blockquote>
+</aside>
+<p>Yes, it does.</p>
+<p>My main concerns about the plagiarism dispute were basically these:</p>
+<ol>
+<li>
+<p>I wasn’t sure what your definition of plagiarism actually was. It didn’t feel clearly stated to me.</p>
+</li>
+<li>
+<p>Whatever standard you were using, I wasn’t sure you were applying it consistently, including to your own writing.</p>
+</li>
+</ol>
+<p>On concern <span class="hashtag-raw">#1</span> you do clarify your definition here:</p>
+<aside class="quote no-group quote-modified" data-username="Elliot" data-post="1" data-topic="2145">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/elliot/48/14_2.png" class="avatar"> Elliot:</div>
+<blockquote>
+<p>Hackethal presents inaccurate information about what I think plagiarism is and he doesn’t specify what he thinks it is. I’ll clarify: Plagiarism is taking credit for ideas or knowledge that you got from a source rather than creating yourself. Or, as I put it in 2020 when criticizing Hackethal’s book: Plagiarism is taking credit for ideas or writing that isn’t yours. The New Oxford American Dictionary defines plagiarism as: the practice of taking someone else’s work or ideas and passing them off as one’s own The Macmillan English Dictionary defines plagiarism as: the process of taking another person’s work, ideas, or words, and using them as if they were your own. The Oxford English Dictionary defines plagiarize as: to take and use as one’s own the thoughts, writings, or inventions of another. These all say pretty much the same thing. I think it’s important to understand that any type of knowledge can be plagiarized, even if it’s not in words or doesn’t resemble a scientific theory.</p>
+</blockquote>
+</aside>
+<p>To me, that definition sounds pretty standard, and between this post and your earlier essays, you’ve given enough examples that I get what you mean. It’s not some mysterious or ultra-specific definition. I can see how applying it can get messy in edge cases, but that’s exactly the kind of thing people should debate and criticise directly. And from what I can tell, Dennis didn’t really do that. He didn’t clearly argue against your definition, and he didn’t seem to defend the specific passages in his book by laying out where the ideas came from.</p>
+<p>On concern <span class="hashtag-raw">#2</span>, your breakdown of his examples and quoting made me realize I should’ve been more skeptical. I think I took a lot of what he said close to face value (briefly reading some of his examples he linked or quoted) and there wasn’t really a good reason for me to do that without checking more thoroughly.</p>
+<p>Also, I appreciate the part where you explained what matters most to you. With misquotes, you care most about whether the meaning is represented accurately, not whether someone changed a tab to spaces. With plagiarism, you care most about whether someone is misleading people about credit, not the exact formatting or where a citation appears. That clears up something I was worried about. I was concerned you might be being overly strict or pedantic, but I don’t think that anymore.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/dennis-hackethals-defense-for-plagiarism/2145#post_4</link>
+        <pubDate>Sun, 18 Jan 2026 19:47:00 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20177</guid>
+      </item>
+      <item>
+        <title>Learning Updates Thread</title>
+        <dc:creator><![CDATA[@Elliot]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="Jarrod" data-post="15" data-topic="2138">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/jarrod/48/5459_2.png" class="avatar"> Jarrod:</div>
+<blockquote>
+<p>I finished watching all of the videos in the Critical Fallibilism Videos Course product.</p>
+</blockquote>
+</aside>
+<p>Great. I hope you’ll share some thoughts, opinions, comments, notes, feedback or something.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/learning-updates-thread/2138#post_16</link>
+        <pubDate>Sun, 18 Jan 2026 17:05:15 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20176</guid>
+      </item>
+      <item>
+        <title>Proper Knowledge [CF Article]</title>
+        <dc:creator><![CDATA[@Elliot]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="ActiveMind" data-post="16" data-topic="519" data-full="true">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/activemind/48/5560_2.png" class="avatar"> ActiveMind:</div>
+<blockquote>
+<p>Nice. I think I’ve struggled with philosophy goals because I thought they ought to be measurable, like any good goal would be. But now I know all good goals don’t have to be measurable.</p>
+</blockquote>
+</aside>
+<p>Measurable deals with <em>quantities</em>. You can also use e.g. yes or no questions for success or failure criteria. They should be <em>evaluatable</em>, not measurable.</p>
+<p>The precision of goals and their evaluations can be high or low depending on the scenario. You can put effort into more precision when it’s useful.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/proper-knowledge-cf-article/519#post_17</link>
+        <pubDate>Sun, 18 Jan 2026 17:04:33 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20175</guid>
+      </item>
+      <item>
+        <title>Proper Knowledge [CF Article]</title>
+        <dc:creator><![CDATA[@ActiveMind]]></dc:creator>
+        <description><![CDATA[ <p>Nice. I think I’ve struggled with philosophy goals because I thought they ought to be measurable, like any good goal would be. But now I know all good goals don’t have to be measurable.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/proper-knowledge-cf-article/519#post_16</link>
+        <pubDate>Sun, 18 Jan 2026 14:08:58 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20174</guid>
+      </item>
+      <item>
+        <title>Proper Knowledge [CF Article]</title>
+        <dc:creator><![CDATA[@ActiveMind]]></dc:creator>
+        <description><![CDATA[ <p>Context: done reading.</p>
+<blockquote>
+<p>I think it’s interesting and important that merely expecting a two year old to <em>understand</em> a parent’s rules, orders, requests or ideas could be more irrational and damaging than what is done to the child if he disobeys.</p>
+</blockquote>
+<p>That would be interesting and unexpected.</p>
+<blockquote>
+<p>But adults often don’t realize how ignorant two year olds are and how much “obvious” stuff they don’t know. The perspective of a two year old is very different than an adult’s perspective, and unfortunately people (of all ages) are generally pretty bad at thinking about other people’s perspectives.</p>
+</blockquote>
+<p>Being a good teacher (or learning guide) requires two things: conceptually understanding the material well and being able to model the mind of the learner, i.e., know what knowledge the learner has and what’s missing to understand the next step. That’s the same as seeing it from the perspective as the learner or knowing the relevant context of the learner’s knowledge.</p>
+<blockquote>
+<p>And asking questions about a rule is often seen as an adversarial attempt to find loopholes (for the purpose of not doing what the parent wants) rather than an attempt to understand it (for the purpose of following the rule).</p>
+</blockquote>
+<p>The child might have higher standards for how logical a rule should be. And that would include what logic to follow when presented with edge cases.</p>
+<hr>
+<p>An impression I have of most people regarding the nature vs nurture debate is that they think that nurture is primarily about the explicit teaching done in schools (I think lefty nurture types think about the general social environment more than others though).</p>
+<p>But here’s an example of inexplicit teaching done through parenting matters a lot in nurture, which partly explains the correlation of children’s and parent’s intelligence. More intelligent parents are better at logic, and so they’ll be better about giving logical explanations of their rules to their children. They might also be better at modeling the mind of the child. They might not think about these things explicitly, but it might seem natural to them that the rules should be logical and that they need to model the mind of the child. So the child suffers to a lesser degree the harms from the pressure of acting on improper knowledge.</p>
+<p>The parents might then be unknowingly teaching their child logic and an attitude to look for patterns in logic and reality instead of looking for the arbitrary whims of authority figures.</p>
+<p>Another way the child could be taught to look for the arbitrary whims of authority figures is if the parents punish according to their intent instead of what the rule literally said. If the parents would say “OK, that’s wasn’t what we intended to achieve with this rule, but you didn’t logically break it, so it’s fine” then they will look for logical explanations. If the parents recognize the child didn’t logically break the rule but still punishes the child, then child will be more concerned about guessing what the parents think rather than what reality and logic says. This also applies to teachers and tests, where the child is incentivized to guess the answer the teacher wants instead of the logical answer. I got the teacher and test idea from <a href="https://www.lesswrong.com/posts/NMoLJuDJEms7Ku9XS/guessing-the-teacher-s-password" rel="noopener nofollow ugc">Guessing the Teacher’s Password — LessWrong</a> which I remember Elliot linking to, but I can’t remember where.</p>
+<p>Even though IQ doesn’t exactly measure intelligence (which I don’t think can be done numerically), it is to a large degree about recognizing logical patterns. If the parents are good at recognizing logical patterns they can teach to their child through setting logical rules, how they talk and how they act. This can teach their children the attitude to look for logical patterns and so they get practice doing it. This eventually leads to the child scoring better on IQ tests. So the parents have been implicitly teaching their child to score better on IQ tests, explaining some of the correlation between parents and child IQ.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/proper-knowledge-cf-article/519#post_15</link>
+        <pubDate>Sun, 18 Jan 2026 14:06:20 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20173</guid>
+      </item>
+      <item>
+        <title>Learning Updates Thread</title>
+        <dc:creator><![CDATA[@Jarrod]]></dc:creator>
+        <description><![CDATA[ <h2><a name="p-20172-what-i-did-this-week-1" class="anchor" href="https://discuss.criticalfallibilism.com#p-20172-what-i-did-this-week-1" aria-label="Heading link"></a>What I did this week</h2>
+<p>I finished watching all of the videos in the Critical Fallibilism Videos Course product.</p>
+<hr>
+<h2><a name="p-20172-monthly-update-2" class="anchor" href="https://discuss.criticalfallibilism.com#p-20172-monthly-update-2" aria-label="Heading link"></a>Monthly update</h2>
+<p>This is my 4th weekly update. The original curi <strong><a href="https://curi.us/2377-learning-updates-thread">Learning Updates Thread</a></strong> blog post says to write a monthly update. I’ll do one every 4 weeks. Here’s a summary of what I got done this month:</p>
+<ul>
+<li>
+<p>Text analysis</p>
+<ul>
+<li>
+<p>I practiced grammar and did some of Peikoff’s course</p>
+</li>
+<li>
+<p>I learned paragraph trees</p>
+</li>
+<li>
+<p>I did the Pinker video</p>
+</li>
+<li>
+<p>I watched some gigahurt discussion tree videos</p>
+</li>
+</ul>
+</li>
+<li>
+<p>CF</p>
+<ul>
+<li>
+<p>I watched the main Yes or No Philosophy video</p>
+</li>
+<li>
+<p>I watched all of the Critical Fallibilism Course Videos</p>
+</li>
+</ul>
+</li>
+</ul> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/learning-updates-thread/2138#post_15</link>
+        <pubDate>Sun, 18 Jan 2026 08:38:03 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20172</guid>
+      </item>
+      <item>
+        <title>Proper Knowledge [CF Article]</title>
+        <dc:creator><![CDATA[@Jarrod]]></dc:creator>
+        <description><![CDATA[ <p>Ok, cool. I like that perspective. Thank you for sharing. I guess I was thinking that goals had to be big and long-term and specific. I like the perspective that the goal can just be to improve at doing something that I enjoy.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/proper-knowledge-cf-article/519#post_14</link>
+        <pubDate>Sun, 18 Jan 2026 04:16:03 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20171</guid>
+      </item>
+      <item>
+        <title>Proper Knowledge [CF Article]</title>
+        <dc:creator><![CDATA[@Elliot]]></dc:creator>
+        <description><![CDATA[ <p>To get goals, <em>do something</em>. Enjoy it but also fail in some way. Then the goal is to improve.</p>
+<p>What something for philosophy? E.g. write essays, debate or discuss. You can lose debates or receive criticism for your essays and then see your weaknesses. Then if you like something about the activity you can want to improve and do it again but better. If you can’t even get that far, e.g. you see a lot of errors in your own essay so you don’t want to publish it, then you’ve got a goal right there: to improve at understanding the topic, and at writing, so that you can finish and share an essay.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/proper-knowledge-cf-article/519#post_13</link>
+        <pubDate>Sun, 18 Jan 2026 03:48:34 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20170</guid>
+      </item>
+      <item>
+        <title>Proper Knowledge [CF Article]</title>
+        <dc:creator><![CDATA[@Jarrod]]></dc:creator>
+        <description><![CDATA[ <aside class="quote no-group" data-username="ActiveMind" data-post="11" data-topic="519">
+<div class="title">
+<div class="quote-controls"></div>
+<img alt="" width="24" height="24" src="https://discuss.criticalfallibilism.com/user_avatar/discuss.criticalfallibilism.com/activemind/48/5560_2.png" class="avatar"> ActiveMind:</div>
+<blockquote>
+<p>I don’t know what goals to make wrt philosophy.</p>
+</blockquote>
+</aside>
+<p>Nor do I, except for vague and short-term goals. E.g., atm my goal is to learn some of the stuff from the Yes or No Philosophy product and the Critical Fallibilism Course Videos product.</p> ]]></description>
+        <link>https://discuss.criticalfallibilism.com/t/proper-knowledge-cf-article/519#post_12</link>
+        <pubDate>Sun, 18 Jan 2026 03:43:28 +0000</pubDate>
+        <guid isPermaLink="false">discuss.criticalfallibilism.com-post-20169</guid>
+      </item>
+  </channel>
+</rss>
