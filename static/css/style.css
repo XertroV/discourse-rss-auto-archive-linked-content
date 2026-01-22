@@ -3633,6 +3633,30 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
     min-width: 0; /* Allows text wrapping */
 }
 
+/* Override media container for vertical layout */
+#media-transcript-container.vertical-layout .media-column .media-container {
+    max-width: 100%;
+    width: auto !important;
+}
+
+/* Override video wrapper styles for vertical layout */
+#media-transcript-container.vertical-layout .media-column .video-wrapper {
+    position: relative !important;
+    width: auto !important; /* Override width: 100% */
+    max-width: 100%;
+    padding-bottom: 0 !important; /* Remove 16:9 aspect ratio hack */
+    height: auto !important;
+}
+
+#media-transcript-container.vertical-layout .media-column .video-wrapper video {
+    position: relative !important; /* Override absolute positioning */
+    top: auto !important;
+    left: auto !important;
+    width: 100%;
+    height: auto !important;
+    max-height: 800px; /* Prevent extremely tall videos */
+}
+
 /* Smooth transition when layout changes */
 #media-transcript-container {
     transition: grid-template-columns 0.2s ease;
