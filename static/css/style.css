@@ -2170,6 +2170,228 @@ pre {
     }
 }
 
+/* ==================== Carousel Gallery ==================== */
+/* Modern carousel for TikTok and Twitter photo galleries */
+
+.carousel {
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+    position: relative;
+}
+
+/* Main viewport container */
+.carousel-viewport {
+    position: relative;
+    width: 100%;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+}
+
+/* Scrollable track with snap points */
+.carousel-track {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+    gap: 0;
+}
+
+.carousel-track::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+}
+
+/* Individual carousel items */
+.carousel-item {
+    flex: 0 0 100%;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    min-height: 400px;
+    max-height: 600px;
+}
+
+.carousel-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+/* Navigation buttons */
+.carousel-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    border: none;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s ease, opacity 0.2s ease;
+    opacity: 0.8;
+}
+
+.carousel-nav:hover {
+    background: rgba(0, 0, 0, 0.8);
+    opacity: 1;
+}
+
+.carousel-nav:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.carousel-nav:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.carousel-nav-prev {
+    left: var(--spacing-sm);
+}
+
+.carousel-nav-next {
+    right: var(--spacing-sm);
+}
+
+.carousel-nav svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+}
+
+/* Thumbnail strip */
+.carousel-thumbnails {
+    display: flex;
+    gap: var(--spacing-xs);
+    margin-top: var(--spacing-md);
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-dark) var(--bg-secondary);
+    padding: var(--spacing-xs) 0;
+}
+
+.carousel-thumb {
+    flex: 0 0 80px;
+    height: 80px;
+    border: 2px solid transparent;
+    background: var(--bg-secondary);
+    cursor: pointer;
+    transition: border-color 0.2s ease, transform 0.2s ease;
+    overflow: hidden;
+    padding: 0;
+}
+
+.carousel-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.carousel-thumb:hover {
+    border-color: var(--text-muted);
+    transform: scale(1.05);
+}
+
+.carousel-thumb:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.carousel-thumb.active {
+    border-color: var(--primary);
+}
+
+/* Image counter */
+.carousel-counter {
+    text-align: center;
+    margin-top: var(--spacing-sm);
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .carousel-item {
+        min-height: 300px;
+        max-height: 500px;
+    }
+
+    .carousel-nav {
+        width: 36px;
+        height: 36px;
+    }
+
+    .carousel-nav svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .carousel-thumb {
+        flex: 0 0 60px;
+        height: 60px;
+    }
+}
+
+@media (max-width: 480px) {
+    .carousel-item {
+        min-height: 250px;
+        max-height: 400px;
+    }
+
+    .carousel-nav {
+        width: 32px;
+        height: 32px;
+    }
+
+    .carousel-thumb {
+        flex: 0 0 50px;
+        height: 50px;
+    }
+}
+
+/* Dark mode adjustments */
+[data-theme="dark"] .carousel-viewport {
+    background: var(--bg-tertiary);
+}
+
+/* Smooth scroll for browsers that support it */
+@media (prefers-reduced-motion: no-preference) {
+    .carousel-track {
+        scroll-behavior: smooth;
+    }
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+    .carousel-track {
+        scroll-behavior: auto;
+    }
+
+    .carousel-nav,
+    .carousel-thumb {
+        transition: none;
+    }
+}
+
+/* NSFW carousel - hidden by default when NSFW filter is active */
+body.nsfw-hidden .carousel[data-nsfw="true"] {
+    display: none;
+}
+
 /* Tweet content display */
 .tweet-content {
     padding: var(--spacing-md);

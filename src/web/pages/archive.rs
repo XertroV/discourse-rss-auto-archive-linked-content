@@ -18,8 +18,8 @@
 use maud::{html, Markup, PreEscaped, Render};
 
 use crate::components::{
-    render_media_player_with_options, BaseLayout, Button, KeyValueTable, MediaTypeBadge, NsfwBadge,
-    NsfwWarning, OpenGraphMetadata, StatusBadge, Table, TableRow, TableVariant,
+    render_media_player_with_options, BaseLayout, Button, Carousel, KeyValueTable, MediaTypeBadge,
+    NsfwBadge, NsfwWarning, OpenGraphMetadata, StatusBadge, Table, TableRow, TableVariant,
 };
 use crate::db::{
     Archive, ArchiveArtifact, ArchiveJob, Link, LinkOccurrenceWithPost, SubtitleLanguage, User,
@@ -1061,49 +1061,79 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
         };
     }
 
-    let is_twitter_gallery = is_twitter
-        && matches!(
-            archive.content_type.as_deref(),
-            Some("gallery") | Some("image")
-        );
+    // Check if this is a TikTok or Twitter gallery
+    let is_tiktok = link.domain.contains("tiktok");
+    let is_gallery = matches!(
+        archive.content_type.as_deref(),
+        Some("gallery") | Some("image")
+    );
 
-    // For Twitter galleries, collect all image artifacts and display in a grid
-    if is_twitter_gallery {
+    let should_use_carousel = is_gallery && (is_tiktok || is_twitter);
+
+    // For TikTok and Twitter galleries, collect all image artifacts
+    if should_use_carousel {
         let mut image_artifacts: Vec<_> = artifacts.iter().filter(|a| a.kind == "image").collect();
         // Sort by S3 key for deterministic ordering (preserves gallery-dl download order)
         image_artifacts.sort_by(|a, b| a.s3_key.cmp(&b.s3_key));
 
         if !image_artifacts.is_empty() {
             let image_count = image_artifacts.len();
-            let grid_class = match image_count {
-                1 => "twitter-image-grid twitter-grid-1",
-                2 => "twitter-image-grid twitter-grid-2",
-                3 => "twitter-image-grid twitter-grid-3",
-                _ => "twitter-image-grid twitter-grid-4",
-            };
 
-            let content_type = archive.content_type.as_deref().unwrap_or("gallery");
-            let type_badge = MediaTypeBadge::from_content_type(content_type);
+            // Use carousel for galleries with 2+ images, simple display for single image
+            if image_count >= 2 {
+                // Build carousel with images
+                let mut carousel = Carousel::new(&format!("archive-{}", archive.id))
+                    .show_thumbnails(true)
+                    .nsfw(archive.is_nsfw);
 
-            return html! {
-                section {
-                    div class="section-header-with-badge" {
-                        h2 { "Media" }
-                        (type_badge)
+                for (index, artifact) in image_artifacts.iter().enumerate() {
+                    let alt_text = if is_tiktok {
+                        format!("TikTok photo {} of {}", index + 1, image_count)
+                    } else {
+                        format!("Tweet image {} of {}", index + 1, image_count)
+                    };
+
+                    carousel = carousel.add_image(&artifact.s3_key, alt_text);
+                }
+
+                let content_type = archive.content_type.as_deref().unwrap_or("gallery");
+                let type_badge = MediaTypeBadge::from_content_type(content_type);
+
+                return html! {
+                    section data-nsfw=[archive.is_nsfw.then_some("true")] {
+                        div class="section-header-with-badge" {
+                            h2 { "Media" }
+                            (type_badge)
+                        }
+                        (carousel)
                     }
-                    div class=(grid_class) {
-                        @for artifact in &image_artifacts {
-                            a href=(format!("/s3/{}", html_escape(&artifact.s3_key)))
-                              target="_blank" rel="noopener"
-                              class="twitter-image-item" {
-                                img src=(format!("/s3/{}", html_escape(&artifact.s3_key)))
-                                    alt="Tweet image"
-                                    loading="lazy";
+                };
+            } else {
+                // Single image - use simple grid layout
+                let grid_class = "twitter-image-grid twitter-grid-1";
+                let content_type = archive.content_type.as_deref().unwrap_or("gallery");
+                let type_badge = MediaTypeBadge::from_content_type(content_type);
+
+                return html! {
+                    section {
+                        div class="section-header-with-badge" {
+                            h2 { "Media" }
+                            (type_badge)
+                        }
+                        div class=(grid_class) {
+                            @for artifact in &image_artifacts {
+                                a href=(format!("/s3/{}", html_escape(&artifact.s3_key)))
+                                  target="_blank" rel="noopener"
+                                  class="twitter-image-item" {
+                                    img src=(format!("/s3/{}", html_escape(&artifact.s3_key)))
+                                        alt=(if is_tiktok { "TikTok photo" } else { "Tweet image" })
+                                        loading="lazy";
+                                }
                             }
                         }
                     }
-                }
-            };
+                };
+            }
         }
     }
 

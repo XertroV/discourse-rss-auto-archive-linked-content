@@ -36,6 +36,7 @@ pub mod alert;
 pub mod badge;
 pub mod button;
 pub mod card;
+pub mod carousel;
 pub mod form;
 pub mod layout;
 pub mod media;
@@ -89,6 +90,9 @@ pub use tabs::{archive_list_tabs, ArchiveTab, ContentTab, ContentTabs, Tab, TabG
 
 // Re-export metadata components
 pub use metadata::{truncate_text, OpenGraphMetadata};
+
+// Re-export carousel components
+pub use carousel::{Carousel, CarouselImage};
 
 /// Re-export maud for convenience
 pub use maud::{html, Markup, PreEscaped, DOCTYPE};

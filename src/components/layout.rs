@@ -108,6 +108,7 @@ impl<'a> BaseLayout<'a> {
                     script src="/static/js/theme.js" {}
                     script src="/static/js/nsfw.js" {}
                     script src="/static/js/video-volume.js" {}
+                    script src="/static/js/carousel.js" {}
                 }
             }
         }
