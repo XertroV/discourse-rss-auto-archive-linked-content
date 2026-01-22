@@ -3663,7 +3663,7 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
     width: auto !important; /* Let video use natural width to maintain aspect ratio */
     max-width: 100%; /* But don't exceed column width */
     height: auto !important;
-    max-height: 1200px !important; /* Prevent extremely tall videos while allowing most vertical content */
+    max-height: max(80vh, 800px) !important; /* Prevent extremely tall videos while allowing most vertical content */
 }
 
 /* Smooth transition when layout changes */
