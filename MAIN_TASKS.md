@@ -6,6 +6,14 @@ Legend: `[ ]` pending, `[x]` complete, `[-]` skipped/blocked
 
 ---
 
+## TODOs
+
+- [ ] handle https://www.tiktok.com/@whytematthew/photo/7580810274135903510
+- [ ] handle private YT videos -- fail with a status (maybe we need to add statuses to failed jobs, can be due to HTTP codes (401, 403, etc), or "YT PRIVATE" or whatever like that)
+- [ ]
+
+---
+
 ## Phase 1: Project Setup
 
 - [x] Initialize Cargo project with workspace structure
