@@ -3635,8 +3635,8 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
 
 /* Override transcript max-height to match video height */
 #media-transcript-container.vertical-layout .transcript-column #transcript-content {
-    max-height: none !important; /* Remove 400px constraint */
-    height: 100%; /* Fill available height */
+    max-height: max(80vh, 800px) !important; /* Match video max-height */
+    overflow-y: auto !important; /* Scrollable if content exceeds height */
 }
 
 /* Override media container for vertical layout */
