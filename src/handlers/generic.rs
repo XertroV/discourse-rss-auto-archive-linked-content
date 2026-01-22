@@ -214,13 +214,8 @@ fn extract_text(document: &Html) -> Option<String> {
                 let text: String = element.text().collect::<Vec<_>>().join(" ");
                 let cleaned = clean_text(&text);
                 if !cleaned.is_empty() {
-                    // Truncate to reasonable length
-                    let truncated = if cleaned.len() > 5000 {
-                        format!("{}...", &cleaned[..5000])
-                    } else {
-                        cleaned
-                    };
-                    return Some(truncated);
+                    // Return full text (no truncation) for full-text search indexing
+                    return Some(cleaned);
                 }
             }
         }

@@ -163,6 +163,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 26).await?;
     }
 
+    if current_version < 27 {
+        debug!("Running migration v27");
+        run_migration_v27(pool).await?;
+        set_schema_version(pool, 27).await?;
+    }
+
     Ok(())
 }
 
@@ -1376,6 +1382,113 @@ async fn run_migration_v26(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to update skipped archives to auth_required")?;
+
+    Ok(())
+}
+
+async fn run_migration_v27(pool: &SqlitePool) -> Result<()> {
+    debug!(
+        "Running migration v27: adding transcript_text and full_text columns for improved search"
+    );
+
+    // Add new columns for searchable text content
+    sqlx::query("ALTER TABLE archives ADD COLUMN transcript_text TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add transcript_text column")?;
+
+    sqlx::query("ALTER TABLE archives ADD COLUMN full_text TEXT")
+        .execute(pool)
+        .await
+        .context("Failed to add full_text column")?;
+
+    // Drop existing FTS triggers
+    sqlx::query("DROP TRIGGER IF EXISTS archives_fts_insert")
+        .execute(pool)
+        .await
+        .context("Failed to drop FTS insert trigger")?;
+
+    sqlx::query("DROP TRIGGER IF EXISTS archives_fts_delete")
+        .execute(pool)
+        .await
+        .context("Failed to drop FTS delete trigger")?;
+
+    sqlx::query("DROP TRIGGER IF EXISTS archives_fts_update")
+        .execute(pool)
+        .await
+        .context("Failed to drop FTS update trigger")?;
+
+    // Drop existing FTS table
+    sqlx::query("DROP TABLE IF EXISTS archives_fts")
+        .execute(pool)
+        .await
+        .context("Failed to drop FTS table")?;
+
+    // Create new FTS5 table with all searchable columns and porter stemming
+    sqlx::query(
+        r"
+        CREATE VIRTUAL TABLE archives_fts USING fts5(
+            content_title,
+            content_author,
+            content_text,
+            transcript_text,
+            full_text,
+            content='archives',
+            content_rowid='id',
+            tokenize='porter unicode61'
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create new FTS5 table")?;
+
+    // Create trigger for INSERT
+    sqlx::query(
+        r"
+        CREATE TRIGGER archives_fts_insert AFTER INSERT ON archives BEGIN
+            INSERT INTO archives_fts(rowid, content_title, content_author, content_text, transcript_text, full_text)
+            VALUES (new.id, new.content_title, new.content_author, new.content_text, new.transcript_text, new.full_text);
+        END
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create FTS insert trigger")?;
+
+    // Create trigger for DELETE
+    sqlx::query(
+        r"
+        CREATE TRIGGER archives_fts_delete AFTER DELETE ON archives BEGIN
+            INSERT INTO archives_fts(archives_fts, rowid, content_title, content_author, content_text, transcript_text, full_text)
+            VALUES ('delete', old.id, old.content_title, old.content_author, old.content_text, old.transcript_text, old.full_text);
+        END
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create FTS delete trigger")?;
+
+    // Create trigger for UPDATE
+    sqlx::query(
+        r"
+        CREATE TRIGGER archives_fts_update AFTER UPDATE ON archives BEGIN
+            INSERT INTO archives_fts(archives_fts, rowid, content_title, content_author, content_text, transcript_text, full_text)
+            VALUES ('delete', old.id, old.content_title, old.content_author, old.content_text, old.transcript_text, old.full_text);
+            INSERT INTO archives_fts(rowid, content_title, content_author, content_text, transcript_text, full_text)
+            VALUES (new.id, new.content_title, new.content_author, new.content_text, new.transcript_text, new.full_text);
+        END
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create FTS update trigger")?;
+
+    // Rebuild FTS index from existing data
+    sqlx::query("INSERT INTO archives_fts(archives_fts) VALUES('rebuild')")
+        .execute(pool)
+        .await
+        .context("Failed to rebuild FTS index")?;
 
     Ok(())
 }

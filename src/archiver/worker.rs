@@ -2402,6 +2402,17 @@ async fn process_subtitle_files(
                         {
                             warn!(archive_id, error = %e, "Failed to insert transcript artifact");
                         }
+
+                        // Store transcript text in database for full-text search
+                        if let Err(e) = crate::db::set_archive_transcript_text(
+                            db.pool(),
+                            archive_id,
+                            &transcript,
+                        )
+                        .await
+                        {
+                            warn!(archive_id, error = %e, "Failed to store transcript text for search");
+                        }
                     }
                     Err(e) => {
                         warn!(archive_id, error = %e, "Failed to upload transcript");

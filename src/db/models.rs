@@ -165,6 +165,10 @@ pub struct Archive {
     /// Prevents repeated failed extraction attempts.
     #[serde(default)]
     pub og_extraction_attempted: bool,
+    /// Full transcript text from video subtitles (for full-text search).
+    pub transcript_text: Option<String>,
+    /// Full extracted page text (no truncation, for full-text search).
+    pub full_text: Option<String>,
 }
 
 impl Archive {

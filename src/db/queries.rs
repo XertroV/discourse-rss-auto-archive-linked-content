@@ -911,15 +911,27 @@ pub async fn get_recent_archives_display(
 }
 
 /// Search archives with link info for display.
+///
+/// Supports advanced search syntax:
+/// - Multiple keywords: `rust web` (implicit AND)
+/// - Quoted phrases: `"exact phrase"`
+/// - OR operator: `rust OR python`
+/// - NOT/exclude: `-beginner` or `NOT beginner`
+/// - Wildcards: `rust*`
+/// - Column search: `title:rust`, `author:john`, `transcript:hello`
+/// - Date filters: `after:2024-01-01`, `before:2024-06-01`
 pub async fn search_archives_display(
     pool: &SqlitePool,
     query: &str,
     limit: i64,
 ) -> Result<Vec<ArchiveDisplay>> {
-    let sanitized = crate::db::sanitize_fts_query(query);
-    if sanitized.is_empty() && query.trim().is_empty() {
+    let parsed = crate::db::parse_fts_query(query);
+    if parsed.is_empty() && query.trim().is_empty() {
         return Ok(Vec::new());
     }
+
+    // Use the parsed FTS query (supports multi-keyword, wildcards, etc.)
+    let sanitized = &parsed.fts_query;
 
     let url_pattern = format!("%{}%", query.trim());
 
@@ -1201,6 +1213,15 @@ pub async fn count_all_archives_filtered(
 }
 
 /// Search archives with link info for display, with optional content_type and source filters.
+///
+/// Supports advanced search syntax:
+/// - Multiple keywords: `rust web` (implicit AND)
+/// - Quoted phrases: `"exact phrase"`
+/// - OR operator: `rust OR python`
+/// - NOT/exclude: `-beginner` or `NOT beginner`
+/// - Wildcards: `rust*`
+/// - Column search: `title:rust`, `author:john`, `transcript:hello`
+/// - Date filters: `after:2024-01-01`, `before:2024-06-01`
 pub async fn search_archives_display_filtered(
     pool: &SqlitePool,
     query: &str,
@@ -1208,10 +1229,13 @@ pub async fn search_archives_display_filtered(
     content_type: Option<&str>,
     source: Option<&str>,
 ) -> Result<Vec<ArchiveDisplay>> {
-    let sanitized = crate::db::sanitize_fts_query(query);
-    if sanitized.is_empty() && query.trim().is_empty() {
+    let parsed = crate::db::parse_fts_query(query);
+    if parsed.is_empty() && query.trim().is_empty() {
         return Ok(Vec::new());
     }
+
+    // Use the parsed FTS query (supports multi-keyword, wildcards, etc.)
+    let sanitized = &parsed.fts_query;
 
     let url_pattern = format!("%{}%", query.trim());
 
@@ -1503,12 +1527,15 @@ pub async fn count_archives_by_status_for_thread(
 }
 
 /// Search archives using FTS.
+///
+/// Supports advanced search syntax (multi-keyword, wildcards, column search, etc.)
 pub async fn search_archives(pool: &SqlitePool, query: &str, limit: i64) -> Result<Vec<Archive>> {
-    let sanitized = crate::db::sanitize_fts_query(query);
-    if sanitized.is_empty() && query.trim().is_empty() {
+    let parsed = crate::db::parse_fts_query(query);
+    if parsed.is_empty() && query.trim().is_empty() {
         return Ok(Vec::new());
     }
 
+    let sanitized = &parsed.fts_query;
     let url_pattern = format!("%{}%", query.trim());
 
     // If FTS sanitization resulted in an empty string, only search URLs
@@ -1568,6 +1595,8 @@ pub async fn search_archives_filtered(
 }
 
 /// Search archives with NSFW and content_type filters.
+///
+/// Supports advanced search syntax (multi-keyword, wildcards, column search, etc.)
 pub async fn search_archives_filtered_full(
     pool: &SqlitePool,
     query: &str,
@@ -1575,11 +1604,12 @@ pub async fn search_archives_filtered_full(
     nsfw_filter: Option<bool>,
     content_type: Option<&str>,
 ) -> Result<Vec<Archive>> {
-    let sanitized = crate::db::sanitize_fts_query(query);
-    if sanitized.is_empty() && query.trim().is_empty() {
+    let parsed = crate::db::parse_fts_query(query);
+    if parsed.is_empty() && query.trim().is_empty() {
         return Ok(Vec::new());
     }
 
+    let sanitized = &parsed.fts_query;
     let url_pattern = format!("%{}%", query.trim());
 
     // Build additional filter clauses
@@ -2946,6 +2976,57 @@ pub async fn find_archive_by_url(pool: &SqlitePool, normalized_url: &str) -> Res
     .context("Failed to find archive by URL")?;
 
     Ok(result.map(|(id,)| id))
+}
+
+/// Set the transcript text for an archive (for full-text search).
+pub async fn set_archive_transcript_text(
+    pool: &SqlitePool,
+    id: i64,
+    transcript_text: &str,
+) -> Result<()> {
+    sqlx::query("UPDATE archives SET transcript_text = ? WHERE id = ?")
+        .bind(transcript_text)
+        .bind(id)
+        .execute(pool)
+        .await
+        .context("Failed to set archive transcript text")?;
+
+    Ok(())
+}
+
+/// Set the full text for an archive (for full-text search).
+pub async fn set_archive_full_text(pool: &SqlitePool, id: i64, full_text: &str) -> Result<()> {
+    sqlx::query("UPDATE archives SET full_text = ? WHERE id = ?")
+        .bind(full_text)
+        .bind(id)
+        .execute(pool)
+        .await
+        .context("Failed to set archive full text")?;
+
+    Ok(())
+}
+
+/// Get archives that need transcript backfill (have transcript artifact but no transcript_text).
+pub async fn get_archives_needing_transcript_backfill(
+    pool: &SqlitePool,
+    limit: i64,
+) -> Result<Vec<(i64, String)>> {
+    let results: Vec<(i64, String)> = sqlx::query_as(
+        r"
+        SELECT a.id, aa.s3_key
+        FROM archives a
+        JOIN archive_artifacts aa ON a.id = aa.archive_id
+        WHERE aa.kind = 'transcript'
+        AND a.transcript_text IS NULL
+        LIMIT ?
+        ",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to get archives needing transcript backfill")?;
+
+    Ok(results)
 }
 
 // ========== Archive Jobs ==========

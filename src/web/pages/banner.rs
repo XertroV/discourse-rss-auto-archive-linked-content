@@ -226,6 +226,8 @@ mod tests {
             og_type: None,
             og_extracted_at: None,
             og_extraction_attempted: false,
+            transcript_text: None,
+            full_text: None,
         }
     }
 

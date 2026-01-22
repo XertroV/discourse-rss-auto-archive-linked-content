@@ -47,6 +47,7 @@ impl<'a> SearchPageParams<'a> {
 ///
 /// This function creates a complete search page with:
 /// - A search form at the top
+/// - Search help/tips section
 /// - Result count (when a query is provided)
 /// - Archive grid showing search results
 /// - Pagination controls at the bottom
@@ -65,6 +66,9 @@ pub fn render_search_page(
 
         // Search form
         (SearchForm::new(query_str))
+
+        // Search help section
+        (SearchHelp)
 
         // Show result count if search was performed
         @if !query_str.is_empty() {
@@ -89,6 +93,64 @@ pub fn render_search_page(
     };
 
     BaseLayout::new("Search", user).render(content)
+}
+
+/// Search help component showing available search syntax.
+struct SearchHelp;
+
+impl Render for SearchHelp {
+    fn render(&self) -> Markup {
+        html! {
+            details class="search-help" {
+                summary { "Search Tips" }
+                div class="help-content" {
+                    div class="help-section" {
+                        h4 { "Basic Search" }
+                        dl {
+                            dt { code { "rust async" } }
+                            dd { "finds archives with both words (any order)" }
+
+                            dt { code { "\"error handling\"" } }
+                            dd { "exact phrase match" }
+
+                            dt { code { "rust OR python" } }
+                            dd { "matches either word" }
+
+                            dt { code { "rust -beginner" } }
+                            dd { "rust but NOT beginner" }
+
+                            dt { code { "test*" } }
+                            dd { "wildcard: test, testing, tested..." }
+                        }
+                    }
+
+                    div class="help-section" {
+                        h4 { "Advanced" }
+                        dl {
+                            dt { code { "title:rust" } }
+                            dd { "search only in titles" }
+
+                            dt { code { "author:john" } }
+                            dd { "search only in author names" }
+
+                            dt { code { "transcript:hello" } }
+                            dd { "search in video transcripts" }
+
+                            dt { code { "after:2024-01-01" } }
+                            dd { "archives from date onward" }
+
+                            dt { code { "before:2024-06-01" } }
+                            dd { "archives before date" }
+                        }
+                    }
+
+                    p class="help-note" {
+                        "Searches titles, authors, transcripts, page text, and URLs."
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// A search form component.

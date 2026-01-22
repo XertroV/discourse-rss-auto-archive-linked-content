@@ -220,6 +220,19 @@ async fn run() -> Result<()> {
     });
     info!("Comment extraction worker started");
 
+    // Start search content backfill worker (runs once then exits)
+    let backfill_db = db.clone();
+    let backfill_s3 = s3_client.clone();
+    let backfill_handle = tokio::spawn(async move {
+        discourse_link_archiver::db::backfill::run_backfill_worker(
+            backfill_db,
+            backfill_s3,
+            discourse_link_archiver::db::backfill::BackfillConfig::default(),
+        )
+        .await;
+    });
+    info!("Search content backfill worker started");
+
     // Start RSS polling loop
     let poll_handle = tokio::spawn(async move {
         rss::poll_loop(config, db).await;
@@ -239,6 +252,7 @@ async fn run() -> Result<()> {
     worker_handle.abort();
     thread_archive_handle.abort();
     comment_worker_handle.abort();
+    backfill_handle.abort();
     cleanup_handle.abort();
     if let Some(handle) = backup_handle {
         handle.abort();

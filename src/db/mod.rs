@@ -1,3 +1,4 @@
+pub mod backfill;
 mod fts;
 mod migrations;
 mod models;
