@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -8,11 +9,16 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 
 use super::CookieOptions;
 use crate::config::Config;
 use crate::handlers::ArchiveResult;
+
+/// Global semaphore to ensure only one yt-dlp operation runs at a time.
+/// This prevents 429 rate limit errors from YouTube, TikTok, and other platforms.
+static YTDLP_SEMAPHORE: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(1));
 
 /// Video metadata from yt-dlp --dump-json
 #[derive(Debug, Deserialize)]
@@ -257,6 +263,12 @@ pub async fn download(
     archive_id: Option<i64>,
     pool: Option<&SqlitePool>,
 ) -> Result<ArchiveResult> {
+    // Acquire yt-dlp semaphore - only one yt-dlp operation at a time to avoid 429s
+    let _permit = YTDLP_SEMAPHORE
+        .acquire()
+        .await
+        .context("Failed to acquire yt-dlp semaphore")?;
+
     // Pre-flight check: get video metadata to check duration limits and select quality
     let mut format_string = select_format_string(None); // Default
 
@@ -474,6 +486,16 @@ pub async fn download(
 
     // Find the info.json file to get metadata
     let metadata = find_and_parse_metadata(work_dir, config).await?;
+
+    // Add delay after download completes to avoid rate limits
+    // Delay happens before semaphore is released (when _permit is dropped)
+    if config.youtube_request_delay_ms > 0 {
+        debug!(
+            delay_ms = config.youtube_request_delay_ms,
+            "Sleeping before next YouTube request"
+        );
+        tokio::time::sleep(Duration::from_millis(config.youtube_request_delay_ms)).await;
+    }
 
     Ok(metadata)
 }

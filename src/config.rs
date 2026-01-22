@@ -62,6 +62,7 @@ pub struct Config {
     // YouTube-specific limits
     pub youtube_max_duration_seconds: Option<u32>,
     pub youtube_download_timeout_seconds: u64,
+    pub youtube_request_delay_ms: u64,
 
     // Archive Policy
     pub archive_mode: ArchiveMode,
@@ -228,6 +229,7 @@ pub struct WorkersConfig {
     pub yt_dlp_cookies_from_browser: Option<String>,
     pub youtube_max_duration_seconds: Option<u32>,
     pub youtube_download_timeout_seconds: Option<u64>,
+    pub youtube_request_delay_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -519,6 +521,10 @@ impl Config {
             youtube_download_timeout_seconds: parse_env_u64(
                 "YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS",
                 fc.workers.youtube_download_timeout_seconds.unwrap_or(7200), // Default: 2 hours
+            )?,
+            youtube_request_delay_ms: parse_env_u64(
+                "YOUTUBE_REQUEST_DELAY_MS",
+                fc.workers.youtube_request_delay_ms.unwrap_or(5000), // Default: 5 seconds
             )?,
 
             // Archive Policy
@@ -994,6 +1000,7 @@ impl Config {
             yt_dlp_cookies_from_browser: None,
             youtube_max_duration_seconds: Some(3600),
             youtube_download_timeout_seconds: 7200,
+            youtube_request_delay_ms: 5000,
             archive_mode: ArchiveMode::All,
             archive_quote_only_links: false,
             web_host: "0.0.0.0".to_string(),
