@@ -157,6 +157,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 25).await?;
     }
 
+    if current_version < 26 {
+        debug!("Running migration v26");
+        run_migration_v26(pool).await?;
+        set_schema_version(pool, 26).await?;
+    }
+
     Ok(())
 }
 
@@ -1336,6 +1342,40 @@ async fn run_migration_v25(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .context("Failed to create subtitle_languages language index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v26(pool: &SqlitePool) -> Result<()> {
+    debug!(
+        "Running migration v26: adding auth_required status for authentication-required content"
+    );
+
+    // The auth_required status is now supported in the ArchiveStatus enum (models.rs).
+    // This migration updates existing archives that were marked as 'skipped' due to
+    // authentication errors to the new 'auth_required' status, allowing them to be
+    // retried when cookies are configured.
+
+    sqlx::query(
+        r"
+        UPDATE archives
+        SET status = 'auth_required'
+        WHERE status = 'skipped'
+        AND (
+            error_message LIKE '%login%'
+            OR error_message LIKE '%auth%'
+            OR error_message LIKE '%401%'
+            OR error_message LIKE '%403%'
+            OR error_message LIKE '%Unauthorized%'
+            OR error_message LIKE '%Forbidden%'
+            OR error_message LIKE '%comfortable for some audiences%'
+            OR error_message LIKE '%Sign in to confirm%'
+        )
+        ",
+    )
+    .execute(pool)
+    .await
+    .context("Failed to update skipped archives to auth_required")?;
 
     Ok(())
 }

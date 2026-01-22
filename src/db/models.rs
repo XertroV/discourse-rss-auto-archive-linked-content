@@ -47,6 +47,7 @@ pub enum ArchiveStatus {
     Complete,
     Failed,
     Skipped,
+    AuthRequired,
 }
 
 impl ArchiveStatus {
@@ -58,6 +59,7 @@ impl ArchiveStatus {
             Self::Complete => "complete",
             Self::Failed => "failed",
             Self::Skipped => "skipped",
+            Self::AuthRequired => "auth_required",
         }
     }
 
@@ -69,6 +71,7 @@ impl ArchiveStatus {
             "complete" => Some(Self::Complete),
             "failed" => Some(Self::Failed),
             "skipped" => Some(Self::Skipped),
+            "auth_required" => Some(Self::AuthRequired),
             _ => None,
         }
     }

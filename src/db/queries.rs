@@ -624,6 +624,26 @@ pub async fn set_archive_skipped(pool: &SqlitePool, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Mark archive as requiring authentication (can be retried when cookies are configured).
+pub async fn set_archive_auth_required(pool: &SqlitePool, id: i64, error: &str) -> Result<()> {
+    sqlx::query(
+        r"
+        UPDATE archives
+        SET status = 'auth_required',
+            error_message = ?,
+            last_attempt_at = datetime('now')
+        WHERE id = ?
+        ",
+    )
+    .bind(error)
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Failed to set archive auth_required")?;
+
+    Ok(())
+}
+
 /// Set the Wayback URL for an archive.
 pub async fn set_archive_wayback_url(pool: &SqlitePool, id: i64, wayback_url: &str) -> Result<()> {
     sqlx::query("UPDATE archives SET wayback_url = ? WHERE id = ?")
@@ -678,6 +698,26 @@ pub async fn get_failed_archives_for_retry(
     .fetch_all(pool)
     .await
     .context("Failed to fetch failed archives")
+}
+
+/// Get archives requiring authentication.
+///
+/// Returns archives where status = 'auth_required'.
+/// These archives failed due to authentication requirements and can be retried
+/// when cookies are configured.
+pub async fn get_archives_needing_auth(pool: &SqlitePool, limit: i64) -> Result<Vec<Archive>> {
+    sqlx::query_as(
+        r"
+        SELECT * FROM archives
+        WHERE status = 'auth_required'
+        ORDER BY last_attempt_at DESC NULLS LAST, created_at ASC
+        LIMIT ?
+        ",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to fetch auth-required archives")
 }
 
 /// Get recent archives for the home page.

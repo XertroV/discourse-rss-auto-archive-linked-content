@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use regex::Regex;
-use tracing::debug;
+use tracing::{debug, info};
 
 use super::traits::{ArchiveResult, SiteHandler};
 use crate::archiver::{gallerydl, ytdlp, CookieOptions};
@@ -62,6 +62,15 @@ impl SiteHandler for TikTokHandler {
             url.to_string()
         };
 
+        // Log cookie configuration status (helps diagnose auth-required errors)
+        let cookies_configured =
+            cookies.cookies_file.is_some() || cookies.browser_profile.is_some();
+        info!(
+            url = %resolved_url,
+            cookies_configured = %cookies_configured,
+            "Starting TikTok archive"
+        );
+
         // Pre-flight: detect content type (video vs photo slideshow)
         let metadata = match ytdlp::get_tiktok_metadata(&resolved_url, cookies).await {
             Ok(meta) => {
@@ -86,11 +95,25 @@ impl SiteHandler for TikTokHandler {
         let mut result = match metadata {
             Some(ref meta) if meta.format == ytdlp::TikTokContentFormat::PhotoSlideshow => {
                 debug!(url = %resolved_url, "Routing to gallery-dl for TikTok photo slideshow");
-                gallerydl::download(&resolved_url, work_dir, cookies, config).await?
+                gallerydl::download(&resolved_url, work_dir, cookies, config)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "TikTok photo slideshow download failed (cookies configured: {})",
+                            cookies_configured
+                        )
+                    })?
             }
             Some(ref meta) if meta.format == ytdlp::TikTokContentFormat::Video => {
                 debug!(url = %resolved_url, "Routing to yt-dlp for TikTok video");
-                ytdlp::download(&resolved_url, work_dir, cookies, config, None, None).await?
+                ytdlp::download(&resolved_url, work_dir, cookies, config, None, None)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "TikTok video download failed (cookies configured: {})",
+                            cookies_configured
+                        )
+                    })?
             }
             _ => {
                 // Unknown or failed detection - try gallery-dl as safe fallback for TikTok
@@ -100,7 +123,13 @@ impl SiteHandler for TikTokHandler {
                     Err(gallery_err) => {
                         debug!(error = %gallery_err, "gallery-dl failed, trying yt-dlp");
                         ytdlp::download(&resolved_url, work_dir, cookies, config, None, None)
-                            .await?
+                            .await
+                            .with_context(|| {
+                                format!(
+                                    "TikTok download failed (cookies configured: {})",
+                                    cookies_configured
+                                )
+                            })?
                     }
                 }
             }

@@ -18,11 +18,11 @@ use crate::db::{
     has_artifact_kind, insert_artifact, insert_artifact_with_hash, insert_artifact_with_metadata,
     insert_artifact_with_video_file, is_domain_excluded, mark_og_extraction_attempted,
     reset_archive_for_retry, reset_stuck_processing_archives, reset_todays_failed_archives,
-    set_archive_complete, set_archive_failed, set_archive_ipfs_cid, set_archive_nsfw,
-    set_archive_processing, set_archive_skipped, set_job_completed, set_job_failed,
-    set_job_running, set_job_skipped, update_archive_og_metadata, update_link_final_url,
-    update_link_last_archived, update_video_file_metadata_key, ArchiveJobType, ArtifactKind,
-    Database, VideoFile,
+    set_archive_auth_required, set_archive_complete, set_archive_failed, set_archive_ipfs_cid,
+    set_archive_nsfw, set_archive_processing, set_archive_skipped, set_job_completed,
+    set_job_failed, set_job_running, set_job_skipped, update_archive_og_metadata,
+    update_link_final_url, update_link_last_archived, update_video_file_metadata_key,
+    ArchiveJobType, ArtifactKind, Database, VideoFile,
 };
 use crate::dedup;
 use crate::handlers::youtube::extract_video_id;
@@ -496,8 +496,19 @@ async fn process_archive(
         let error_msg = format!("{e:#}");
         error!(archive_id, domain = %domain, "Archive failed: {error_msg}");
 
-        // Check if this is a permanent failure (401, 403, 404) that shouldn't be retried
-        if is_permanent_failure(&error_msg) {
+        // Check if this is an authentication error that can be retried with cookies
+        if is_auth_required_failure(&error_msg) {
+            warn!(
+                archive_id,
+                domain = %domain,
+                "Authentication required, marking as auth_required (can retry with cookies)"
+            );
+            if let Err(e2) = set_archive_auth_required(db.pool(), archive_id, &error_msg).await {
+                error!(archive_id, domain = %domain, "Failed to mark archive as auth_required: {e2:#}");
+            }
+        }
+        // Check if this is a permanent failure (404, deleted) that shouldn't be retried
+        else if is_permanent_failure(&error_msg) {
             warn!(
                 archive_id,
                 domain = %domain,
@@ -510,30 +521,58 @@ async fn process_archive(
             if let Err(e2) = set_archive_failed(db.pool(), archive_id, &error_msg).await {
                 error!(archive_id, domain = %domain, "Failed to store error message: {e2:#}");
             }
-        } else if let Err(e2) = set_archive_failed(db.pool(), archive_id, &error_msg).await {
+        }
+        // Transient failure - mark as failed for retry with backoff
+        else if let Err(e2) = set_archive_failed(db.pool(), archive_id, &error_msg).await {
             error!(archive_id, domain = %domain, "Failed to mark archive as failed: {e2:#}");
         }
     }
 }
 
+/// Check if an error indicates authentication is required.
+///
+/// Returns true for errors that suggest the content requires login/authentication,
+/// which can be retried when cookies are configured. These errors are temporary
+/// and dependent on providing proper authentication credentials.
+fn is_auth_required_failure(error_msg: &str) -> bool {
+    let error_lower = error_msg.to_lowercase();
+
+    // TikTok-specific sensitive content message
+    error_lower.contains("comfortable for some audiences")
+        // yt-dlp prompts for login
+        || error_lower.contains("login with --cookies")
+        || error_lower.contains("sign in to confirm")
+        // Generic authentication requirements
+        || error_lower.contains("requires authentication")
+        || error_lower.contains("login required")
+        || error_lower.contains("log in")
+        || error_lower.contains("please log in")
+        // HTTP authentication errors (when not a hard block)
+        || (error_lower.contains("401") && !error_lower.contains("permanently"))
+        || (error_lower.contains("403") && !error_lower.contains("permanently"))
+        || (error_lower.contains("unauthorized") && !error_lower.contains("permanently"))
+        || (error_lower.contains("forbidden") && !error_lower.contains("permanently"))
+        // Private content that might be accessible with auth
+        || (error_lower.contains("private") && !error_lower.contains("deleted"))
+}
+
 /// Check if an error indicates a permanent failure that shouldn't be retried.
 ///
-/// Returns true for HTTP 401 (Unauthorized), 403 (Forbidden), and 404 (Not Found)
-/// errors, which are unlikely to succeed on retry.
+/// Returns true for HTTP 404 (Not Found) and content that is deleted or removed.
+/// These errors indicate the content is truly unavailable and retrying will not help.
+///
+/// Note: Authentication errors (401/403) are NOT considered permanent failures,
+/// as they may succeed when proper cookies/credentials are configured.
 fn is_permanent_failure(error_msg: &str) -> bool {
     let error_lower = error_msg.to_lowercase();
 
-    // Check for specific HTTP status codes
-    error_lower.contains("401")
-        || error_lower.contains("403")
-        || error_lower.contains("404")
-        || error_lower.contains("unauthorized")
-        || error_lower.contains("forbidden")
+    // Only true permanent failures: content that no longer exists
+    error_lower.contains("404")
         || error_lower.contains("not found")
-        // Also check for common permanent error patterns
-        || error_lower.contains("private")
         || error_lower.contains("deleted")
         || error_lower.contains("removed")
+        // Permanent blocks (not auth-related)
+        || error_lower.contains("permanently")
 }
 
 /// Check if a URL should be skipped from archiving due to archive prevention signals.
@@ -2385,4 +2424,164 @@ async fn check_for_duplicate(
     // A better approach might be to use a more sophisticated indexing scheme
 
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_auth_required_failure_tiktok() {
+        // TikTok-specific sensitive content message
+        assert!(is_auth_required_failure(
+            "This post may not be comfortable for some audiences"
+        ));
+        assert!(is_auth_required_failure(
+            "Error: This post may not be comfortable for some audiences. Please login."
+        ));
+    }
+
+    #[test]
+    fn test_is_auth_required_failure_login_prompts() {
+        // yt-dlp prompts for login
+        assert!(is_auth_required_failure("Login with --cookies"));
+        assert!(is_auth_required_failure(
+            "Sign in to confirm you're not a bot"
+        ));
+        assert!(is_auth_required_failure("Sign in to confirm"));
+    }
+
+    #[test]
+    fn test_is_auth_required_failure_generic_auth() {
+        // Generic authentication requirements
+        assert!(is_auth_required_failure(
+            "This content requires authentication"
+        ));
+        assert!(is_auth_required_failure("Login required to view this page"));
+        assert!(is_auth_required_failure("Please log in to continue"));
+        assert!(is_auth_required_failure("You must log in"));
+    }
+
+    #[test]
+    fn test_is_auth_required_failure_http_codes() {
+        // HTTP authentication errors
+        assert!(is_auth_required_failure("HTTP Error 401: Unauthorized"));
+        assert!(is_auth_required_failure("403 Forbidden - access denied"));
+        assert!(is_auth_required_failure("Error: unauthorized access"));
+        assert!(is_auth_required_failure(
+            "Forbidden - authentication needed"
+        ));
+    }
+
+    #[test]
+    fn test_is_auth_required_failure_private_content() {
+        // Private content that might be accessible with auth
+        assert!(is_auth_required_failure("This account is private"));
+        assert!(is_auth_required_failure("Private video"));
+    }
+
+    #[test]
+    fn test_is_auth_required_failure_false_negatives() {
+        // Should NOT match: 404 errors
+        assert!(!is_auth_required_failure("HTTP Error 404: Not Found"));
+        assert!(!is_auth_required_failure("404 Not Found"));
+
+        // Should NOT match: deleted content
+        assert!(!is_auth_required_failure("This content has been deleted"));
+        assert!(!is_auth_required_failure("Content removed by moderators"));
+
+        // Should NOT match: permanent blocks
+        assert!(!is_auth_required_failure("Permanently banned"));
+        assert!(!is_auth_required_failure("Account permanently suspended"));
+
+        // Should NOT match: private AND deleted
+        assert!(!is_auth_required_failure("Private video deleted by user"));
+    }
+
+    #[test]
+    fn test_is_permanent_failure_404() {
+        // 404 errors should be permanent
+        assert!(is_permanent_failure("HTTP Error 404: Not Found"));
+        assert!(is_permanent_failure("404 Not Found"));
+        assert!(is_permanent_failure("Error: not found"));
+    }
+
+    #[test]
+    fn test_is_permanent_failure_deleted() {
+        // Deleted/removed content should be permanent
+        assert!(is_permanent_failure("This content has been deleted"));
+        assert!(is_permanent_failure("Video removed by user"));
+        assert!(is_permanent_failure("Post deleted"));
+    }
+
+    #[test]
+    fn test_is_permanent_failure_permanent_blocks() {
+        // Permanent blocks should be permanent
+        assert!(is_permanent_failure("Permanently banned"));
+        assert!(is_permanent_failure("Account permanently suspended"));
+    }
+
+    #[test]
+    fn test_is_permanent_failure_false_positives() {
+        // Should NOT match: authentication errors (handled separately)
+        assert!(!is_permanent_failure("HTTP Error 401: Unauthorized"));
+        assert!(!is_permanent_failure("403 Forbidden"));
+        assert!(!is_permanent_failure("Unauthorized access"));
+        assert!(!is_permanent_failure("Forbidden - authentication required"));
+
+        // Should NOT match: private content (not deleted)
+        assert!(!is_permanent_failure("This account is private"));
+        assert!(!is_permanent_failure("Private video"));
+
+        // Should NOT match: temporary errors
+        assert!(!is_permanent_failure("Temporary server error"));
+        assert!(!is_permanent_failure("Rate limited, try again later"));
+    }
+
+    #[test]
+    fn test_error_classification_separation() {
+        // Ensure auth-required and permanent failures are mutually exclusive for common cases
+        let auth_errors = vec![
+            "HTTP Error 401: Unauthorized",
+            "403 Forbidden",
+            "This post may not be comfortable for some audiences",
+            "Login with --cookies",
+            "This account is private",
+        ];
+
+        let permanent_errors = vec![
+            "HTTP Error 404: Not Found",
+            "This content has been deleted",
+            "Post removed",
+            "Permanently banned",
+        ];
+
+        // Auth errors should be auth-required but NOT permanent
+        for err in &auth_errors {
+            assert!(
+                is_auth_required_failure(err),
+                "Expected '{}' to be auth-required",
+                err
+            );
+            assert!(
+                !is_permanent_failure(err),
+                "Expected '{}' to NOT be permanent",
+                err
+            );
+        }
+
+        // Permanent errors should be permanent but NOT auth-required
+        for err in &permanent_errors {
+            assert!(
+                is_permanent_failure(err),
+                "Expected '{}' to be permanent",
+                err
+            );
+            assert!(
+                !is_auth_required_failure(err),
+                "Expected '{}' to NOT be auth-required",
+                err
+            );
+        }
+    }
 }

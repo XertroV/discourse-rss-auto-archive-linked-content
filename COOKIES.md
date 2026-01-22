@@ -139,6 +139,126 @@ yt-dlp supports two cookie formats:
 
 Both formats work with yt-dlp's `--cookies` flag.
 
+## TikTok Sensitive Content
+
+TikTok marks some videos as "sensitive" with the message **"This post may not be comfortable for some audiences"**. These videos require you to be logged in to view them. Without cookies, they will fail to archive.
+
+### Why TikTok Login Is Needed
+
+TikTok uses login status to:
+- **Verify age**: Sensitive content is restricted to logged-in users who have confirmed their age
+- **Apply content preferences**: User accounts can set content sensitivity preferences
+- **Prevent scraping**: TikTok blocks unauthenticated access to certain content
+
+When the archiver encounters a TikTok sensitive content error, it will mark the archive with status `auth_required` instead of permanently skipping it. Once you configure cookies, these archives can be retried.
+
+### Setting Up TikTok Cookies
+
+**Method 1: Browser Profile (Recommended)**
+
+The easiest approach for Docker setups:
+
+1. Start the cookie browser:
+   ```bash
+   ./dc-cookies-browser.sh
+   ```
+
+2. Access noVNC at [http://127.0.0.1:7900](http://127.0.0.1:7900) (password: `secret`)
+
+3. In the browser, navigate to [tiktok.com](https://www.tiktok.com) and **log in**
+
+4. After logging in, verify you can view sensitive content by:
+   - Finding a video marked "This post may not be comfortable for some audiences"
+   - Confirming you can view it without being asked to log in
+
+5. Set the environment variable in your `.env` or `docker-compose.yml`:
+   ```bash
+   YT_DLP_COOKIES_FROM_BROWSER=chromium+basictext:/app/cookies/chromium-profile
+   ```
+
+6. Restart the archiver:
+   ```bash
+   ./dc-restart.sh
+   ```
+
+**Method 2: Export Cookies.txt**
+
+If you prefer the manual cookie file approach:
+
+1. Install the **"Get cookies.txt LOCALLY"** browser extension for [Chrome](https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) or [Firefox](https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/)
+
+2. Log in to [tiktok.com](https://www.tiktok.com) in your browser
+
+3. Verify you can view sensitive content
+
+4. Click the extension icon and export cookies for `tiktok.com`
+
+5. Save the exported file as `cookies.txt` in your project directory
+
+6. Set the environment variable:
+   ```bash
+   COOKIES_FILE_PATH=/app/cookies.txt
+   ```
+
+7. Ensure the volume mount is configured in `docker-compose.yml`:
+   ```yaml
+   volumes:
+     - ./cookies.txt:/app/cookies.txt
+   ```
+
+### Required TikTok Cookies
+
+The key cookies needed for TikTok authentication include:
+
+- `sessionid` or `sessionid_ss`: Main session identifier
+- `sid_guard`, `sid_tt`: Additional session guards
+- `uid_tt`: User ID
+- `store-idc`, `store-country-code`: Location preferences
+
+These are automatically included when you log in via browser.
+
+### Retrying Auth-Required Archives
+
+If you've already attempted to archive TikTok sensitive content without cookies, those archives will be marked as `auth_required`. To retry them after configuring cookies:
+
+1. **Check for auth-required archives**:
+   ```sql
+   sqlite3 archiver.db "SELECT id, link_id FROM archives WHERE status = 'auth_required' LIMIT 10"
+   ```
+
+2. **Reset them to pending** (they'll be automatically picked up by the archiver):
+   ```sql
+   sqlite3 archiver.db "UPDATE archives SET status = 'pending', retry_count = 0 WHERE status = 'auth_required'"
+   ```
+
+3. Watch the logs to confirm they're being retried:
+   ```bash
+   docker-compose logs -f archiver | grep TikTok
+   ```
+
+### Verifying Cookie Configuration
+
+To check if cookies are configured correctly, look for this log message when TikTok archives start:
+
+```
+Starting TikTok archive url=https://www.tiktok.com/... cookies_configured=true
+```
+
+If `cookies_configured=false`, the archiver will attempt to download without cookies (which will fail for sensitive content).
+
+### TikTok Cookie Expiration
+
+TikTok sessions can expire, typically after:
+- **30 days** of inactivity
+- When you log out from any device
+- When TikTok forces a password reset
+
+**Signs your cookies have expired:**
+- Archives start failing with "login required" errors again
+- The `cookies_configured=true` log appears, but downloads still fail with auth errors
+
+**Solution:** Re-export cookies or re-login via the cookie browser.
+
 ## Updating Cookies
 
 Cookies expire over time. When you start seeing bot detection errors again:
