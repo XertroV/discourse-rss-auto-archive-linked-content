@@ -7,6 +7,7 @@
 
 use chrono::NaiveDateTime;
 use maud::{html, Markup, Render};
+use std::collections::HashMap;
 use urlencoding::encode;
 
 use crate::components::{Alert, ArchiveGrid, BaseLayout, EmptyState, KeyValueTable, Pagination};
@@ -415,11 +416,60 @@ impl Render for ProgressBar {
     }
 }
 
+/// Archive status counts for thread job progress tracking.
+#[derive(Debug, Clone, Default)]
+pub struct ArchiveStatusCounts {
+    pub pending: i64,
+    pub processing: i64,
+    pub complete: i64,
+    pub failed: i64,
+    pub skipped: i64,
+}
+
+impl ArchiveStatusCounts {
+    /// Create from HashMap returned by database query.
+    #[must_use]
+    pub fn from_hashmap(map: &HashMap<String, i64>) -> Self {
+        Self {
+            pending: *map.get("pending").unwrap_or(&0),
+            processing: *map.get("processing").unwrap_or(&0),
+            complete: *map.get("complete").unwrap_or(&0),
+            failed: *map.get("failed").unwrap_or(&0),
+            skipped: *map.get("skipped").unwrap_or(&0),
+        }
+    }
+
+    /// Total number of archives.
+    #[must_use]
+    pub const fn total(&self) -> i64 {
+        self.pending + self.processing + self.complete + self.failed + self.skipped
+    }
+
+    /// Number of archives in progress (pending or processing).
+    #[must_use]
+    pub const fn in_progress(&self) -> i64 {
+        self.pending + self.processing
+    }
+
+    /// Number of archives finished (complete, failed, or skipped).
+    #[must_use]
+    pub const fn finished(&self) -> i64 {
+        self.complete + self.failed + self.skipped
+    }
+
+    /// Check if any archives are still being processed.
+    #[must_use]
+    pub const fn has_active(&self) -> bool {
+        self.processing > 0 || self.pending > 0
+    }
+}
+
 /// Parameters for the thread job status page.
 #[derive(Debug, Clone)]
 pub struct ThreadJobStatusParams<'a> {
     pub job: &'a ThreadArchiveJob,
     pub archives: &'a [ArchiveDisplay],
+    pub archive_status_counts: ArchiveStatusCounts,
     pub user: Option<&'a User>,
 }
 
@@ -429,16 +479,28 @@ pub fn render_thread_job_status_page(params: &ThreadJobStatusParams<'_>) -> Mark
     let job = params.job;
     let status_variant = JobStatusVariant::from_str(&job.status);
 
-    // Auto-refresh if job is pending/processing OR archives are still processing
-    let should_refresh = status_variant.should_auto_refresh()
-        || params
-            .archives
-            .iter()
-            .any(|a| matches!(a.status.as_str(), "pending" | "processing"));
+    // Auto-refresh logic based on phase
+    let scanning_phase = matches!(
+        status_variant,
+        JobStatusVariant::Pending | JobStatusVariant::Processing
+    );
+    let archiving_phase =
+        status_variant == JobStatusVariant::Complete && params.archive_status_counts.has_active();
+    let fully_complete =
+        status_variant == JobStatusVariant::Complete && !params.archive_status_counts.has_active();
+
+    let should_refresh = scanning_phase || archiving_phase;
+    let refresh_interval = if scanning_phase {
+        1 // 1 second during scanning
+    } else if archiving_phase {
+        5 // 5 seconds during archiving
+    } else {
+        0 // No refresh when complete
+    };
 
     let auto_refresh = if should_refresh {
         Some(html! {
-            meta http-equiv="refresh" content="1";
+            meta http-equiv="refresh" content=(refresh_interval.to_string());
         })
     } else {
         None
@@ -484,11 +546,13 @@ pub fn render_thread_job_status_page(params: &ThreadJobStatusParams<'_>) -> Mark
                 }))
         }
 
-        // Progress section (for processing/complete jobs)
+        // Progress section - show both phases
         @if matches!(status_variant, JobStatusVariant::Processing | JobStatusVariant::Complete) {
             section {
                 h2 { "Progress" }
 
+                // Phase 1: Scanning Posts
+                h3 { "Phase 1: Scanning Posts" }
                 @let progress_percent = job.total_posts
                     .filter(|&total| total > 0)
                     .map(|total| ((job.processed_posts * 100 / total) as u32).min(100))
@@ -501,6 +565,40 @@ pub fn render_thread_job_status_page(params: &ThreadJobStatusParams<'_>) -> Mark
                     .item("New Links Found", &job.new_links_found.to_string())
                     .item("Archives Created", &job.archives_created.to_string())
                     .item("Skipped Links", &job.skipped_links.to_string()))
+
+                @if status_variant == JobStatusVariant::Complete {
+                    p style="color: var(--success, #10b981); font-weight: 600; margin-top: 0.5rem;" {
+                        "✓ Post scanning complete"
+                    }
+                }
+
+                // Phase 2: Archiving Content
+                @if params.archive_status_counts.total() > 0 {
+                    h3 style="margin-top: var(--spacing-lg, 1.5rem);" { "Phase 2: Archiving Content" }
+
+                    @let archive_percent = ((params.archive_status_counts.finished() * 100)
+                        .checked_div(params.archive_status_counts.total())
+                        .unwrap_or(0) as u32).min(100);
+                    (ProgressBar::new(archive_percent))
+
+                    (KeyValueTable::new()
+                        .item("Total Archives", &params.archive_status_counts.total().to_string())
+                        .item("In Progress", &format!(
+                            "{} (pending: {}, processing: {})",
+                            params.archive_status_counts.in_progress(),
+                            params.archive_status_counts.pending,
+                            params.archive_status_counts.processing
+                        ))
+                        .item("Completed", &params.archive_status_counts.complete.to_string())
+                        .item("Failed", &params.archive_status_counts.failed.to_string())
+                        .item("Skipped", &params.archive_status_counts.skipped.to_string()))
+
+                    @if fully_complete {
+                        p style="color: var(--success, #10b981); font-weight: 600; margin-top: 0.5rem;" {
+                            "✓ Archiving complete"
+                        }
+                    }
+                }
             }
         }
 
@@ -543,10 +641,10 @@ pub fn render_thread_job_status_page(params: &ThreadJobStatusParams<'_>) -> Mark
         // Auto-refresh notice
         @if should_refresh {
             p style="color: var(--foreground-muted, #71717a); font-size: 0.875rem;" {
-                @if status_variant.should_auto_refresh() {
-                    "This page will automatically refresh every second while processing."
-                } @else {
-                    "This page will automatically refresh while archives are being created."
+                @if scanning_phase {
+                    "This page will automatically refresh every second while scanning posts."
+                } @else if archiving_phase {
+                    "This page will automatically refresh every 5 seconds while archives are being created."
                 }
             }
         }
@@ -774,6 +872,7 @@ mod tests {
         let params = ThreadJobStatusParams {
             job: &job,
             archives: &[],
+            archive_status_counts: ArchiveStatusCounts::default(),
             user: None,
         };
         let html = render_thread_job_status_page(&params).into_string();
@@ -793,6 +892,7 @@ mod tests {
         let params = ThreadJobStatusParams {
             job: &job,
             archives: &[],
+            archive_status_counts: ArchiveStatusCounts::default(),
             user: None,
         };
         let html = render_thread_job_status_page(&params).into_string();
@@ -809,6 +909,7 @@ mod tests {
         let params = ThreadJobStatusParams {
             job: &job,
             archives: &[],
+            archive_status_counts: ArchiveStatusCounts::default(),
             user: None,
         };
         let html = render_thread_job_status_page(&params).into_string();

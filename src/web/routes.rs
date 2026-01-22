@@ -18,26 +18,27 @@ use crate::auth::{MaybeUser, RequireAdmin, RequireApproved, RequireUser};
 use crate::components::OpenGraphMetadata;
 use crate::db::{
     add_comment_reaction, can_user_edit_comment, count_all_archives_filtered, count_all_threads,
-    count_archives_by_content_type, count_archives_by_status, count_links, count_posts,
-    count_submissions_from_ip_last_hour, count_user_thread_archive_jobs_last_hour, create_comment,
-    create_comment_reply, create_pending_archive, delete_archive, find_artifact_by_s3_key,
-    get_all_archives_table_view, get_all_threads, get_archive, get_archive_by_link_id,
-    get_archive_timeline, get_archives_by_domain_display, get_archives_for_post_display,
-    get_archives_for_posts_display, get_archives_for_thread_job, get_artifacts_for_archive,
-    get_comment_edit_history, get_comment_with_author, get_jobs_for_archive, get_link,
-    get_link_by_normalized_url, get_link_occurrences_with_posts, get_nsfw_count, get_post_by_guid,
-    get_posts_by_thread_key, get_quality_metrics, get_queue_stats, get_quote_reply_chain,
-    get_recent_activity_counts, get_recent_archives_display_filtered,
-    get_recent_archives_filtered_full, get_recent_archives_with_filters,
-    get_recent_failed_archives, get_storage_stats, get_subtitle_languages_for_archive,
-    get_thread_archive_job, get_top_domains, get_user_submission_stats, get_user_submissions,
-    get_video_file, has_missing_artifacts, insert_link, insert_submission,
-    insert_thread_archive_job, mark_og_extraction_attempted, pin_comment, remove_comment_reaction,
-    reset_archive_for_rearchive, reset_single_skipped_archive, reset_skipped_archives,
-    search_archives_display_filtered, search_archives_filtered_full, set_archive_nsfw,
-    soft_delete_comment, submission_exists_for_url, thread_archive_job_exists_recent,
-    toggle_archive_nsfw, unpin_comment, update_archive_og_metadata, update_comment,
-    upsert_subtitle_language, NewLink, NewSubmission, NewThreadArchiveJob,
+    count_archives_by_content_type, count_archives_by_status, count_archives_by_status_for_thread,
+    count_links, count_posts, count_submissions_from_ip_last_hour,
+    count_user_thread_archive_jobs_last_hour, create_comment, create_comment_reply,
+    create_pending_archive, delete_archive, find_artifact_by_s3_key, get_all_archives_table_view,
+    get_all_threads, get_archive, get_archive_by_link_id, get_archive_timeline,
+    get_archives_by_domain_display, get_archives_for_post_display, get_archives_for_posts_display,
+    get_archives_for_thread_job, get_artifacts_for_archive, get_comment_edit_history,
+    get_comment_with_author, get_jobs_for_archive, get_link, get_link_by_normalized_url,
+    get_link_occurrences_with_posts, get_nsfw_count, get_post_by_guid, get_posts_by_thread_key,
+    get_quality_metrics, get_queue_stats, get_quote_reply_chain, get_recent_activity_counts,
+    get_recent_archives_display_filtered, get_recent_archives_filtered_full,
+    get_recent_archives_with_filters, get_recent_failed_archives, get_storage_stats,
+    get_subtitle_languages_for_archive, get_thread_archive_job, get_top_domains,
+    get_user_submission_stats, get_user_submissions, get_video_file, has_missing_artifacts,
+    insert_link, insert_submission, insert_thread_archive_job, mark_og_extraction_attempted,
+    pin_comment, remove_comment_reaction, reset_archive_for_rearchive,
+    reset_single_skipped_archive, reset_skipped_archives, search_archives_display_filtered,
+    search_archives_filtered_full, set_archive_nsfw, soft_delete_comment,
+    submission_exists_for_url, thread_archive_job_exists_recent, toggle_archive_nsfw,
+    unpin_comment, update_archive_og_metadata, update_comment, upsert_subtitle_language, NewLink,
+    NewSubmission, NewThreadArchiveJob,
 };
 use crate::handlers::normalize_url;
 use crate::og_extractor;
@@ -2258,9 +2259,26 @@ async fn thread_job_status(
         Vec::new()
     };
 
+    // Fetch archive status counts for progress tracking
+    let archive_status_counts = if matches!(job.status.as_str(), "processing" | "complete") {
+        match count_archives_by_status_for_thread(state.db.pool(), &job.thread_url).await {
+            Ok(counts) => pages::threads::ArchiveStatusCounts::from_hashmap(&counts),
+            Err(e) => {
+                tracing::error!(
+                    "Failed to fetch archive status counts for thread job {}: {e}",
+                    job.id
+                );
+                pages::threads::ArchiveStatusCounts::default()
+            }
+        }
+    } else {
+        pages::threads::ArchiveStatusCounts::default()
+    };
+
     let params = pages::ThreadJobStatusParams {
         job: &job,
         archives: &archives,
+        archive_status_counts,
         user: user.as_ref(),
     };
     let markup = pages::render_thread_job_status_page(&params);

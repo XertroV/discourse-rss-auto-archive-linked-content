@@ -1387,6 +1387,33 @@ pub async fn get_archives_for_thread_job(
     get_archives_for_posts_display(pool, &post_ids).await
 }
 
+/// Count archives by status for a specific thread.
+pub async fn count_archives_by_status_for_thread(
+    pool: &SqlitePool,
+    thread_url: &str,
+) -> Result<HashMap<String, i64>> {
+    let thread_key = thread_key_from_url(thread_url);
+    let pattern = format!("%{}%", thread_key);
+
+    let results: Vec<(String, i64)> = sqlx::query_as(
+        r#"
+        SELECT a.status, COUNT(DISTINCT a.id) as count
+        FROM posts p
+        JOIN link_occurrences lo ON p.id = lo.post_id
+        JOIN links l ON lo.link_id = l.id
+        JOIN archives a ON l.id = a.link_id
+        WHERE p.discourse_url LIKE ?
+        GROUP BY a.status
+        ORDER BY a.status
+        "#,
+    )
+    .bind(&pattern)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(results.into_iter().collect())
+}
+
 /// Search archives using FTS.
 pub async fn search_archives(pool: &SqlitePool, query: &str, limit: i64) -> Result<Vec<Archive>> {
     let sanitized = crate::db::sanitize_fts_query(query);
