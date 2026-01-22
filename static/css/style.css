@@ -3622,54 +3622,41 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
     display: grid !important;
     grid-template-columns: minmax(300px, 500px) 1fr !important;
     gap: var(--spacing-lg) !important;
-    align-items: stretch !important; /* Stretch both columns to same height */
+    align-items: start !important; /* Align at top */
 }
 
-/* Media column - constrained max width for vertical videos, sets the row height */
+/* Media column - constrained max width */
 #media-transcript-container.vertical-layout .media-column {
     max-width: 500px;
     width: 100%;
-    display: flex;
-    flex-direction: column;
-    max-height: var(--vertical-video-max-height); /* Constrain column height */
 }
 
-/* Transcript column - fills remaining space and matches media column height */
+/* Transcript column - fills remaining space */
 #media-transcript-container.vertical-layout .transcript-column {
     min-width: 0; /* Allows text wrapping */
-    display: flex;
-    flex-direction: column;
-    max-height: var(--vertical-video-max-height); /* Match media column height constraint */
 }
 
-/* Transcript section stretches to fill the column */
+/* Transcript section constrained to max height, uses flexbox for internal layout */
 #media-transcript-container.vertical-layout .transcript-column .transcript-section {
     display: flex;
     flex-direction: column;
-    flex: 1; /* Grow to fill available space */
-    min-height: 0; /* Allow flex shrinking */
+    max-height: var(--vertical-video-max-height); /* Match video max-height */
 }
 
-/* Transcript content fills available space within the section */
-#media-transcript-container.vertical-layout .transcript-column #transcript-content {
-    flex: 1 1 auto; /* Grow to fill available space */
-    max-height: none !important; /* Remove fixed max-height, let flex handle it */
-    overflow-y: auto !important; /* Scrollable if content exceeds height */
-}
-
-/* Make details element also flex to work with layout */
+/* Transcript details/content area fills available space and scrolls */
 #media-transcript-container.vertical-layout .transcript-column .transcript-section details {
-    flex: 1 1 auto;
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto; /* Grow to fill space */
     min-height: 0; /* Allow flex shrinking */
+    overflow: hidden; /* Contain scrolling to inner element */
 }
 
-/* Media section establishes the grid row height */
-#media-transcript-container.vertical-layout .media-column section {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
+/* Transcript content scrollable area */
+#media-transcript-container.vertical-layout .transcript-column #transcript-content {
+    flex: 1 1 auto; /* Fill available space */
+    max-height: none !important; /* Let flex handle it */
+    overflow-y: auto !important; /* Scrollable */
 }
 
 /* Override media container for vertical layout */
