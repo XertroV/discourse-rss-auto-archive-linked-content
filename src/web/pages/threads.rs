@@ -626,6 +626,17 @@ pub fn render_thread_job_status_page(params: &ThreadJobStatusParams<'_>) -> Mark
                         "Found " (params.archives.len()) " archived link(s). "
                         "Still processing: " (processing_count + pending_count)
                     }
+
+                    // Show progress bar
+                    @let total = params.archive_status_counts.total();
+                    @if total > 0 {
+                        @let finished = params.archive_status_counts.finished();
+                        @let percent = ((finished * 100) / total) as u32;
+                        (ProgressBar::new(percent))
+                        p style="color: var(--foreground-muted, #71717a); font-size: 0.875rem; margin-top: -0.5rem;" {
+                            (finished) " / " (total) " complete (" (percent) "%)"
+                        }
+                    }
                 } @else {
                     p { "Found " (params.archives.len()) " archived link(s)." }
                 }
