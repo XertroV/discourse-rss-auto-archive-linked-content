@@ -70,6 +70,9 @@
     --radius-sm: 0px;
     --radius-md: 0px;
     --radius-lg: 0px;
+
+    /* Vertical video layout - max height for video and transcript */
+    --vertical-video-max-height: max(80vh, 800px);
 }
 
 /* Dark mode - Zinc palette */
@@ -3635,7 +3638,7 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
 
 /* Override transcript max-height to match video height */
 #media-transcript-container.vertical-layout .transcript-column #transcript-content {
-    max-height: max(80vh, 800px) !important; /* Match video max-height */
+    max-height: var(--vertical-video-max-height) !important; /* Match video max-height */
     overflow-y: auto !important; /* Scrollable if content exceeds height */
 }
 
@@ -3663,7 +3666,7 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
     width: auto !important; /* Let video use natural width to maintain aspect ratio */
     max-width: 100%; /* But don't exceed column width */
     height: auto !important;
-    max-height: max(80vh, 800px) !important; /* Prevent extremely tall videos while allowing most vertical content */
+    max-height: var(--vertical-video-max-height) !important; /* Prevent extremely tall videos while allowing most vertical content */
 }
 
 /* Smooth transition when layout changes */
