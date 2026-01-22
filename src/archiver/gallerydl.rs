@@ -1,12 +1,19 @@
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::LazyLock;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use tokio::process::Command;
+use tokio::sync::Semaphore;
 use tracing::{debug, warn};
 
 use super::CookieOptions;
 use crate::handlers::ArchiveResult;
+
+// Semaphore to limit concurrent gallery-dl operations to 1 at a time.
+// This prevents 429 rate limit errors from TikTok and other platforms.
+static GALLERYDL_SEMAPHORE: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(1));
 
 /// Download content using gallery-dl.
 ///
@@ -20,7 +27,15 @@ pub async fn download(
     url: &str,
     work_dir: &Path,
     cookies: &CookieOptions<'_>,
+    config: &crate::config::Config,
 ) -> Result<ArchiveResult> {
+    // Acquire semaphore permit to ensure only 1 gallery-dl operation at a time
+    let _permit = GALLERYDL_SEMAPHORE
+        .acquire()
+        .await
+        .context("Failed to acquire gallery-dl semaphore")?;
+    debug!("Acquired gallery-dl semaphore permit");
+
     let mut args = vec![
         url.to_string(),
         "--directory".to_string(),
@@ -69,6 +84,15 @@ pub async fn download(
 
     // Find downloaded files and metadata
     let result = find_and_parse_files(work_dir).await?;
+
+    // Apply post-download delay (same as yt-dlp for consistency)
+    if config.youtube_request_delay_ms > 0 {
+        debug!(
+            delay_ms = config.youtube_request_delay_ms,
+            "Sleeping before next gallery-dl request"
+        );
+        tokio::time::sleep(Duration::from_millis(config.youtube_request_delay_ms)).await;
+    }
 
     Ok(result)
 }

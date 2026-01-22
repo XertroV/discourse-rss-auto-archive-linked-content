@@ -35,6 +35,26 @@ struct VideoMetadata {
     height: Option<u32>,
 }
 
+/// TikTok content format detection result
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TikTokContentFormat {
+    /// Standard video content
+    Video,
+    /// Photo slideshow (images + audio)
+    PhotoSlideshow,
+    /// Unable to determine
+    Unknown,
+}
+
+/// TikTok pre-flight metadata result
+#[derive(Debug)]
+pub struct TikTokMetadata {
+    /// Detected content format
+    pub format: TikTokContentFormat,
+    /// Full metadata JSON string
+    pub json: String,
+}
+
 /// Download progress information parsed from yt-dlp output.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DownloadProgress {
@@ -118,6 +138,132 @@ fn parse_ytdlp_progress(line: &str) -> Option<DownloadProgress> {
         downloaded,
         total_size,
     })
+}
+
+/// Get TikTok metadata and detect content type (video vs photo slideshow).
+///
+/// This function runs yt-dlp --dump-json to fetch metadata and analyzes the
+/// formats array to determine if the content is a video or photo slideshow.
+///
+/// # Errors
+///
+/// Returns an error if yt-dlp fails to retrieve metadata or JSON parsing fails.
+pub async fn get_tiktok_metadata(url: &str, cookies: &CookieOptions<'_>) -> Result<TikTokMetadata> {
+    let mut args = vec![
+        "--dump-json".to_string(),
+        "--no-playlist".to_string(),
+        "--no-warnings".to_string(),
+        "--quiet".to_string(),
+    ];
+
+    // Add cookie options
+    if let Some(spec) = cookies.browser_profile {
+        let spec = maybe_adjust_chromium_user_data_dir_spec(spec);
+        args.push("--cookies-from-browser".to_string());
+        args.push(spec);
+    } else if let Some(cookies_path) = cookies.cookies_file {
+        if cookies_path.exists() && !cookies_path.is_dir() {
+            args.push("--cookies".to_string());
+            args.push(cookies_path.to_string_lossy().to_string());
+        }
+    }
+
+    args.push(url.to_string());
+
+    debug!(url = %url, "Fetching TikTok metadata for content type detection");
+
+    let output = Command::new("yt-dlp")
+        .args(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("Failed to spawn yt-dlp for TikTok metadata")?
+        .wait_with_output()
+        .await
+        .context("Failed to wait for yt-dlp TikTok metadata")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("yt-dlp TikTok metadata fetch failed: {stderr}");
+    }
+
+    let json_str =
+        String::from_utf8(output.stdout).context("Failed to parse yt-dlp output as UTF-8")?;
+
+    // Parse JSON to detect content type
+    let json_value: serde_json::Value =
+        serde_json::from_str(&json_str).context("Failed to parse yt-dlp metadata JSON")?;
+
+    let format = detect_tiktok_content_type(&json_value);
+
+    debug!(url = %url, format = ?format, "Detected TikTok content type");
+
+    Ok(TikTokMetadata {
+        format,
+        json: json_str,
+    })
+}
+
+/// Save metadata JSON to work directory.
+///
+/// # Errors
+///
+/// Returns an error if file writing fails.
+pub async fn save_metadata_to_file(work_dir: &Path, json: &str) -> Result<String> {
+    let metadata_path = work_dir.join("preflight-metadata.json");
+    tokio::fs::write(&metadata_path, json)
+        .await
+        .context("Failed to write pre-flight metadata to file")?;
+
+    debug!(path = %metadata_path.display(), "Saved pre-flight metadata to file");
+
+    Ok("preflight-metadata.json".to_string())
+}
+
+/// Detect TikTok content type from yt-dlp metadata JSON.
+///
+/// Photo slideshows have formats with only audio or image codecs.
+/// Videos have formats with video codecs (h264, vp9, etc.).
+fn detect_tiktok_content_type(metadata: &serde_json::Value) -> TikTokContentFormat {
+    // Check formats array for video codec presence
+    if let Some(formats) = metadata.get("formats").and_then(|f| f.as_array()) {
+        // Look for any format with a real video codec
+        let has_video = formats.iter().any(|format| {
+            if let Some(vcodec) = format.get("vcodec").and_then(|v| v.as_str()) {
+                // "none" or "unknown" means no video codec
+                !vcodec.is_empty() && vcodec != "none" && vcodec != "unknown"
+            } else {
+                false
+            }
+        });
+
+        if has_video {
+            return TikTokContentFormat::Video;
+        }
+
+        // If we have formats but no video codec, it's likely a photo slideshow
+        // Photo slideshows typically have audio formats (acodec) but no video (vcodec: "none")
+        if !formats.is_empty() {
+            let has_audio = formats.iter().any(|format| {
+                if let Some(acodec) = format.get("acodec").and_then(|a| a.as_str()) {
+                    !acodec.is_empty() && acodec != "none"
+                } else {
+                    false
+                }
+            });
+
+            if has_audio {
+                return TikTokContentFormat::PhotoSlideshow;
+            }
+        }
+    }
+
+    // Fallback: check if there's an "images" field (TikTok-specific)
+    if metadata.get("images").is_some() {
+        return TikTokContentFormat::PhotoSlideshow;
+    }
+
+    TikTokContentFormat::Unknown
 }
 
 /// Determine the appropriate quality/format string based on video characteristics.
@@ -1385,4 +1531,161 @@ pub async fn extract_comments_only(
     }
 
     Ok(comment_count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_detect_tiktok_video() {
+        // TikTok video with h264 video codec
+        let json = serde_json::json!({
+            "formats": [
+                {
+                    "format_id": "download_addr-0",
+                    "vcodec": "h264",
+                    "acodec": "mp4a.40.2",
+                    "height": 1024,
+                    "width": 576
+                },
+                {
+                    "format_id": "download_addr_h265-1",
+                    "vcodec": "hevc",
+                    "acodec": "mp4a.40.2"
+                }
+            ]
+        });
+
+        assert_eq!(
+            detect_tiktok_content_type(&json),
+            TikTokContentFormat::Video
+        );
+    }
+
+    #[test]
+    fn test_detect_tiktok_photo_slideshow() {
+        // TikTok photo slideshow with no video codec (vcodec: "none")
+        let json = serde_json::json!({
+            "formats": [
+                {
+                    "format_id": "default",
+                    "vcodec": "none",
+                    "acodec": "mp4a.40.2"
+                }
+            ]
+        });
+
+        assert_eq!(
+            detect_tiktok_content_type(&json),
+            TikTokContentFormat::PhotoSlideshow
+        );
+    }
+
+    #[test]
+    fn test_detect_tiktok_photo_with_images_field() {
+        // TikTok photo slideshow with "images" field
+        let json = serde_json::json!({
+            "images": [
+                "https://example.com/image1.jpg",
+                "https://example.com/image2.jpg"
+            ],
+            "formats": []
+        });
+
+        assert_eq!(
+            detect_tiktok_content_type(&json),
+            TikTokContentFormat::PhotoSlideshow
+        );
+    }
+
+    #[test]
+    fn test_detect_tiktok_unknown_vcodec() {
+        // Unknown video codec
+        let json = serde_json::json!({
+            "formats": [
+                {
+                    "format_id": "default",
+                    "vcodec": "unknown",
+                    "acodec": "mp4a.40.2"
+                }
+            ]
+        });
+
+        // "unknown" vcodec should be treated as no video
+        assert_eq!(
+            detect_tiktok_content_type(&json),
+            TikTokContentFormat::PhotoSlideshow
+        );
+    }
+
+    #[test]
+    fn test_detect_tiktok_empty_vcodec() {
+        // Empty video codec string
+        let json = serde_json::json!({
+            "formats": [
+                {
+                    "format_id": "default",
+                    "vcodec": "",
+                    "acodec": "mp4a.40.2"
+                }
+            ]
+        });
+
+        assert_eq!(
+            detect_tiktok_content_type(&json),
+            TikTokContentFormat::PhotoSlideshow
+        );
+    }
+
+    #[test]
+    fn test_detect_tiktok_no_formats() {
+        // No formats array
+        let json = serde_json::json!({
+            "title": "Some TikTok"
+        });
+
+        assert_eq!(
+            detect_tiktok_content_type(&json),
+            TikTokContentFormat::Unknown
+        );
+    }
+
+    #[test]
+    fn test_detect_tiktok_empty_formats() {
+        // Empty formats array
+        let json = serde_json::json!({
+            "formats": []
+        });
+
+        assert_eq!(
+            detect_tiktok_content_type(&json),
+            TikTokContentFormat::Unknown
+        );
+    }
+
+    #[test]
+    fn test_detect_tiktok_mixed_formats() {
+        // Mix of formats where some have video and some don't
+        // Should detect as video if ANY format has video
+        let json = serde_json::json!({
+            "formats": [
+                {
+                    "format_id": "audio_only",
+                    "vcodec": "none",
+                    "acodec": "mp4a.40.2"
+                },
+                {
+                    "format_id": "video",
+                    "vcodec": "h264",
+                    "acodec": "mp4a.40.2"
+                }
+            ]
+        });
+
+        assert_eq!(
+            detect_tiktok_content_type(&json),
+            TikTokContentFormat::Video
+        );
+    }
 }

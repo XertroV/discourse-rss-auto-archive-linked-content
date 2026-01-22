@@ -71,9 +71,9 @@ impl SiteHandler for InstagramHandler {
         url: &str,
         work_dir: &Path,
         cookies: &CookieOptions<'_>,
-        _config: &crate::config::Config,
+        config: &crate::config::Config,
     ) -> Result<ArchiveResult> {
-        gallerydl::download(url, work_dir, cookies).await
+        gallerydl::download(url, work_dir, cookies, config).await
     }
 }
 

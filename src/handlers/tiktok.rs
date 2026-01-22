@@ -6,7 +6,7 @@ use regex::Regex;
 use tracing::debug;
 
 use super::traits::{ArchiveResult, SiteHandler};
-use crate::archiver::{ytdlp, CookieOptions};
+use crate::archiver::{gallerydl, ytdlp, CookieOptions};
 use crate::constants::ARCHIVAL_USER_AGENT;
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
@@ -62,8 +62,65 @@ impl SiteHandler for TikTokHandler {
             url.to_string()
         };
 
-        let mut result =
-            ytdlp::download(&resolved_url, work_dir, cookies, config, None, None).await?;
+        // Pre-flight: detect content type (video vs photo slideshow)
+        let metadata = match ytdlp::get_tiktok_metadata(&resolved_url, cookies).await {
+            Ok(meta) => {
+                debug!(
+                    url = %resolved_url,
+                    format = ?meta.format,
+                    "Detected TikTok content type from metadata"
+                );
+                Some(meta)
+            }
+            Err(e) => {
+                debug!(
+                    url = %resolved_url,
+                    error = %e,
+                    "Failed to get TikTok metadata, will try gallery-dl as fallback"
+                );
+                None
+            }
+        };
+
+        // Route to appropriate tool based on detected format
+        let mut result = match metadata {
+            Some(ref meta) if meta.format == ytdlp::TikTokContentFormat::PhotoSlideshow => {
+                debug!(url = %resolved_url, "Routing to gallery-dl for TikTok photo slideshow");
+                gallerydl::download(&resolved_url, work_dir, cookies, config).await?
+            }
+            Some(ref meta) if meta.format == ytdlp::TikTokContentFormat::Video => {
+                debug!(url = %resolved_url, "Routing to yt-dlp for TikTok video");
+                ytdlp::download(&resolved_url, work_dir, cookies, config, None, None).await?
+            }
+            _ => {
+                // Unknown or failed detection - try gallery-dl as safe fallback for TikTok
+                debug!(url = %resolved_url, "Content type unknown, trying gallery-dl as fallback");
+                match gallerydl::download(&resolved_url, work_dir, cookies, config).await {
+                    Ok(result) => result,
+                    Err(gallery_err) => {
+                        debug!(error = %gallery_err, "gallery-dl failed, trying yt-dlp");
+                        ytdlp::download(&resolved_url, work_dir, cookies, config, None, None)
+                            .await?
+                    }
+                }
+            }
+        };
+
+        // Save pre-flight metadata if we have it
+        if let Some(meta) = metadata {
+            let metadata_filename = ytdlp::save_metadata_to_file(work_dir, &meta.json).await?;
+
+            // If gallery-dl was used, it might not have TikTok metadata,
+            // so include the yt-dlp metadata we fetched
+            if result.metadata_json.is_none() {
+                result.metadata_json = Some(meta.json);
+            }
+
+            // Add metadata file to extra_files if not already tracked
+            if !result.extra_files.contains(&metadata_filename) {
+                result.extra_files.push(metadata_filename);
+            }
+        }
 
         // Extract video_id for deduplication
         if let Some(video_id) = extract_video_id(&resolved_url) {

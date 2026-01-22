@@ -244,7 +244,7 @@ async fn archive_twitter_media(
         TweetMediaType::Images => {
             // Use gallery-dl directly for image-only tweets (skip yt-dlp)
             debug!(url = %url, "Using gallery-dl for image-only tweet");
-            archive_with_gallerydl(url, work_dir, cookies).await
+            archive_with_gallerydl(url, work_dir, cookies, config).await
         }
         TweetMediaType::Mixed => {
             // Mixed media: both video/GIF AND images - use both tools
@@ -262,7 +262,7 @@ async fn archive_twitter_media(
                         return Err(e);
                     }
                     debug!("yt-dlp failed for card, trying gallery-dl: {e}");
-                    archive_with_gallerydl(url, work_dir, cookies).await
+                    archive_with_gallerydl(url, work_dir, cookies, config).await
                 }
             }
         }
@@ -313,8 +313,9 @@ async fn archive_with_gallerydl(
     url: &str,
     work_dir: &Path,
     cookies: &CookieOptions<'_>,
+    config: &crate::config::Config,
 ) -> Result<ArchiveResult> {
-    let mut result = gallerydl::download(url, work_dir, cookies).await?;
+    let mut result = gallerydl::download(url, work_dir, cookies, config).await?;
 
     debug!(
         url = %url,
@@ -398,7 +399,7 @@ async fn archive_mixed_media(
     let video_result = archive_with_ytdlp(url, work_dir, cookies, config).await?;
 
     // Step 2: Download images with gallery-dl
-    let image_result = match archive_with_gallerydl(url, work_dir, cookies).await {
+    let image_result = match archive_with_gallerydl(url, work_dir, cookies, config).await {
         Ok(result) => result,
         Err(e) => {
             warn!(url = %url, error = %e, "gallery-dl failed for mixed media, continuing with video only");
@@ -508,7 +509,7 @@ async fn archive_nitter(
     }
 
     // Fall back to gallery-dl for images
-    gallerydl::download(nitter_url, work_dir, cookies).await
+    gallerydl::download(nitter_url, work_dir, cookies, config).await
 }
 
 /// Convert Twitter/X URL to nitter URL.
