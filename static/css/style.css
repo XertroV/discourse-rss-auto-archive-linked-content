@@ -3644,20 +3644,37 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
     max-height: var(--video-rendered-height, var(--vertical-video-max-height)); /* Fallback to max */
 }
 
+/* Heading and search box should not flex */
+#media-transcript-container.vertical-layout .transcript-column .transcript-section > h2,
+#media-transcript-container.vertical-layout .transcript-column .transcript-section > div {
+    flex: 0 0 auto !important; /* Keep natural size */
+}
+
 /* Transcript details/content area fills available space and scrolls */
 #media-transcript-container.vertical-layout .transcript-column .transcript-section details {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 auto; /* Grow to fill space */
-    min-height: 0; /* Allow flex shrinking */
-    overflow: hidden; /* Contain scrolling to inner element */
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 0 !important; /* Grow to fill space but allow shrinking to 0 */
+    min-height: 0 !important; /* Critical: allow flex shrinking */
+    max-height: 100% !important; /* Don't exceed parent */
+    overflow: hidden !important; /* Contain scrolling to inner element */
 }
 
 /* Transcript content scrollable area */
 #media-transcript-container.vertical-layout .transcript-column #transcript-content {
-    flex: 1 1 auto; /* Fill available space */
-    max-height: none !important; /* Let flex handle it */
+    flex: 1 1 0 !important; /* Fill available space but allow shrinking to 0 */
+    min-height: 0 !important; /* Critical: allow flex item to shrink below content size */
+    max-height: 100% !important; /* Don't exceed parent height */
     overflow-y: auto !important; /* Scrollable */
+}
+
+/* Summary, download button, and subtitle files should not flex */
+#media-transcript-container.vertical-layout .transcript-column .transcript-section details > summary {
+    flex: 0 0 auto !important; /* Keep natural size */
+}
+
+#media-transcript-container.vertical-layout .transcript-column .transcript-section details > p {
+    flex: 0 0 auto !important; /* Keep natural size, don't grow or shrink */
 }
 
 /* Override media container for vertical layout */
