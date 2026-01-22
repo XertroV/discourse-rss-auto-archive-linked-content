@@ -140,6 +140,49 @@ fn parse_ytdlp_progress(line: &str) -> Option<DownloadProgress> {
     })
 }
 
+/// Analyze yt-dlp stderr to classify error types.
+///
+/// Returns (has_video_error, has_subtitle_error, error_summary)
+fn classify_ytdlp_errors(stderr_lines: &[String]) -> (bool, bool, String) {
+    let stderr = stderr_lines.join("\n");
+    let stderr_lower = stderr.to_lowercase();
+
+    // Patterns indicating video download failures (critical)
+    let video_error_patterns = [
+        "video unavailable",
+        "private video",
+        "video has been removed",
+        "this video is not available",
+        "unable to download webpage",
+        "unable to extract",
+        "requested format not available",
+        "http error 404",
+        "http error 403",
+        "sign in to confirm",
+    ];
+
+    // Patterns indicating subtitle-only failures (non-critical)
+    let subtitle_error_patterns = [
+        "http error 429",
+        "too many requests",
+        "unable to download subtitle",
+        "no subtitles found",
+        "subtitle download failed",
+        "subtitles are not available",
+        "requested automatic caption",
+    ];
+
+    let has_video_error = video_error_patterns
+        .iter()
+        .any(|pattern| stderr_lower.contains(pattern));
+
+    let has_subtitle_error = subtitle_error_patterns
+        .iter()
+        .any(|pattern| stderr_lower.contains(pattern));
+
+    (has_video_error, has_subtitle_error, stderr)
+}
+
 /// Get TikTok metadata and detect content type (video vs photo slideshow).
 ///
 /// This function runs yt-dlp --dump-json to fetch metadata and analyzes the
@@ -452,15 +495,17 @@ pub async fn download(
         "--no-playlist".to_string(),
         "--write-info-json".to_string(),
         "--write-thumbnail".to_string(),
-        // Request both manual and auto-generated subtitles
+        // Subtitle downloads are best-effort and non-critical:
+        // - Request only English ('en') to minimize API calls and reduce 429 rate limits
+        // - Use VTT format (preferred, has better metadata)
+        // - Failures are detected via stderr parsing and treated as warnings
+        // - Archives succeed even when subtitles unavailable (see classify_ytdlp_errors)
         "--write-subs".to_string(),
         "--write-auto-subs".to_string(),
-        // Request subtitles in multiple languages (English + original if different)
         "--sub-langs".to_string(),
-        "en.*,en-orig,en".to_string(),
-        // Request subtitles in multiple formats (both VTT and SRT)
+        "en".to_string(),
         "--sub-format".to_string(),
-        "vtt,srt".to_string(),
+        "vtt".to_string(),
         "--output".to_string(),
         output_template.to_string_lossy().to_string(),
         // Use --newline for parseable progress output (each update on a new line)
@@ -621,13 +666,26 @@ pub async fn download(
     }
 
     if !status.success() {
-        let stderr = stderr_lines.join("\n");
+        let (has_video_error, has_subtitle_error, stderr) = classify_ytdlp_errors(&stderr_lines);
+
+        // Special handling for cookies database error
         if stderr.contains("could not find chromium cookies database") {
             anyhow::bail!(
                 "yt-dlp failed: {stderr}\n\nHint: yt-dlp couldn't locate Chromium's Cookies database under the path from YT_DLP_COOKIES_FROM_BROWSER.\n- If you're using a persisted --user-data-dir, the DB is commonly under .../Default (or .../Default/Network/Cookies).\n- Run ./dc-cookies-browser.sh once and let Chromium fully start, then log in and retry."
             );
         }
-        anyhow::bail!("yt-dlp failed: {stderr}");
+
+        // If only subtitle errors (no video errors), treat as warning and continue
+        if has_subtitle_error && !has_video_error {
+            warn!(
+                url = %url,
+                "yt-dlp subtitle download failed, continuing without subtitles: {stderr}"
+            );
+            // Clear the error - we'll continue with video-only result
+        } else {
+            // Critical error: video download failed
+            anyhow::bail!("yt-dlp video download failed: {stderr}");
+        }
     }
 
     // Find the info.json file to get metadata
@@ -687,9 +745,9 @@ pub async fn download_supplementary_artifacts(
         args.push("--write-subs".to_string());
         args.push("--write-auto-subs".to_string());
         args.push("--sub-langs".to_string());
-        args.push("en.*,en-orig,en".to_string());
+        args.push("en".to_string());
         args.push("--sub-format".to_string());
-        args.push("vtt,srt".to_string());
+        args.push("vtt".to_string());
         debug!("Subtitle download enabled for supplementary artifacts");
     }
 
@@ -744,8 +802,27 @@ pub async fn download_supplementary_artifacts(
         .context("yt-dlp supplementary artifact download timed out after 120 seconds")??;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("yt-dlp supplementary download failed: {stderr}");
+        let stderr_str = String::from_utf8_lossy(&output.stderr);
+        let stderr_lines: Vec<String> = stderr_str.lines().map(String::from).collect();
+        let (has_video_error, has_subtitle_error, stderr) = classify_ytdlp_errors(&stderr_lines);
+
+        // For supplementary artifacts, subtitle failures are expected/acceptable
+        if has_subtitle_error && !has_video_error {
+            warn!(
+                url = %url,
+                download_subtitles,
+                download_comments,
+                "Subtitle download failed during supplementary artifact fetch, continuing: {stderr}"
+            );
+            // Return empty result - caller already handles this gracefully
+            return Ok(ArchiveResult::default());
+        } else if has_video_error {
+            // This shouldn't happen with --skip-download, but be defensive
+            anyhow::bail!("yt-dlp supplementary download failed unexpectedly: {stderr}");
+        } else {
+            // Generic failure
+            anyhow::bail!("yt-dlp supplementary download failed: {stderr}");
+        }
     }
 
     // Find and parse metadata to get the extra files
@@ -1687,5 +1764,56 @@ mod tests {
             detect_tiktok_content_type(&json),
             TikTokContentFormat::Video
         );
+    }
+
+    #[test]
+    fn test_classify_subtitle_only_error() {
+        let stderr = vec![
+            "[youtube] test: Downloading webpage".to_string(),
+            "[download] 100% of 10.5MiB".to_string(),
+            "WARNING: Unable to download subtitle for language: en".to_string(),
+            "ERROR: HTTP Error 429: Too Many Requests".to_string(),
+        ];
+
+        let (has_video_error, has_subtitle_error, _) = classify_ytdlp_errors(&stderr);
+
+        assert!(!has_video_error, "Should not detect video error");
+        assert!(has_subtitle_error, "Should detect subtitle error");
+    }
+
+    #[test]
+    fn test_classify_video_error() {
+        let stderr = vec![
+            "[youtube] test: Video unavailable".to_string(),
+            "ERROR: Video is private".to_string(),
+        ];
+
+        let (has_video_error, has_subtitle_error, _) = classify_ytdlp_errors(&stderr);
+
+        assert!(has_video_error, "Should detect video error");
+        assert!(!has_subtitle_error, "Should not detect subtitle error");
+    }
+
+    #[test]
+    fn test_classify_mixed_errors() {
+        let stderr = vec![
+            "ERROR: Video unavailable".to_string(),
+            "WARNING: Subtitle download failed".to_string(),
+        ];
+
+        let (has_video_error, has_subtitle_error, _) = classify_ytdlp_errors(&stderr);
+
+        assert!(has_video_error, "Should detect video error");
+        assert!(has_subtitle_error, "Should detect subtitle error");
+    }
+
+    #[test]
+    fn test_classify_no_errors() {
+        let stderr = vec!["[download] 100% of 10.5MiB".to_string()];
+
+        let (has_video_error, has_subtitle_error, _) = classify_ytdlp_errors(&stderr);
+
+        assert!(!has_video_error, "Should not detect video error");
+        assert!(!has_subtitle_error, "Should not detect subtitle error");
     }
 }

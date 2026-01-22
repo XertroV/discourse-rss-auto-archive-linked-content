@@ -453,3 +453,21 @@ cd monolith && cargo install --path .
 ```
 
 **Monitoring:** Check logs for "Monolith crashed" warnings - these indicate either a broken monolith install or upstream tool bugs.
+
+### yt-dlp Subtitle Handling
+
+**Best-Effort Subtitle Downloads:**
+- Subtitle downloads are non-critical and won't fail archives if unavailable
+- yt-dlp is configured to request only English (`en`) subtitles in VTT format
+- HTTP 429 (rate limit) errors on subtitle requests are logged as warnings
+- Video archives succeed even if subtitles fail to download
+
+**Error Classification:**
+- Video download errors (404, unavailable, private) → archive fails
+- Subtitle-only errors (429, not available) → archive succeeds, warning logged
+- Classification done via `classify_ytdlp_errors()` in `ytdlp.rs`
+
+**Debugging Subtitle Issues:**
+- Check logs for "subtitle download failed" warnings
+- Warnings indicate non-critical failures that didn't block archiving
+- For manual investigation, run yt-dlp directly with `--write-subs --sub-langs en`
