@@ -91,6 +91,7 @@ ENV XDG_CACHE_HOME=/app/.cache
 # This downloads the JavaScript challenge solver script for YouTube bot detection
 USER archiver
 RUN echo "Installing yt-dlp remote components..." && \
+    yt-dlp -U && \
     yt-dlp --version && \
     yt-dlp --remote-components ejs:github --simulate --verbose --print "%(title)s" https://www.youtube.com/watch?v=dQw4w9WgXcQ 2>&1 | head -50 || true
 USER root
