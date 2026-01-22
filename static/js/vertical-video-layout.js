@@ -46,15 +46,11 @@
                     console.log('[VerticalLayout] Video rendered height:', sectionHeight + 'px');
                 }
 
-                // Calculate available height for transcript content
-                // Use a simpler approach: just use a percentage of the section height
+                // Set transcript content height to 70% of video height using CSS calc
                 if (sectionHeight > 0) {
-                    // Reserve roughly 200-300px for heading, search, summary, and buttons
-                    // Use 70% of section height as a safe estimate
-                    var contentHeight = Math.max(200, Math.floor(sectionHeight * 0.7));
-                    container.style.setProperty('--max-transcript-content-height', contentHeight + 'px');
-                    console.log('[VerticalLayout] Transcript content height:', contentHeight + 'px',
-                               '(70% of section height:', sectionHeight + 'px)');
+                    // Use CSS calc() to compute 70% of --video-rendered-height
+                    container.style.setProperty('--max-transcript-content-height', 'calc(var(--video-rendered-height) * 0.7)');
+                    console.log('[VerticalLayout] Set transcript content to calc(var(--video-rendered-height) * 0.7)');
                 }
             });
         } else {

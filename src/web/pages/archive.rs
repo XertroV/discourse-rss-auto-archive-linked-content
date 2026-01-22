@@ -638,7 +638,7 @@ fn render_transcript_section(
 
                 div id="transcript-content"
                     data-transcript-url=(format!("/s3/{}", transcript.s3_key))
-                    style="max-height: var(--video-rendered-height, 400px); overflow-y: auto; padding: 1rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); font-family: monospace; white-space: pre-wrap; line-height: 1.6; color: var(--text-primary);" {
+                    style="max-height: var(--max-transcript-content-height, 400px); overflow-y: auto; padding: 1rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); font-family: monospace; white-space: pre-wrap; line-height: 1.6; color: var(--text-primary);" {
                     "Loading transcript..."
                 }
 
