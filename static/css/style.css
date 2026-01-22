@@ -442,8 +442,10 @@ tr:hover {
     margin-bottom: var(--spacing-sm);
     font-size: var(--font-size-base);
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
 }
 
 .archive-card h3 a {
@@ -473,9 +475,6 @@ tr:hover {
 .archive-url {
     margin: var(--spacing-xs) 0;
     font-size: var(--font-size-xs);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .archive-url a {
@@ -1396,7 +1395,11 @@ section.stats-card {
 
 /* Raw URL display as code */
 .archive-url .url-display {
-    display: block;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
     padding: 0.25rem 0.5rem;
     background-color: var(--bg-tertiary);
     border: 1px solid var(--border-color);
