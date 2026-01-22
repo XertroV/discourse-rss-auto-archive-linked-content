@@ -47,29 +47,14 @@
                 }
 
                 // Calculate available height for transcript content
-                var transcriptSection = container.querySelector('.transcript-column .transcript-section');
-                if (transcriptSection && sectionHeight > 0) {
-                    // Measure non-scrollable elements in transcript section
-                    var heading = transcriptSection.querySelector('h2');
-                    var searchBox = transcriptSection.querySelector('div[style*="margin-bottom"]');
-                    var summary = transcriptSection.querySelector('summary');
-                    var downloadButtons = transcriptSection.querySelectorAll('details > p');
-
-                    var nonScrollableHeight = 0;
-                    if (heading) nonScrollableHeight += heading.offsetHeight;
-                    if (searchBox) nonScrollableHeight += searchBox.offsetHeight;
-                    if (summary) nonScrollableHeight += summary.offsetHeight;
-                    downloadButtons.forEach(function(btn) {
-                        nonScrollableHeight += btn.offsetHeight;
-                    });
-
-                    // Add some padding/margin space (approximate)
-                    nonScrollableHeight += 32; // Extra spacing
-
-                    var contentHeight = Math.max(200, sectionHeight - nonScrollableHeight);
+                // Use a simpler approach: just use a percentage of the section height
+                if (sectionHeight > 0) {
+                    // Reserve roughly 200-300px for heading, search, summary, and buttons
+                    // Use 70% of section height as a safe estimate
+                    var contentHeight = Math.max(200, Math.floor(sectionHeight * 0.7));
                     container.style.setProperty('--max-transcript-content-height', contentHeight + 'px');
                     console.log('[VerticalLayout] Transcript content height:', contentHeight + 'px',
-                               '(section:', sectionHeight + 'px', '- non-scrollable:', nonScrollableHeight + 'px)');
+                               '(70% of section height:', sectionHeight + 'px)');
                 }
             });
         } else {
