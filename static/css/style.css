@@ -73,6 +73,9 @@
 
     /* Vertical video layout - max height for video and transcript */
     --vertical-video-max-height: max(80vh, 800px);
+
+    /* Transcript content max height (updated by JS for vertical videos) */
+    --max-transcript-content-height: 400px;
 }
 
 /* Dark mode - Zinc palette */

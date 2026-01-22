@@ -33,21 +33,49 @@
             requestAnimationFrame(function() {
                 // Measure the entire media section, not just the video
                 var mediaSection = container.querySelector('.media-column section');
+                var sectionHeight = 0;
+
                 if (mediaSection) {
-                    var sectionHeight = mediaSection.offsetHeight;
-                    // Set CSS variable with the media section's actual rendered height
+                    sectionHeight = mediaSection.offsetHeight;
                     container.style.setProperty('--video-rendered-height', sectionHeight + 'px');
                     console.log('[VerticalLayout] Media section rendered height:', sectionHeight + 'px');
                 } else {
                     // Fallback to video height
-                    var videoHeight = video.offsetHeight;
-                    container.style.setProperty('--video-rendered-height', videoHeight + 'px');
-                    console.log('[VerticalLayout] Video rendered height:', videoHeight + 'px');
+                    sectionHeight = video.offsetHeight;
+                    container.style.setProperty('--video-rendered-height', sectionHeight + 'px');
+                    console.log('[VerticalLayout] Video rendered height:', sectionHeight + 'px');
+                }
+
+                // Calculate available height for transcript content
+                var transcriptSection = container.querySelector('.transcript-column .transcript-section');
+                if (transcriptSection && sectionHeight > 0) {
+                    // Measure non-scrollable elements in transcript section
+                    var heading = transcriptSection.querySelector('h2');
+                    var searchBox = transcriptSection.querySelector('div[style*="margin-bottom"]');
+                    var summary = transcriptSection.querySelector('summary');
+                    var downloadButtons = transcriptSection.querySelectorAll('details > p');
+
+                    var nonScrollableHeight = 0;
+                    if (heading) nonScrollableHeight += heading.offsetHeight;
+                    if (searchBox) nonScrollableHeight += searchBox.offsetHeight;
+                    if (summary) nonScrollableHeight += summary.offsetHeight;
+                    downloadButtons.forEach(function(btn) {
+                        nonScrollableHeight += btn.offsetHeight;
+                    });
+
+                    // Add some padding/margin space (approximate)
+                    nonScrollableHeight += 32; // Extra spacing
+
+                    var contentHeight = Math.max(200, sectionHeight - nonScrollableHeight);
+                    container.style.setProperty('--max-transcript-content-height', contentHeight + 'px');
+                    console.log('[VerticalLayout] Transcript content height:', contentHeight + 'px',
+                               '(section:', sectionHeight + 'px', '- non-scrollable:', nonScrollableHeight + 'px)');
                 }
             });
         } else {
             container.classList.remove('vertical-layout');
             container.style.removeProperty('--video-rendered-height');
+            container.style.removeProperty('--max-transcript-content-height');
             console.log('[VerticalLayout] Horizontal video, using stacked layout:',
                         video.videoWidth + 'x' + video.videoHeight);
         }
