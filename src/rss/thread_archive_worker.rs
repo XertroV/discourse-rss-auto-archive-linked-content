@@ -71,6 +71,6 @@ pub async fn run(config: Config, db: Database) {
         }
 
         // Wait before checking again
-        tokio::time::sleep(Duration::from_secs(30)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
