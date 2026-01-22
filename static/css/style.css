@@ -3622,27 +3622,31 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
     display: grid !important;
     grid-template-columns: minmax(300px, 500px) 1fr !important;
     gap: var(--spacing-lg) !important;
-    align-items: start !important;
+    align-items: stretch !important; /* Stretch both columns to same height */
 }
 
-/* Media column - constrained max width for vertical videos */
+/* Media column - constrained max width for vertical videos, sets the row height */
 #media-transcript-container.vertical-layout .media-column {
     max-width: 500px;
     width: 100%;
+    display: flex;
+    flex-direction: column;
 }
 
-/* Transcript column - fills remaining space */
+/* Transcript column - fills remaining space and stretches to match media column */
 #media-transcript-container.vertical-layout .transcript-column {
     min-width: 0; /* Allows text wrapping */
     display: flex;
     flex-direction: column;
+    height: 100%; /* Fill the grid cell height */
 }
 
-/* Constrain transcript section to match video height */
+/* Transcript section stretches to fill the column */
 #media-transcript-container.vertical-layout .transcript-column .transcript-section {
-    max-height: var(--vertical-video-max-height);
     display: flex;
     flex-direction: column;
+    flex: 1; /* Grow to fill available space */
+    min-height: 0; /* Allow flex shrinking */
 }
 
 /* Transcript content fills available space within the section */
@@ -3658,6 +3662,13 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
     display: flex;
     flex-direction: column;
     min-height: 0; /* Allow flex shrinking */
+}
+
+/* Media section establishes the grid row height */
+#media-transcript-container.vertical-layout .media-column section {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
 }
 
 /* Override media container for vertical layout */
