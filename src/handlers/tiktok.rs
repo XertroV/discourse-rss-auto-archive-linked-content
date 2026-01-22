@@ -71,23 +71,32 @@ impl SiteHandler for TikTokHandler {
             "Starting TikTok archive"
         );
 
+        // Detect photo slideshow URLs early - yt-dlp doesn't support /photo/ URLs
+        let is_photo_url = resolved_url.contains("/photo/");
+
         // Pre-flight: detect content type (video vs photo slideshow)
-        let metadata = match ytdlp::get_tiktok_metadata(&resolved_url, cookies).await {
-            Ok(meta) => {
-                debug!(
-                    url = %resolved_url,
-                    format = ?meta.format,
-                    "Detected TikTok content type from metadata"
-                );
-                Some(meta)
-            }
-            Err(e) => {
-                debug!(
-                    url = %resolved_url,
-                    error = %e,
-                    "Failed to get TikTok metadata, will try gallery-dl as fallback"
-                );
-                None
+        // Skip yt-dlp for /photo/ URLs since yt-dlp doesn't support them
+        let metadata = if is_photo_url {
+            debug!(url = %resolved_url, "Detected /photo/ URL, skipping yt-dlp (not supported)");
+            None
+        } else {
+            match ytdlp::get_tiktok_metadata(&resolved_url, cookies).await {
+                Ok(meta) => {
+                    debug!(
+                        url = %resolved_url,
+                        format = ?meta.format,
+                        "Detected TikTok content type from metadata"
+                    );
+                    Some(meta)
+                }
+                Err(e) => {
+                    debug!(
+                        url = %resolved_url,
+                        error = %e,
+                        "Failed to get TikTok metadata, will try gallery-dl as fallback"
+                    );
+                    None
+                }
             }
         };
 
@@ -182,6 +191,40 @@ impl SiteHandler for TikTokHandler {
                     debug!("Stored TikTok image order for slideshow");
                 }
             }
+        } else if is_photo_url && result.metadata_json.is_some() {
+            // For /photo/ URLs where we skipped yt-dlp, extract from gallery-dl metadata
+            let gallerydl_metadata = result.metadata_json.as_ref().unwrap();
+
+            // Download TikTok music if present (best-effort, non-fatal)
+            if let Some((music_url, music_title)) = extract_music_info(gallerydl_metadata) {
+                match download_tiktok_music(&music_url, music_title.as_deref(), work_dir).await {
+                    Ok(filename) => {
+                        debug!(music_url = %music_url, filename = %filename, "Downloaded TikTok music from gallery-dl metadata");
+                        result.extra_files.push(filename);
+                    }
+                    Err(e) => {
+                        // Non-fatal: music is supplementary content
+                        tracing::warn!(
+                            error = %e,
+                            music_url = %music_url,
+                            "Failed to download TikTok music (non-fatal)"
+                        );
+                    }
+                }
+            }
+
+            // Extract and store image order for photo slideshows
+            if let Some(image_order) = extract_image_order(gallerydl_metadata) {
+                // Append image order to text field (or prepend if text exists)
+                let current_text = result.text.unwrap_or_default();
+                let combined = if current_text.is_empty() {
+                    image_order
+                } else {
+                    format!("{}\n\n{}", image_order, current_text)
+                };
+                result.text = Some(combined);
+                debug!("Stored TikTok image order for slideshow from gallery-dl metadata");
+            }
         }
 
         // Extract video_id for deduplication
@@ -231,12 +274,21 @@ async fn resolve_short_url(short_url: &str) -> Result<String> {
 
 /// Extract music metadata from TikTok JSON metadata.
 ///
+/// Supports both yt-dlp format (music.playUrl) and gallery-dl format (music.play_url).
+///
 /// Returns (music_url, music_title) if music field exists.
 fn extract_music_info(metadata_json: &str) -> Option<(String, Option<String>)> {
     let json: serde_json::Value = serde_json::from_str(metadata_json).ok()?;
 
     let music_obj = json.get("music")?;
-    let play_url = music_obj.get("playUrl")?.as_str()?.to_string();
+
+    // Try yt-dlp format first (camelCase)
+    let play_url = music_obj
+        .get("playUrl")
+        .or_else(|| music_obj.get("play_url")) // gallery-dl format (snake_case)
+        .and_then(|v| v.as_str())?
+        .to_string();
+
     let title = music_obj
         .get("title")
         .and_then(|t| t.as_str())
