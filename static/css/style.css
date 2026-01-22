@@ -3633,6 +3633,12 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
     min-width: 0; /* Allows text wrapping */
 }
 
+/* Override transcript max-height to match video height */
+#media-transcript-container.vertical-layout .transcript-column #transcript-content {
+    max-height: none !important; /* Remove 400px constraint */
+    height: 100%; /* Fill available height */
+}
+
 /* Override media container for vertical layout */
 #media-transcript-container.vertical-layout .media-column .media-container {
     max-width: 100%;
@@ -3657,7 +3663,7 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
     width: auto !important; /* Let video use natural width to maintain aspect ratio */
     max-width: 100%; /* But don't exceed column width */
     height: auto !important;
-    max-height: 800px; /* Prevent extremely tall videos */
+    max-height: 1200px !important; /* Prevent extremely tall videos while allowing most vertical content */
 }
 
 /* Smooth transition when layout changes */
