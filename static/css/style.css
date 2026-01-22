@@ -3631,14 +3631,15 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
     width: 100%;
     display: flex;
     flex-direction: column;
+    max-height: var(--vertical-video-max-height); /* Constrain column height */
 }
 
-/* Transcript column - fills remaining space and stretches to match media column */
+/* Transcript column - fills remaining space and matches media column height */
 #media-transcript-container.vertical-layout .transcript-column {
     min-width: 0; /* Allows text wrapping */
     display: flex;
     flex-direction: column;
-    height: 100%; /* Fill the grid cell height */
+    max-height: var(--vertical-video-max-height); /* Match media column height constraint */
 }
 
 /* Transcript section stretches to fill the column */
