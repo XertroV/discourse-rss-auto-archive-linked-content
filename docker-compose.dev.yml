@@ -1,0 +1,13 @@
+# Development override for docker-compose.yml
+# Use with: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# This configuration:
+# - Mounts static files from host for live CSS/JS updates (no rebuild needed)
+# - Useful for rapid UI iteration
+
+services:
+  archiver:
+    volumes:
+      # Mount static files from host for live updates during development
+      # CSS/JS changes are immediately visible without rebuilding
+      - ./static:/app/static:ro

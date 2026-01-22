@@ -20,6 +20,33 @@ cargo fmt                # Auto-format code
 
 **IMPORTANT:** Always use `cargo build` (debug) during development. Release builds take significantly longer and are only needed for production deployment.
 
+## Docker Development
+
+### Quick CSS/Static File Updates
+
+Static files (CSS, JS) are served from disk, not embedded in the binary. For development:
+
+```bash
+# Start with static files mounted from host (CSS changes are instant)
+./dc-dev-up.sh
+
+# Or manually:
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
+
+With dev mode, CSS/JS changes are immediately visible - just refresh your browser. No rebuild needed.
+
+### Full Rebuild (Code Changes)
+
+When Rust code changes, rebuild the container:
+
+```bash
+./dc-rebuild.sh   # Rebuild image
+./dc-restart.sh   # Restart container
+```
+
+**Note:** Update scripts (`dc-update.sh`, `dc-update-low-downtime.sh`) automatically force rebuild if the container image is >1 week old to keep yt-dlp and other dependencies current.
+
 ## New Session
 
 When a new session is started, start `cargo build` and `cargo test` in background terminals so that everything gets compiled while you work on the users request.
