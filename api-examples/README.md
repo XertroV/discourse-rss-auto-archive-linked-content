@@ -6,20 +6,22 @@ Contains example JSON and RSS responses from the Discourse API.
 
 ## File Listing
 
-- `posts.rss` - posts.rss
-- `posts.json` - posts.json
-- `t/2144/posts.json` - t_2144_posts.json (30 posts total)
+- `posts.rss` - posts.rss (global latest 50 posts)
+- `posts.json` - posts.json (global latest 50 posts)
+- `t/2144/posts.json` - t_2144_posts.json (30 posts total, returns 1-21)
 - `t/2144/posts.json?post_number=5` - t_2144_posts_pn_5.json
 - `t/2144/posts.json?post_number=21` - t_2144_posts_pn_21.json
 - `t/2144/posts.json?post_number=41` - t_2144_posts_pn_41.json
 - `t/2144/posts.json?post_number=61` - t_2144_posts_pn_61.json
 - `t/2144/posts.json?post_number=81` - t_2144_posts_pn_81.json
-- `t/2108/posts.json` - t_2108_posts.json (446 posts total)
+- `t/x/2144.rss` - t_2144.rss (latest 25 posts in thread, posts 31-6)
+- `t/2108/posts.json` - t_2108_posts.json (446 posts total, returns 1-20)
 - `t/2108/posts.json?post_number=5` - t_2108_posts_pn_5.json
 - `t/2108/posts.json?post_number=21` - t_2108_posts_pn_21.json
 - `t/2108/posts.json?post_number=41` - t_2108_posts_pn_41.json
 - `t/2108/posts.json?post_number=61` - t_2108_posts_pn_61.json
 - `t/2108/posts.json?post_number=81` - t_2108_posts_pn_81.json
+- `t/x/2108.rss` - t_2108.rss (latest 25 posts in thread, posts 452-428)
 
 ## Understanding the `post_number` Parameter
 
@@ -155,16 +157,62 @@ When polling for new posts (e.g., every 60 seconds), both `posts.json` and `post
 
 ### Recommendation for 60-Second Polling
 
-**Use `posts.json`** because it provides:
-- Edit detection via `updated_at` and `version`
-- Raw markdown content
-- Structured metadata (no URL parsing needed)
-- Better error handling (JSON vs XML parsing)
+⚠️ **CRITICAL: Different Endpoints for Latest vs First Posts**
 
-**Polling strategy:**
-1. Track the highest `id` seen
-2. On each poll, check for posts with `id > last_seen_id`
-3. For existing posts, check `updated_at > last_seen_timestamp` to detect edits
-4. Store both `id` and `updated_at` for each post
+**The Problem with `/t/{topic_id}/posts.json`:**
+- Returns posts 1-20 (oldest posts) ❌
+- Misses the latest posts in active threads
+- Thread 2144 has 30 posts, returns 1-21, **missing posts 22-30**
+- Thread 2108 has 446 posts, returns 1-20, **missing posts 21-446**
+
+**✅ SOLUTION: Use `/t/{topic_id}/{post_number}.json` to view around a specific post:**
+- `/t/2108/1.json` returns posts 1-20 (first page)
+- `/t/2108/10.json` returns posts 5-24 (centered around post 10)
+- `/t/2108/100.json` returns posts 95-114 (centered around post 100)
+- `/t/2108/446.json` returns posts 433-452 (last ~20, when 446 is near the end)
+- `/t/2108/500.json` returns posts 433-452 (clamped to last ~20 when beyond end)
+- Returns JSON with full metadata: `raw` markdown, `updated_at`, all post fields
+- **To get latest posts: use a high post number at/beyond the thread end**
+
+**Alternative: Thread RSS for latest posts:**
+- `/t/x/{topic_id}.rss` returns the **last ~25 posts** in descending order
+- Thread 2144 RSS: posts 31-6 (latest 25, skipping deleted posts)
+- Thread 2108 RSS: posts 452-428 (latest 25)
+- The `x` in the path is arbitrary (any slug works)
+- RSS lacks `raw` markdown and edit metadata
+
+**Recommended Strategy for Complete Coverage:**
+
+**For monitoring ALL posts across the forum:**
+- Use `posts.json` (global latest 50 posts) ✅
+- Detects new posts across all threads
+- Provides `updated_at` for edit detection
+- Provides `raw` markdown content
+
+**For fetching latest posts in a specific thread:**
+- **Best: `/t/{topic_id}/9999.json`** (use high number like 9999) ✅
+  - Returns last ~20 posts with full JSON metadata
+  - No need to know exact post count
+  - Includes `raw` markdown, `updated_at`, structured data
+- **Alternative: `/t/x/{topic_id}.rss`** (returns ~25 posts, no raw markdown)
+
+**For viewing posts around a specific post:**
+- Use `/t/{topic_id}/{post_number}.json`
+- Returns ~20 posts centered around the specified post number
+- Useful for getting context around a specific post
+
+**For fetching older posts in a thread:**
+- Use `/t/{topic_id}/posts.json?post_number=N` with pagination
+- Start with high post numbers and paginate backwards
+
+**Recommended polling strategy:**
+1. **Global monitoring**: Poll `posts.json` every 60s
+   - Track highest `id` seen for new posts
+   - Track `updated_at` for edits
+2. **Thread-specific monitoring**: Use `/t/{topic_id}/9999.json` for active threads
+   - Get latest ~25 posts per thread
+   - Detect new posts beyond what `posts.json` might show
+3. **Complete thread fetching**: Use `?post_number` pagination when needed
+   - Fetch entire thread history by walking backwards from the end
 
 Note: topic 2108 has 446 posts in the thread (before 1769043607). Some earlier posts were moved to another thread so ids are not contiguous.
