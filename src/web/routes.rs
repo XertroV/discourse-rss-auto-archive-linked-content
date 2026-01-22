@@ -2247,7 +2247,7 @@ async fn thread_job_status(
     }
 
     // Fetch archives for processing/completed jobs
-    let archives = if matches!(job.status.as_str(), "processing" | "complete") {
+    let mut archives = if matches!(job.status.as_str(), "processing" | "complete") {
         match get_archives_for_thread_job(state.db.pool(), &job).await {
             Ok(archives) => archives,
             Err(e) => {
@@ -2258,6 +2258,16 @@ async fn thread_job_status(
     } else {
         Vec::new()
     };
+
+    // Sort archives by status priority: processing -> failed -> skipped -> pending -> complete
+    archives.sort_by_key(|a| match a.status.as_str() {
+        "processing" => 0,
+        "failed" => 1,
+        "skipped" => 2,
+        "pending" => 3,
+        "complete" => 4,
+        _ => 5, // Unknown statuses last
+    });
 
     // Fetch archive status counts for progress tracking
     let archive_status_counts = if matches!(job.status.as_str(), "processing" | "complete") {
