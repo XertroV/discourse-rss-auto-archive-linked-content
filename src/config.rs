@@ -812,6 +812,25 @@ impl Config {
         }
         Ok(())
     }
+
+    /// Extract the base URL of the Discourse forum from the RSS URL.
+    ///
+    /// Converts `https://discuss.example.com/posts.rss` to `https://discuss.example.com`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the RSS URL cannot be parsed.
+    pub fn discourse_base_url(&self) -> std::result::Result<String, ConfigError> {
+        let url = url::Url::parse(&self.rss_url).map_err(|e| ConfigError::InvalidValue {
+            name: "rss_url".to_string(),
+            message: format!("Cannot parse RSS URL: {}", e),
+        })?;
+        Ok(format!(
+            "{}://{}",
+            url.scheme(),
+            url.host_str().unwrap_or("")
+        ))
+    }
 }
 
 fn optional_env(name: &str) -> Option<String> {

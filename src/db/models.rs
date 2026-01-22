@@ -776,3 +776,34 @@ pub struct NewThreadArchiveJob {
     pub rss_url: String,
     pub user_id: i64,
 }
+
+// ========================================
+// Discourse JSON API Response Models
+// ========================================
+
+/// Response from Discourse /t/:topic_id/posts.json endpoint.
+#[derive(Debug, Deserialize)]
+pub struct DiscoursePostsResponse {
+    pub post_stream: DiscoursePostStream,
+}
+
+/// Post stream container in Discourse JSON responses.
+#[derive(Debug, Deserialize)]
+pub struct DiscoursePostStream {
+    pub posts: Vec<DiscoursePost>,
+}
+
+/// A single post from Discourse JSON API.
+#[derive(Debug, Deserialize)]
+pub struct DiscoursePost {
+    pub id: i64,
+    pub post_number: i64,
+    pub username: String,
+    pub topic_id: i64,
+    pub topic_slug: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub cooked: String, // HTML content
+    #[serde(default)]
+    pub posts_count: Option<i64>, // Total posts in thread (only in first post)
+}

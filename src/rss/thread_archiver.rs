@@ -1,8 +1,9 @@
-//! Thread-specific RSS archiving for bulk archive requests.
+//! Thread-specific JSON API archiving for bulk archive requests.
 //!
-//! This module handles fetching a Discourse thread's RSS feed and archiving
-//! all links found within the thread's posts.
+//! This module handles fetching all posts from a Discourse thread via JSON API
+//! and archiving all links found within the thread's posts.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -14,8 +15,8 @@ use crate::constants::ARCHIVER_HONEST_USER_AGENT;
 use crate::db::{
     self, create_pending_archive, get_archive_by_link_id, get_link_by_normalized_url,
     get_post_by_guid, insert_link, insert_link_occurrence, insert_post, is_domain_excluded,
-    link_occurrence_exists, update_post, update_thread_archive_job_progress, Database, NewLink,
-    NewLinkOccurrence, NewPost, ThreadArchiveJob,
+    link_occurrence_exists, update_post, update_thread_archive_job_progress, Database,
+    DiscoursePost, DiscoursePostsResponse, NewLink, NewLinkOccurrence, NewPost, ThreadArchiveJob,
 };
 use crate::handlers::normalize_url;
 use crate::rss::link_extractor::extract_links;
@@ -29,14 +30,14 @@ pub struct ArchiveProgress {
     pub skipped_links: i64,
 }
 
-/// Archive all links from a thread RSS feed.
+/// Archive all links from a Discourse thread via JSON API.
 ///
-/// Fetches the thread's RSS, processes each post, extracts links,
+/// Paginates through all posts in the thread, processes each post, extracts links,
 /// and creates pending archives for new links.
 ///
 /// # Errors
 ///
-/// Returns an error if the RSS feed cannot be fetched or parsed.
+/// Returns an error if the JSON API cannot be fetched or parsed.
 pub async fn archive_thread_links(
     config: &Config,
     db: &Database,
@@ -47,126 +48,174 @@ pub async fn archive_thread_links(
         .build()
         .context("Failed to build HTTP client")?;
 
-    info!(job_id = job.id, rss_url = %job.rss_url, "Fetching thread RSS feed");
-
-    let response = client
-        .get(&job.rss_url)
-        .header("User-Agent", ARCHIVER_HONEST_USER_AGENT)
-        .send()
-        .await
-        .context("Failed to fetch thread RSS feed")?;
-
-    if !response.status().is_success() {
-        anyhow::bail!("RSS fetch failed with status {}", response.status());
-    }
-
-    let body = response.bytes().await.context("Failed to read RSS body")?;
-    let feed = feed_rs::parser::parse(&body[..]).context("Failed to parse RSS feed")?;
-
-    let total_posts = feed.entries.len();
-    info!(
-        job_id = job.id,
-        total_posts, "Parsed thread RSS, processing posts"
-    );
-
-    // Update job with total posts count
-    db::set_thread_archive_job_processing(db.pool(), job.id, Some(total_posts as i64)).await?;
-
-    // Extract forum domain from RSS URL to skip self-links
+    // Extract topic ID from thread URL
+    let topic_id = extract_topic_id(&job.thread_url)?;
+    let base_url = config
+        .discourse_base_url()
+        .context("Failed to extract Discourse base URL")?;
     let forum_domain = extract_domain(&config.rss_url);
 
+    info!(
+        job_id = job.id,
+        topic_id,
+        base_url = %base_url,
+        "Starting thread archive via JSON API"
+    );
+
     let mut progress = ArchiveProgress::default();
+    let mut processed_guids = HashSet::new();
+    let mut page_num = 0;
+    const PAGE_SIZE: i64 = 20; // Each request returns ~20 posts
 
-    // Sort entries by published date (oldest first) to ensure chronological processing.
-    // This prevents race conditions in security-sensitive operations like link_archive_account.
-    let mut entries = feed.entries;
-    entries.sort_by(|a, b| {
-        match (a.published, b.published) {
-            (Some(a_pub), Some(b_pub)) => a_pub.cmp(&b_pub), // Oldest first
-            (Some(_), None) => std::cmp::Ordering::Less,     // Dated entries come first
-            (None, Some(_)) => std::cmp::Ordering::Greater,  // Undated entries go last
-            (None, None) => std::cmp::Ordering::Equal,       // Preserve original order
-        }
-    });
-
-    for entry in entries {
-        let guid = entry.id.clone();
-
-        // Extract post content
-        let content_html = entry
-            .content
-            .as_ref()
-            .and_then(|c| c.body.clone())
-            .or_else(|| entry.summary.as_ref().map(|s| s.content.clone()))
-            .unwrap_or_default();
-        let content_hash = compute_hash(&content_html);
-
-        // Get post URL
-        let discourse_url = entry
-            .links
-            .first()
-            .map(|l| l.href.clone())
-            .unwrap_or_default();
-
-        // Get author
-        let author = entry.authors.first().map(|a| a.name.clone());
-
-        // Get title
-        let title = entry.title.map(|t| t.content);
-
-        // Get published date
-        let published_at = entry.published.map(|d| d.to_rfc3339());
-
-        let new_post = NewPost {
-            guid: guid.clone(),
-            discourse_url,
-            author,
-            title,
-            body_html: Some(content_html.clone()),
-            content_hash: Some(content_hash.clone()),
-            published_at: published_at.clone(),
-        };
-
-        // Check if we've seen this post before
-        let existing = get_post_by_guid(db.pool(), &guid).await?;
-
-        let post_id = if let Some(post) = existing {
-            // Check if content changed
-            if post.content_hash.as_deref() != Some(&content_hash) {
-                debug!(guid = %guid, "Post content changed, updating");
-                update_post(db.pool(), post.id, &new_post).await?;
-            }
-            post.id
+    loop {
+        // Fetch page - use 1, 21, 41, 61, 81... pattern (increments of 20)
+        // First request: no param (gets posts 1-20)
+        // Second request: post_number=21 (gets posts 20-1, overlaps completely)
+        // Third request: post_number=41 (gets posts 40-21)
+        // Fourth request: post_number=61 (gets posts 59-37, overlaps with previous)
+        // Continue until we get all posts (deduplication handles overlaps)
+        let url = if page_num == 0 {
+            format!("{}/t/{}/posts.json", base_url, topic_id)
         } else {
-            debug!(guid = %guid, "New post found from thread archive");
-            insert_post(db.pool(), &new_post).await?
+            let post_number = (page_num * PAGE_SIZE) + 1;
+            format!(
+                "{}/t/{}/posts.json?post_number={}",
+                base_url, topic_id, post_number
+            )
         };
 
-        // Extract and process links from this post
-        let post_progress = process_post_links(
-            db,
-            post_id,
-            &content_html,
-            forum_domain.as_deref(),
-            published_at.as_deref(),
-        )
-        .await?;
+        debug!(
+            job_id = job.id,
+            page_num,
+            url = %url,
+            "Fetching posts page"
+        );
 
-        progress.new_links_found += post_progress.new_links_found;
-        progress.archives_created += post_progress.archives_created;
-        progress.skipped_links += post_progress.skipped_links;
-        progress.processed_posts += 1;
+        let response = client
+            .get(&url)
+            .header("User-Agent", ARCHIVER_HONEST_USER_AGENT)
+            .send()
+            .await
+            .context("Failed to fetch posts JSON")?;
 
-        // Update job progress in DB periodically (every post)
-        update_thread_archive_job_progress(
-            db.pool(),
-            job.id,
-            progress.processed_posts,
-            progress.new_links_found,
-            progress.archives_created,
-            progress.skipped_links,
-        )
-        .await?;
+        if !response.status().is_success() {
+            anyhow::bail!("Posts JSON fetch failed with status {}", response.status());
+        }
+
+        let batch: DiscoursePostsResponse = response
+            .json()
+            .await
+            .context("Failed to parse posts JSON")?;
+
+        // Stop if no posts
+        if batch.post_stream.posts.is_empty() {
+            debug!(
+                job_id = job.id,
+                page_num, "No more posts, pagination complete"
+            );
+            break;
+        }
+
+        // Update total posts count from first post (if available) on first request
+        if page_num == 0 {
+            if let Some(first_post) = batch.post_stream.posts.first() {
+                if let Some(total) = first_post.posts_count {
+                    debug!(
+                        job_id = job.id,
+                        total_posts = total,
+                        "Found total posts count"
+                    );
+                    db::set_thread_archive_job_processing(db.pool(), job.id, Some(total)).await?;
+                }
+            }
+        }
+
+        // Track how many new posts we found in this batch
+        let mut batch_new_count = 0;
+
+        // Process each post in this batch
+        for post in &batch.post_stream.posts {
+            let guid = format!("topic-{}-post-{}", post.topic_id, post.id);
+
+            // Skip if already processed in this run (handles potential duplicates from pagination)
+            if processed_guids.contains(&guid) {
+                trace!(guid = %guid, "Skipping already processed post");
+                continue;
+            }
+            processed_guids.insert(guid.clone());
+            batch_new_count += 1;
+
+            // Check if exists / changed
+            let content_hash = compute_hash(&post.cooked);
+            let existing = get_post_by_guid(db.pool(), &guid).await?;
+
+            let post_id = if let Some(existing_post) = existing {
+                if existing_post.content_hash.as_deref() == Some(&content_hash) {
+                    // Unchanged - skip link processing
+                    trace!(guid = %guid, "Post unchanged, skipping");
+                    continue;
+                }
+                // Changed - update and reprocess
+                debug!(guid = %guid, "Post content changed, updating");
+                let new_post = build_new_post(post, &content_hash, forum_domain.as_deref());
+                update_post(db.pool(), existing_post.id, &new_post).await?;
+                existing_post.id
+            } else {
+                // New post - insert
+                debug!(guid = %guid, "New post found from thread archive");
+                let new_post = build_new_post(post, &content_hash, forum_domain.as_deref());
+                insert_post(db.pool(), &new_post).await?
+            };
+
+            // Process links
+            let post_progress = process_post_links(
+                db,
+                post_id,
+                &post.cooked,
+                forum_domain.as_deref(),
+                Some(&post.created_at),
+            )
+            .await?;
+
+            progress.processed_posts += 1;
+            progress.new_links_found += post_progress.new_links_found;
+            progress.archives_created += post_progress.archives_created;
+            progress.skipped_links += post_progress.skipped_links;
+
+            update_thread_archive_job_progress(
+                db.pool(),
+                job.id,
+                progress.processed_posts,
+                progress.new_links_found,
+                progress.archives_created,
+                progress.skipped_links,
+            )
+            .await?;
+        }
+
+        debug!(
+            job_id = job.id,
+            page_num,
+            batch_new_count,
+            batch_total = batch.post_stream.posts.len(),
+            "Processed batch"
+        );
+
+        // Next page
+        page_num += 1;
+
+        // Stop if we've gone far enough without finding new posts
+        // This handles threads where pagination wraps around to the end
+        if page_num > 50 && batch_new_count == 0 {
+            debug!(
+                job_id = job.id,
+                page_num, "Gone far enough with no new posts in batch, stopping pagination"
+            );
+            break;
+        }
+
+        // Rate limiting between requests
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
     info!(
@@ -179,6 +228,53 @@ pub async fn archive_thread_links(
     );
 
     Ok(progress)
+}
+
+/// Extract topic ID from a Discourse thread URL.
+///
+/// Supports URLs like:
+/// - `https://discuss.example.com/t/topic-slug/123`
+/// - `https://discuss.example.com/t/topic-slug/123/45`
+///
+/// # Errors
+///
+/// Returns an error if the URL is invalid or doesn't match the expected pattern.
+fn extract_topic_id(url: &str) -> Result<i64> {
+    let parsed = url::Url::parse(url).context("Invalid URL")?;
+    let segments: Vec<_> = parsed
+        .path_segments()
+        .context("URL has no path segments")?
+        .collect();
+
+    if segments.len() >= 3 && segments[0] == "t" {
+        segments[2]
+            .parse::<i64>()
+            .context("Invalid topic ID (not a number)")
+    } else {
+        anyhow::bail!("Not a valid Discourse topic URL: {}", url)
+    }
+}
+
+/// Build a NewPost from a DiscoursePost JSON response.
+fn build_new_post(post: &DiscoursePost, content_hash: &str, forum_domain: Option<&str>) -> NewPost {
+    let guid = format!("topic-{}-post-{}", post.topic_id, post.id);
+    let discourse_url = format!(
+        "https://{}/t/{}/{}/{}",
+        forum_domain.unwrap_or(""),
+        post.topic_slug,
+        post.topic_id,
+        post.post_number
+    );
+
+    NewPost {
+        guid,
+        discourse_url,
+        author: Some(post.username.clone()),
+        title: None, // We don't have thread title in individual posts
+        body_html: Some(post.cooked.clone()),
+        content_hash: Some(content_hash.to_string()),
+        published_at: Some(post.created_at.clone()),
+    }
 }
 
 /// Process links extracted from a single post.
