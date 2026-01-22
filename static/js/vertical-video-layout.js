@@ -19,7 +19,7 @@
 
     /**
      * Apply vertical layout class to container if video is vertical.
-     * Also sets CSS variable with the video's rendered height.
+     * Also sets CSS variable with the media section's rendered height.
      * @param {HTMLElement} container
      * @param {HTMLVideoElement} video
      */
@@ -31,10 +31,19 @@
 
             // Wait for next frame to get accurate rendered height
             requestAnimationFrame(function() {
-                var videoHeight = video.offsetHeight;
-                // Set CSS variable with the video's actual rendered height
-                container.style.setProperty('--video-rendered-height', videoHeight + 'px');
-                console.log('[VerticalLayout] Video rendered height:', videoHeight + 'px');
+                // Measure the entire media section, not just the video
+                var mediaSection = container.querySelector('.media-column section');
+                if (mediaSection) {
+                    var sectionHeight = mediaSection.offsetHeight;
+                    // Set CSS variable with the media section's actual rendered height
+                    container.style.setProperty('--video-rendered-height', sectionHeight + 'px');
+                    console.log('[VerticalLayout] Media section rendered height:', sectionHeight + 'px');
+                } else {
+                    // Fallback to video height
+                    var videoHeight = video.offsetHeight;
+                    container.style.setProperty('--video-rendered-height', videoHeight + 'px');
+                    console.log('[VerticalLayout] Video rendered height:', videoHeight + 'px');
+                }
             });
         } else {
             container.classList.remove('vertical-layout');
