@@ -217,16 +217,14 @@ pub async fn count_all_threads(pool: &SqlitePool) -> Result<i64> {
 
 /// Fetch all posts that belong to the given thread key (host + topic id/path).
 pub async fn get_posts_by_thread_key(pool: &SqlitePool, thread_key: &str) -> Result<Vec<Post>> {
-    let Some((host, rest)) = thread_key.split_once(':') else {
+    let (pattern_base, pattern_with_post) = build_post_url_patterns(thread_key);
+
+    if pattern_base.is_empty() {
         return Ok(Vec::new());
-    };
+    }
 
-    // Primary Discourse pattern: /t/<slug>/<topic_id>/<post_no?>
-    if rest.chars().all(|c| c.is_ascii_digit()) {
-        let pattern_base = format!("%://{host}/t/%/{rest}");
-        let pattern_with_post = format!("%://{host}/t/%/{rest}/%");
-
-        return sqlx::query_as(
+    if let Some(pattern_with_post) = pattern_with_post {
+        sqlx::query_as(
             r#"
             SELECT * FROM posts
             WHERE discourse_url LIKE ? OR discourse_url LIKE ?
@@ -237,22 +235,20 @@ pub async fn get_posts_by_thread_key(pool: &SqlitePool, thread_key: &str) -> Res
         .bind(pattern_with_post)
         .fetch_all(pool)
         .await
-        .context("Failed to fetch posts for thread key");
+        .context("Failed to fetch posts for thread key")
+    } else {
+        sqlx::query_as(
+            r#"
+            SELECT * FROM posts
+            WHERE discourse_url LIKE ?
+            ORDER BY published_at IS NULL, published_at, processed_at
+            "#,
+        )
+        .bind(pattern_base)
+        .fetch_all(pool)
+        .await
+        .context("Failed to fetch posts for thread key")
     }
-
-    // Fallback: match on host + path prefix.
-    let pattern = format!("%://{host}{rest}%");
-    sqlx::query_as(
-        r#"
-        SELECT * FROM posts
-        WHERE discourse_url LIKE ?
-        ORDER BY published_at IS NULL, published_at, processed_at
-        "#,
-    )
-    .bind(pattern)
-    .fetch_all(pool)
-    .await
-    .context("Failed to fetch posts for thread key")
 }
 
 pub fn thread_key_from_url(url: &str) -> String {
@@ -273,6 +269,33 @@ pub fn thread_key_from_url(url: &str) -> String {
 
     // Fallback to the raw URL if parsing fails
     url.to_string()
+}
+
+/// Generate SQL LIKE patterns for matching posts by thread key.
+/// Returns (pattern_base, pattern_with_post) for Discourse URLs.
+///
+/// # Examples
+///
+/// ```
+/// let (base, with_post) = build_post_url_patterns("discuss.example.com:2108");
+/// assert_eq!(base, "%://discuss.example.com/t/%/2108");
+/// assert_eq!(with_post, Some("%://discuss.example.com/t/%/2108/%".to_string()));
+/// ```
+fn build_post_url_patterns(thread_key: &str) -> (String, Option<String>) {
+    let Some((host, rest)) = thread_key.split_once(':') else {
+        return (String::new(), None);
+    };
+
+    // Primary Discourse pattern: /t/<slug>/<topic_id>/<post_no?>
+    if rest.chars().all(|c| c.is_ascii_digit()) {
+        let pattern_base = format!("%://{host}/t/%/{rest}");
+        let pattern_with_post = format!("%://{host}/t/%/{rest}/%");
+        return (pattern_base, Some(pattern_with_post));
+    }
+
+    // Fallback: match on host + path prefix
+    let pattern = format!("%://{host}{rest}%");
+    (pattern, None)
 }
 
 /// Extract numeric topic ID from a thread key.
@@ -1505,23 +1528,46 @@ pub async fn count_archives_by_status_for_thread(
     thread_url: &str,
 ) -> Result<HashMap<String, i64>> {
     let thread_key = thread_key_from_url(thread_url);
-    let pattern = format!("%{}%", thread_key);
+    let (pattern_base, pattern_with_post) = build_post_url_patterns(&thread_key);
 
-    let results: Vec<(String, i64)> = sqlx::query_as(
-        r#"
-        SELECT a.status, COUNT(DISTINCT a.id) as count
-        FROM posts p
-        JOIN link_occurrences lo ON p.id = lo.post_id
-        JOIN links l ON lo.link_id = l.id
-        JOIN archives a ON l.id = a.link_id
-        WHERE p.discourse_url LIKE ?
-        GROUP BY a.status
-        ORDER BY a.status
-        "#,
-    )
-    .bind(&pattern)
-    .fetch_all(pool)
-    .await?;
+    if pattern_base.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let results: Vec<(String, i64)> = if let Some(pattern_with_post) = pattern_with_post {
+        sqlx::query_as(
+            r#"
+            SELECT a.status, COUNT(DISTINCT a.id) as count
+            FROM posts p
+            JOIN link_occurrences lo ON p.id = lo.post_id
+            JOIN links l ON lo.link_id = l.id
+            JOIN archives a ON l.id = a.link_id
+            WHERE p.discourse_url LIKE ? OR p.discourse_url LIKE ?
+            GROUP BY a.status
+            ORDER BY a.status
+            "#,
+        )
+        .bind(&pattern_base)
+        .bind(&pattern_with_post)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as(
+            r#"
+            SELECT a.status, COUNT(DISTINCT a.id) as count
+            FROM posts p
+            JOIN link_occurrences lo ON p.id = lo.post_id
+            JOIN links l ON lo.link_id = l.id
+            JOIN archives a ON l.id = a.link_id
+            WHERE p.discourse_url LIKE ?
+            GROUP BY a.status
+            ORDER BY a.status
+            "#,
+        )
+        .bind(&pattern_base)
+        .fetch_all(pool)
+        .await?
+    };
 
     Ok(results.into_iter().collect())
 }
@@ -4987,5 +5033,68 @@ mod tests {
 
         // Invalid URLs
         assert_eq!(thread_key_from_url("not-a-url"), "not-a-url");
+    }
+
+    #[test]
+    fn test_build_post_url_patterns_discourse() {
+        // Standard Discourse thread with numeric topic ID
+        let (base, with_post) = build_post_url_patterns("discuss.example.com:2108");
+        assert_eq!(base, "%://discuss.example.com/t/%/2108");
+        assert_eq!(
+            with_post,
+            Some("%://discuss.example.com/t/%/2108/%".to_string())
+        );
+
+        // Different host and topic ID
+        let (base, with_post) = build_post_url_patterns("forum.test.org:123");
+        assert_eq!(base, "%://forum.test.org/t/%/123");
+        assert_eq!(with_post, Some("%://forum.test.org/t/%/123/%".to_string()));
+    }
+
+    #[test]
+    fn test_build_post_url_patterns_non_numeric() {
+        // Thread key with non-numeric path (fallback pattern)
+        let (base, with_post) = build_post_url_patterns("example.com:/path/to/thread");
+        assert_eq!(base, "%://example.com/path/to/thread%");
+        assert_eq!(with_post, None);
+
+        // Another non-numeric case
+        let (base, with_post) = build_post_url_patterns("example.com:/other");
+        assert_eq!(base, "%://example.com/other%");
+        assert_eq!(with_post, None);
+    }
+
+    #[test]
+    fn test_build_post_url_patterns_invalid() {
+        // Invalid thread key (no colon)
+        let (base, with_post) = build_post_url_patterns("invalid-key");
+        assert_eq!(base, "");
+        assert_eq!(with_post, None);
+
+        // Empty string
+        let (base, with_post) = build_post_url_patterns("");
+        assert_eq!(base, "");
+        assert_eq!(with_post, None);
+    }
+
+    #[test]
+    fn test_build_post_url_patterns_edge_cases() {
+        // Single digit topic ID
+        let (base, with_post) = build_post_url_patterns("example.com:1");
+        assert_eq!(base, "%://example.com/t/%/1");
+        assert_eq!(with_post, Some("%://example.com/t/%/1/%".to_string()));
+
+        // Very large topic ID
+        let (base, with_post) = build_post_url_patterns("example.com:999999999");
+        assert_eq!(base, "%://example.com/t/%/999999999");
+        assert_eq!(
+            with_post,
+            Some("%://example.com/t/%/999999999/%".to_string())
+        );
+
+        // Empty host
+        let (base, with_post) = build_post_url_patterns(":123");
+        assert_eq!(base, "%:///t/%/123");
+        assert_eq!(with_post, Some("%:///t/%/123/%".to_string()));
     }
 }
