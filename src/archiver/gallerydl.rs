@@ -224,8 +224,12 @@ async fn find_and_parse_files(work_dir: &Path) -> Result<ArchiveResult> {
     let extra_files = sanitized_extra_files;
 
     // Determine content type based on file count
-    // If we have any extra files (2+ images total), it's a gallery
-    if !extra_files.is_empty() {
+    // Only mark as gallery if there are multiple media files (not counting JSON/metadata)
+    let media_file_count = extra_files
+        .iter()
+        .filter(|name| is_image_file(name) || is_video_file(name))
+        .count();
+    if media_file_count > 0 {
         content_type = "gallery".to_string();
     }
 
