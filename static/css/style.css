@@ -4071,3 +4071,46 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
         margin-bottom: var(--spacing-xs);
     }
 }
+
+/* Copy Indicator - floating notification when URLs are copied */
+.copy-indicator {
+    position: fixed;
+    z-index: 10000;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--text-primary);
+    color: var(--bg-primary);
+    font-size: var(--font-size-sm);
+    font-family: var(--font-mono);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--box-shadow-hover);
+    pointer-events: none;
+    white-space: nowrap;
+    max-width: 90vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.copy-indicator.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.copy-indicator.hide {
+    opacity: 0;
+    transform: translateY(-10px);
+}
+
+/* Dark mode support */
+[data-theme="dark"] .copy-indicator {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+/* Ensure copy-enabled elements have pointer cursor */
+[data-copy-url] {
+    cursor: pointer;
+}

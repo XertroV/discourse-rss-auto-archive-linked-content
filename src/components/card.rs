@@ -2,7 +2,7 @@
 //!
 //! This module provides maud components for rendering archive cards and grids.
 
-use maud::{html, Markup, PreEscaped, Render};
+use maud::{html, Markup, Render};
 
 use crate::components::badge::{DomainBadge, MediaTypeBadge, NsfwBadge, SizeBadge, StatusBadge};
 use crate::db::ArchiveDisplay;
@@ -64,12 +64,6 @@ impl Render for ArchiveCard<'_> {
         // Build optional size badge
         let size_bytes = archive.total_size_bytes.unwrap_or(0);
 
-        // JavaScript for copy-to-clipboard
-        let copy_js = format!(
-            "navigator.clipboard.writeText('{}'); this.title='Copied!'; setTimeout(() => this.title='Click to copy', 2000);",
-            archive.original_url.replace('\'', "\\'")
-        );
-
         html! {
             article class="archive-card" data-nsfw=[archive.is_nsfw.then_some("true")] {
                 // Hidden NSFW placeholder - shown when NSFW filter is active
@@ -97,7 +91,7 @@ impl Render for ArchiveCard<'_> {
                         a href=(format!("/archive/{}", archive.id)) { (title) }
                     }
                     p class="archive-url" {
-                        code class="url-display" title="Click to copy" onclick=(PreEscaped(copy_js)) {
+                        code class="url-display" title="Click to copy" data-copy-url=(archive.original_url) {
                             (archive.original_url)
                         }
                     }
@@ -248,11 +242,6 @@ impl Render for ArchiveCardWithThumb<'_> {
         let domain_badge = DomainBadge::new(&archive.domain);
         let size_bytes = archive.total_size_bytes.unwrap_or(0);
 
-        let copy_js = format!(
-            "navigator.clipboard.writeText('{}'); this.title='Copied!'; setTimeout(() => this.title='Click to copy', 2000);",
-            archive.original_url.replace('\'', "\\'")
-        );
-
         html! {
             article class="archive-card" data-nsfw=[archive.is_nsfw.then_some("true")] {
                 // Hidden NSFW placeholder - shown when NSFW filter is active
@@ -283,7 +272,7 @@ impl Render for ArchiveCardWithThumb<'_> {
                         a href=(format!("/archive/{}", archive.id)) { (title) }
                     }
                     p class="archive-url" {
-                        code class="url-display" title="Click to copy" onclick=(PreEscaped(copy_js)) {
+                        code class="url-display" title="Click to copy" data-copy-url=(archive.original_url) {
                             (archive.original_url)
                         }
                     }
@@ -524,12 +513,12 @@ mod tests {
     }
 
     #[test]
-    fn test_archive_card_copy_js() {
+    fn test_archive_card_copy_url_attribute() {
         let archive = sample_archive();
         let card = ArchiveCard::new(&archive);
         let html = card.render().into_string();
 
-        assert!(html.contains("navigator.clipboard.writeText"));
+        assert!(html.contains("data-copy-url"));
         assert!(html.contains("Click to copy"));
     }
 

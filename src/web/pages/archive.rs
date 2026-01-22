@@ -216,7 +216,7 @@ fn render_archive_header(archive: &Archive, link: &Link) -> Markup {
         div class="archive-url-section" {
             div class="info-label" { "Original URL" }
             div class="info-value" {
-                a href=(link.normalized_url) target="_blank" rel="noopener" class="archive-url-link" {
+                a href=(link.normalized_url) target="_blank" rel="noopener" class="archive-url-link" data-copy-url=(link.normalized_url) {
                     (link.normalized_url)
                 }
             }
@@ -1730,7 +1730,7 @@ fn render_external_archives_section(archive: &Archive) -> Markup {
             section {
                 h2 { "Wayback Machine" }
                 p {
-                    a href=(wayback) target="_blank" rel="noopener" {
+                    a href=(wayback) target="_blank" rel="noopener" data-copy-url=(wayback) {
                         "View on Wayback Machine"
                     }
                 }
@@ -1741,7 +1741,7 @@ fn render_external_archives_section(archive: &Archive) -> Markup {
             section {
                 h2 { "Archive.today" }
                 p {
-                    a href=(archive_today) target="_blank" rel="noopener" {
+                    a href=(archive_today) target="_blank" rel="noopener" data-copy-url=(archive_today) {
                         "View on Archive.today"
                     }
                 }
@@ -1751,20 +1751,23 @@ fn render_external_archives_section(archive: &Archive) -> Markup {
         @if let Some(ref ipfs_cid) = archive.ipfs_cid {
             section {
                 h2 { "IPFS" }
-                p { strong { "CID:" } " " code { (ipfs_cid) } }
+                p { strong { "CID:" } " " code title="Click to copy CID" data-copy-url=(ipfs_cid) { (ipfs_cid) } }
                 p { strong { "Public Gateways:" } }
                 ul {
                     li {
                         a href=(format!("https://ipfs.io/ipfs/{}", ipfs_cid))
-                          target="_blank" rel="noopener" { "ipfs.io" }
+                          target="_blank" rel="noopener"
+                          data-copy-url=(format!("https://ipfs.io/ipfs/{}", ipfs_cid)) { "ipfs.io" }
                     }
                     li {
                         a href=(format!("https://dweb.link/ipfs/{}", ipfs_cid))
-                          target="_blank" rel="noopener" { "dweb.link" }
+                          target="_blank" rel="noopener"
+                          data-copy-url=(format!("https://dweb.link/ipfs/{}", ipfs_cid)) { "dweb.link" }
                     }
                     li {
                         a href=(format!("https://gateway.pinata.cloud/ipfs/{}", ipfs_cid))
-                          target="_blank" rel="noopener" { "gateway.pinata.cloud" }
+                          target="_blank" rel="noopener"
+                          data-copy-url=(format!("https://gateway.pinata.cloud/ipfs/{}", ipfs_cid)) { "gateway.pinata.cloud" }
                     }
                 }
             }
