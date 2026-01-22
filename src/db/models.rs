@@ -195,6 +195,7 @@ pub enum ArtifactKind {
     Subtitles,
     Transcript,
     Comments,
+    Music,
 }
 
 impl ArtifactKind {
@@ -214,6 +215,7 @@ impl ArtifactKind {
             Self::Subtitles => "subtitles",
             Self::Transcript => "transcript",
             Self::Comments => "comments",
+            Self::Music => "music",
         }
     }
 }

@@ -1740,11 +1740,15 @@ async fn process_archive_inner(
 
             debug!(archive_id, file = %extra_file, "Uploaded extra file");
 
-            // Determine artifact kind based on content type
-            let kind = if content_type.starts_with("image/") {
+            // Determine artifact kind based on content type and filename
+            let kind = if extra_file.starts_with("tiktok_music.") {
+                ArtifactKind::Music
+            } else if content_type.starts_with("image/") {
                 ArtifactKind::Image
             } else if content_type.starts_with("video/") {
                 ArtifactKind::Video
+            } else if content_type.starts_with("audio/") {
+                ArtifactKind::Music
             } else {
                 ArtifactKind::Metadata
             };

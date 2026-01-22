@@ -18,8 +18,9 @@
 use maud::{html, Markup, PreEscaped, Render};
 
 use crate::components::{
-    render_media_player_with_options, BaseLayout, Button, Carousel, KeyValueTable, MediaTypeBadge,
-    NsfwBadge, NsfwWarning, OpenGraphMetadata, StatusBadge, Table, TableRow, TableVariant,
+    render_media_player_with_options, AudioPlayer, BaseLayout, Button, Carousel, KeyValueTable,
+    MediaTypeBadge, NsfwBadge, NsfwWarning, OpenGraphMetadata, StatusBadge, Table, TableRow,
+    TableVariant,
 };
 use crate::db::{
     Archive, ArchiveArtifact, ArchiveJob, Link, LinkOccurrenceWithPost, SubtitleLanguage, User,
@@ -973,6 +974,74 @@ fn render_playlist_content(metadata_json: &str) -> Markup {
 }
 
 /// Render media section for non-HTML archives.
+/// Extract TikTok image order from archive metadata.
+///
+/// Returns a vector of image hashes in the correct slide order.
+fn extract_tiktok_image_order(archive: &Archive) -> Option<Vec<String>> {
+    let content_text = archive.content_text.as_deref()?;
+
+    // Try to parse as JSON with tiktok_image_order field
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(content_text) {
+        if let Some(order) = json.get("tiktok_image_order") {
+            if let Some(arr) = order.as_array() {
+                return Some(
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect(),
+                );
+            }
+        }
+    }
+
+    None
+}
+
+/// Sort image artifacts using TikTok metadata order if available.
+///
+/// Falls back to s3_key sorting if no metadata order is found.
+fn sort_image_artifacts_by_order<'a>(artifacts: &mut [&'a ArchiveArtifact], archive: &Archive) {
+    if let Some(order) = extract_tiktok_image_order(archive) {
+        // Sort by position in the order array
+        artifacts.sort_by_key(|artifact| {
+            // Find the position of this artifact's hash in the order array
+            order
+                .iter()
+                .position(|hash| artifact.s3_key.contains(hash))
+                .unwrap_or(usize::MAX) // Put unmatched artifacts at the end
+        });
+    } else {
+        // Fallback: sort by s3_key
+        artifacts.sort_by(|a, b| a.s3_key.cmp(&b.s3_key));
+    }
+}
+
+/// Render music player for TikTok background music if present.
+fn render_music_player(archive: &Archive, artifacts: &[ArchiveArtifact]) -> Markup {
+    let music_artifact = artifacts.iter().find(|a| a.kind == "music");
+
+    if let Some(music_art) = music_artifact {
+        html! {
+            div class="tiktok-music-section" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);" {
+                h3 style="margin-bottom: 0.75rem;" { "Background Music" }
+
+                (AudioPlayer::new(&format!("/s3/{}", html_escape(&music_art.s3_key))))
+
+                div class="media-actions" style="margin-top: 0.5rem;" {
+                    @let download_name = format!("tiktok_{}_music.mp3", archive.id);
+                    a href=(format!("/s3/{}", html_escape(&music_art.s3_key)))
+                      class="media-download"
+                      download=(download_name)
+                      target="_blank" rel="noopener" {
+                        span { "Download Music" }
+                    }
+                }
+            }
+        }
+    } else {
+        html! {}
+    }
+}
+
 fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArtifact]) -> Markup {
     let thumb_key = archive.s3_key_thumb.as_deref().or_else(|| {
         artifacts
@@ -1057,6 +1126,9 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
                         }
                     }
                 }
+
+                // Background music (if present)
+                (render_music_player(archive, artifacts))
             }
         };
     }
@@ -1073,8 +1145,8 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
     // For TikTok and Twitter galleries, collect all image artifacts
     if should_use_carousel {
         let mut image_artifacts: Vec<_> = artifacts.iter().filter(|a| a.kind == "image").collect();
-        // Sort by S3 key for deterministic ordering (preserves gallery-dl download order)
-        image_artifacts.sort_by(|a, b| a.s3_key.cmp(&b.s3_key));
+        // Sort using TikTok metadata order (if available), otherwise fall back to s3_key
+        sort_image_artifacts_by_order(&mut image_artifacts, archive);
 
         if !image_artifacts.is_empty() {
             let image_count = image_artifacts.len();
@@ -1106,6 +1178,9 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
                             (type_badge)
                         }
                         (carousel)
+
+                        // Background music (if present)
+                        (render_music_player(archive, artifacts))
                     }
                 };
             } else {
@@ -1131,6 +1206,9 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
                                 }
                             }
                         }
+
+                        // Background music (if present)
+                        (render_music_player(archive, artifacts))
                     }
                 };
             }
@@ -1167,6 +1245,9 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
                     }
                     (render_chapters_ui(&chapters))
                 }
+
+                // Background music (if present)
+                (render_music_player(archive, artifacts))
             }
         };
     }
@@ -1192,6 +1273,29 @@ fn render_media_section(archive: &Archive, link: &Link, artifacts: &[ArchiveArti
                         span { "Download" }
                     }
                     (render_chapters_ui(&chapters))
+                }
+
+                // Background music (if present)
+                (render_music_player(archive, artifacts))
+            }
+        };
+    }
+
+    // If no primary media, check if there's background music to display
+    let music_artifact = artifacts.iter().find(|a| a.kind == "music");
+    if let Some(music_art) = music_artifact {
+        return html! {
+            section {
+                h2 { "Background Music" }
+                (AudioPlayer::new(&format!("/s3/{}", html_escape(&music_art.s3_key))))
+                div class="media-actions" style="margin-top: 0.5rem;" {
+                    @let download_name = format!("tiktok_{}_music.mp3", archive.id);
+                    a href=(format!("/s3/{}", html_escape(&music_art.s3_key)))
+                      class="media-download"
+                      download=(download_name)
+                      target="_blank" rel="noopener" {
+                        span { "Download Music" }
+                    }
                 }
             }
         };

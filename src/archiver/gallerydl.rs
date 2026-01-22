@@ -137,11 +137,32 @@ async fn find_and_parse_files(work_dir: &Path) -> Result<ArchiveResult> {
                             .map(String::from);
                     }
                     if description.is_none() {
+                        // Try standard description fields first
                         description = json
                             .get("description")
+                            .or_else(|| json.get("desc")) // TikTok uses "desc"
                             .or_else(|| json.get("content"))
                             .and_then(|v| v.as_str())
                             .map(String::from);
+
+                        // For TikTok slideshows, also try extracting from .contents array
+                        if description.is_none() {
+                            if let Some(contents) = json.get("contents").and_then(|v| v.as_array())
+                            {
+                                let combined_desc: String = contents
+                                    .iter()
+                                    .filter_map(|item| {
+                                        item.get("desc")
+                                            .and_then(|d| d.as_str())
+                                            .filter(|s| !s.is_empty())
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(" ");
+                                if !combined_desc.is_empty() {
+                                    description = Some(combined_desc);
+                                }
+                            }
+                        }
                     }
                     if metadata_json.is_none() {
                         metadata_json = Some(content);
