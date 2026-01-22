@@ -60,8 +60,9 @@ ENV PATH="/opt/deno/bin:$PATH"
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install yt-dlp and gallery-dl
-RUN pip install --no-cache-dir yt-dlp gallery-dl
+# Install yt-dlp with curl-cffi for browser impersonation (required for TikTok)
+# and gallery-dl
+RUN pip install --no-cache-dir "yt-dlp[default,curl-cffi]" gallery-dl
 
 # Install monolith for creating self-contained HTML archives
 # Download pre-built binary from GitHub releases (faster than cargo install)
