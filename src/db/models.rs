@@ -793,7 +793,7 @@ pub struct DiscoursePostStream {
     pub posts: Vec<DiscoursePost>,
 }
 
-/// A single post from Discourse JSON API.
+/// A single post from Discourse JSON API (thread-specific).
 #[derive(Debug, Deserialize)]
 pub struct DiscoursePost {
     pub id: i64,
@@ -806,4 +806,25 @@ pub struct DiscoursePost {
     pub cooked: String, // HTML content
     #[serde(default)]
     pub posts_count: Option<i64>, // Total posts in thread (only in first post)
+}
+
+/// Response from /posts.json endpoint (latest posts across all topics).
+#[derive(Debug, Deserialize)]
+pub struct LatestPostsResponse {
+    pub latest_posts: Vec<LatestPost>,
+}
+
+/// A single post from /posts.json (global latest posts feed).
+#[derive(Debug, Deserialize)]
+pub struct LatestPost {
+    pub id: i64,
+    pub post_number: i64,
+    pub username: String,
+    pub topic_id: i64,
+    pub topic_slug: String,
+    pub topic_title: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub cooked: String,
+    pub post_url: String,
 }

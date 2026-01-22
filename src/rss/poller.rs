@@ -13,7 +13,8 @@ use crate::db::{
     display_name_exists, get_archive_by_link_id, get_forum_link_by_forum_username,
     get_forum_link_by_user_id, get_link_by_normalized_url, get_post_by_guid, get_user_by_username,
     insert_link, insert_link_occurrence, insert_post, link_occurrence_exists, update_post,
-    update_user_approval, update_user_profile, Database, NewLink, NewLinkOccurrence, NewPost,
+    update_user_approval, update_user_profile, Database, LatestPostsResponse, NewLink,
+    NewLinkOccurrence, NewPost,
 };
 use crate::handlers::normalize_url;
 use crate::rss::link_extractor::{extract_links, ExtractedLink};
@@ -127,19 +128,17 @@ async fn fetch_and_process_page(
     db: &Database,
     before_post_id: Option<i64>,
 ) -> Result<(usize, Option<i64>)> {
-    // Build URL with 'before' parameter for cursor-based pagination
+    // Convert RSS URL to JSON URL and build with 'before' parameter for cursor-based pagination
+    let json_url = config.rss_url.replace("/posts.rss", "/posts.json");
+
     let url = if let Some(before_id) = before_post_id {
-        let separator = if config.rss_url.contains('?') {
-            "&"
-        } else {
-            "?"
-        };
-        format!("{}{separator}before={before_id}", config.rss_url)
+        let separator = if json_url.contains('?') { "&" } else { "?" };
+        format!("{json_url}{separator}before={before_id}")
     } else {
-        config.rss_url.clone()
+        json_url
     };
 
-    trace!(url = %url, before_post_id, "Fetching RSS feed page");
+    trace!(url = %url, before_post_id, "Fetching posts JSON feed page");
 
     let response = client
         .get(&url)
@@ -149,65 +148,56 @@ async fn fetch_and_process_page(
         .context("Failed to fetch RSS feed")?;
 
     if !response.status().is_success() {
-        anyhow::bail!("RSS fetch failed with status {}", response.status());
+        anyhow::bail!("Posts JSON fetch failed with status {}", response.status());
     }
 
-    let body = response.bytes().await.context("Failed to read RSS body")?;
-    let feed = feed_rs::parser::parse(&body[..]).context("Failed to parse RSS feed")?;
+    // Parse JSON response directly (much simpler than XML parsing!)
+    let json_response: LatestPostsResponse = response
+        .json()
+        .await
+        .context("Failed to parse JSON response")?;
 
     let mut new_count = 0;
     let mut min_post_id: Option<i64> = None;
 
-    // Sort entries by published date (oldest first) to ensure chronological processing.
+    // Sort posts by created_at timestamp (oldest first) to ensure chronological processing.
     // This is critical for security-sensitive operations like link_archive_account,
     // where processing order determines who successfully claims an account.
-    let mut entries = feed.entries;
-    entries.sort_by(|a, b| {
-        match (a.published, b.published) {
-            (Some(a_pub), Some(b_pub)) => a_pub.cmp(&b_pub), // Oldest first
-            (Some(_), None) => std::cmp::Ordering::Less,     // Dated entries come first
-            (None, Some(_)) => std::cmp::Ordering::Greater,  // Undated entries go last
-            (None, None) => std::cmp::Ordering::Equal,       // Preserve original order
-        }
-    });
+    let mut posts = json_response.latest_posts;
+    posts.sort_by(|a, b| a.created_at.cmp(&b.created_at));
 
-    for entry in entries {
-        let guid = entry.id.clone();
+    // Get base URL and domain for GUID/URL construction
+    let base_url = config
+        .discourse_base_url()
+        .context("Failed to get discourse base URL")?;
+    let domain = extract_domain(&config.rss_url).unwrap_or_else(|| "unknown".to_string());
 
-        // Extract the Discourse post ID from GUID for pagination
-        // GUID format is typically like "https://discuss.example.com/p/12345"
-        if let Some(discourse_post_id) = extract_post_id_from_guid(&guid) {
-            min_post_id = Some(match min_post_id {
-                Some(current_min) => current_min.min(discourse_post_id),
-                None => discourse_post_id,
-            });
-        }
+    for post in posts {
+        // Construct GUID in EXACT same format as RSS: {domain}-post-{id}
+        // Example: "discuss.criticalfallibilism.com-post-20218"
+        let guid = format!("{}-post-{}", domain, post.id);
+
+        // Track minimum post ID for pagination
+        min_post_id = Some(match min_post_id {
+            Some(current_min) => current_min.min(post.id),
+            None => post.id,
+        });
 
         // Check if we've seen this post before
         let existing = get_post_by_guid(db.pool(), &guid).await?;
-        let content_html = entry
-            .content
-            .as_ref()
-            .and_then(|c| c.body.clone())
-            .or_else(|| entry.summary.as_ref().map(|s| s.content.clone()))
-            .unwrap_or_default();
+        let content_html = post.cooked.clone();
         let content_hash = compute_hash(&content_html);
 
-        // Get post URL
-        let discourse_url = entry
-            .links
-            .first()
-            .map(|l| l.href.clone())
-            .unwrap_or_default();
+        let discourse_url = format!("{}{}", base_url, post.post_url);
 
-        // Get author
-        let author = entry.authors.first().map(|a| a.name.clone());
+        // Standardize on simple @username format (ignore display name)
+        let author = Some(format!("@{}", post.username));
 
-        // Get title
-        let title = entry.title.map(|t| t.content);
+        // Use topic title as post title
+        let title = post.topic_title.clone();
 
-        // Get published date
-        let published_at = entry.published.map(|d| d.to_rfc3339());
+        // Use created_at timestamp (already in correct format)
+        let published_at = Some(post.created_at.clone());
 
         let new_post = NewPost {
             guid: guid.clone(),
@@ -406,6 +396,10 @@ fn domains_match(domain1: &str, domain2: &str) -> bool {
 ///
 /// Discourse RSS GUIDs are typically URLs like "https://discuss.example.com/p/12345"
 /// where 12345 is the post ID.
+///
+/// Note: Not currently used in JSON API code path (we have post.id directly),
+/// but kept as a utility for processing historical RSS-based GUIDs.
+#[allow(dead_code)]
 fn extract_post_id_from_guid(guid: &str) -> Option<i64> {
     // Try parsing as URL first
     if let Ok(url) = url::Url::parse(guid) {

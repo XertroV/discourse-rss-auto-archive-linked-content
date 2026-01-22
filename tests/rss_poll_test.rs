@@ -29,72 +29,71 @@ async fn setup_db() -> (Database, TempDir) {
     (db, temp_dir)
 }
 
-/// Sample RSS feed with a single post containing links.
-const SAMPLE_RSS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
-  <channel>
-    <title>Test Forum</title>
-    <link>https://forum.example.com</link>
-    <description>Test forum for RSS polling</description>
-    <atom:link href="https://forum.example.com/posts.rss" rel="self" type="application/rss+xml"/>
-    <item>
-      <title>Test Post with Links</title>
-      <link>https://forum.example.com/t/test-post/123</link>
-      <guid isPermaLink="false">forum.example.com-post-123</guid>
-      <pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>
-      <creator><![CDATA[testuser]]></creator>
-      <description><![CDATA[
-        <p>Check out this video: <a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ">YouTube Link</a></p>
-        <p>And this reddit post: <a href="https://www.reddit.com/r/test/comments/abc123">Reddit</a></p>
-      ]]></description>
-    </item>
-  </channel>
-</rss>"#;
+/// Sample JSON feed with a single post containing links.
+const SAMPLE_JSON: &str = r#"{
+  "latest_posts": [
+    {
+      "id": 123,
+      "post_number": 1,
+      "username": "testuser",
+      "topic_id": 100,
+      "topic_slug": "test-post",
+      "topic_title": "Test Post with Links",
+      "created_at": "2024-01-01T12:00:00.000Z",
+      "updated_at": "2024-01-01T12:00:00.000Z",
+      "cooked": "<p>Check out this video: <a href=\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\">YouTube Link</a></p><p>And this reddit post: <a href=\"https://www.reddit.com/r/test/comments/abc123\">Reddit</a></p>",
+      "post_url": "/t/test-post/100/1"
+    }
+  ]
+}"#;
 
-/// RSS feed with multiple posts.
-const MULTI_POST_RSS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
-  <channel>
-    <title>Test Forum</title>
-    <link>https://forum.example.com</link>
-    <item>
-      <title>First Post</title>
-      <link>https://forum.example.com/t/first/1</link>
-      <guid>forum.example.com-post-1</guid>
-      <description><![CDATA[
-        <p>Link: <a href="https://twitter.com/user/status/123">Tweet</a></p>
-      ]]></description>
-    </item>
-    <item>
-      <title>Second Post</title>
-      <link>https://forum.example.com/t/second/2</link>
-      <guid>forum.example.com-post-2</guid>
-      <description><![CDATA[
-        <p>Link: <a href="https://www.tiktok.com/@user/video/456">TikTok</a></p>
-      ]]></description>
-    </item>
-  </channel>
-</rss>"#;
+/// JSON feed with multiple posts.
+const MULTI_POST_JSON: &str = r#"{
+  "latest_posts": [
+    {
+      "id": 1,
+      "post_number": 1,
+      "username": "testuser",
+      "topic_id": 101,
+      "topic_slug": "first",
+      "topic_title": "First Post",
+      "created_at": "2024-01-01T12:00:00.000Z",
+      "updated_at": "2024-01-01T12:00:00.000Z",
+      "cooked": "<p>Link: <a href=\"https://twitter.com/user/status/123\">Tweet</a></p>",
+      "post_url": "/t/first/101/1"
+    },
+    {
+      "id": 2,
+      "post_number": 1,
+      "username": "testuser",
+      "topic_id": 102,
+      "topic_slug": "second",
+      "topic_title": "Second Post",
+      "created_at": "2024-01-01T12:05:00.000Z",
+      "updated_at": "2024-01-01T12:05:00.000Z",
+      "cooked": "<p>Link: <a href=\"https://www.tiktok.com/@user/video/456\">TikTok</a></p>",
+      "post_url": "/t/second/102/1"
+    }
+  ]
+}"#;
 
-/// RSS feed with a post containing a quoted link.
-const QUOTED_LINK_RSS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
-  <channel>
-    <title>Test Forum</title>
-    <link>https://forum.example.com</link>
-    <item>
-      <title>Post with Quoted Link</title>
-      <link>https://forum.example.com/t/quoted/3</link>
-      <guid>forum.example.com-post-3</guid>
-      <description><![CDATA[
-        <aside class="quote">
-          <p>Someone said: <a href="https://example.com/quoted-link">link</a></p>
-        </aside>
-        <p>My response here.</p>
-      ]]></description>
-    </item>
-  </channel>
-</rss>"#;
+/// JSON feed with a post containing a quoted link.
+const QUOTED_LINK_JSON: &str = r#"{
+  "latest_posts": [
+    {
+      "id": 3,
+      "post_number": 1,
+      "username": "testuser",
+      "topic_id": 103,
+      "topic_slug": "quoted",
+      "topic_title": "Post with Quoted Link",
+      "created_at": "2024-01-01T12:00:00.000Z",
+      "updated_at": "2024-01-01T12:00:00.000Z",
+      "cooked": "<aside class=\"quote\"><p>Someone said: <a href=\"https://example.com/quoted-link\">link</a></p></aside><p>My response here.</p>",
+      "post_url": "/t/quoted/103/1"
+    }
+  ]
+}"#;
 
 #[tokio::test]
 async fn test_poll_once_processes_new_posts() {
@@ -103,12 +102,15 @@ async fn test_poll_once_processes_new_posts() {
     // Start mock server
     let mock_server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/posts.rss"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw(SAMPLE_RSS, "application/rss+xml"))
+        .and(path("/posts.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(SAMPLE_JSON, "application/json"))
         .mount(&mock_server)
         .await;
 
-    let config = create_test_config(&format!("{}/posts.rss", mock_server.uri()), temp_dir.path());
+    let config = create_test_config(
+        &format!("{}/posts.json", mock_server.uri()),
+        temp_dir.path(),
+    );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
@@ -123,7 +125,26 @@ async fn test_poll_once_processes_new_posts() {
     assert_eq!(new_count, 1);
 
     // Verify the post was inserted
-    let post = get_post_by_guid(db.pool(), "forum.example.com-post-123")
+    // Query all posts to see what GUIDs are actually stored
+    let all_posts: Vec<(String,)> = sqlx::query_as("SELECT guid FROM posts")
+        .fetch_all(db.pool())
+        .await
+        .expect("Failed to query posts");
+
+    eprintln!("Mock server URI: {}", mock_server.uri());
+    eprintln!("All GUIDs in database: {:?}", all_posts);
+
+    // The GUID should match the pattern {domain}-post-{id}
+    // where domain is extracted from the RSS URL
+    assert_eq!(all_posts.len(), 1, "Should have exactly one post");
+    let guid = &all_posts[0].0;
+    assert!(
+        guid.ends_with("-post-123"),
+        "GUID should end with -post-123, got: {}",
+        guid
+    );
+
+    let post = get_post_by_guid(db.pool(), guid)
         .await
         .expect("Database error")
         .expect("Post not found");
@@ -136,12 +157,15 @@ async fn test_poll_once_extracts_links() {
 
     let mock_server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/posts.rss"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw(SAMPLE_RSS, "application/rss+xml"))
+        .and(path("/posts.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(SAMPLE_JSON, "application/json"))
         .mount(&mock_server)
         .await;
 
-    let config = create_test_config(&format!("{}/posts.rss", mock_server.uri()), temp_dir.path());
+    let config = create_test_config(
+        &format!("{}/posts.json", mock_server.uri()),
+        temp_dir.path(),
+    );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
@@ -172,12 +196,15 @@ async fn test_poll_once_creates_pending_archives() {
 
     let mock_server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/posts.rss"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw(SAMPLE_RSS, "application/rss+xml"))
+        .and(path("/posts.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(SAMPLE_JSON, "application/json"))
         .mount(&mock_server)
         .await;
 
-    let config = create_test_config(&format!("{}/posts.rss", mock_server.uri()), temp_dir.path());
+    let config = create_test_config(
+        &format!("{}/posts.json", mock_server.uri()),
+        temp_dir.path(),
+    );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
@@ -202,14 +229,15 @@ async fn test_poll_once_handles_multiple_posts() {
 
     let mock_server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/posts.rss"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw(MULTI_POST_RSS, "application/rss+xml"),
-        )
+        .and(path("/posts.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(MULTI_POST_JSON, "application/json"))
         .mount(&mock_server)
         .await;
 
-    let config = create_test_config(&format!("{}/posts.rss", mock_server.uri()), temp_dir.path());
+    let config = create_test_config(
+        &format!("{}/posts.json", mock_server.uri()),
+        temp_dir.path(),
+    );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
@@ -223,12 +251,32 @@ async fn test_poll_once_handles_multiple_posts() {
     assert_eq!(new_count, 2);
 
     // Verify both posts were inserted
-    let post1 = get_post_by_guid(db.pool(), "forum.example.com-post-1")
+    let all_posts: Vec<(String,)> = sqlx::query_as("SELECT guid FROM posts ORDER BY guid")
+        .fetch_all(db.pool())
+        .await
+        .expect("Failed to query posts");
+
+    assert_eq!(all_posts.len(), 2, "Should have exactly two posts");
+    let guid1 = &all_posts[0].0;
+    let guid2 = &all_posts[1].0;
+
+    assert!(
+        guid1.ends_with("-post-1"),
+        "First GUID should end with -post-1, got: {}",
+        guid1
+    );
+    assert!(
+        guid2.ends_with("-post-2"),
+        "Second GUID should end with -post-2, got: {}",
+        guid2
+    );
+
+    let post1 = get_post_by_guid(db.pool(), guid1)
         .await
         .expect("Database error");
     assert!(post1.is_some());
 
-    let post2 = get_post_by_guid(db.pool(), "forum.example.com-post-2")
+    let post2 = get_post_by_guid(db.pool(), guid2)
         .await
         .expect("Database error");
     assert!(post2.is_some());
@@ -240,12 +288,15 @@ async fn test_poll_once_idempotent() {
 
     let mock_server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/posts.rss"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw(SAMPLE_RSS, "application/rss+xml"))
+        .and(path("/posts.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(SAMPLE_JSON, "application/json"))
         .mount(&mock_server)
         .await;
 
-    let config = create_test_config(&format!("{}/posts.rss", mock_server.uri()), temp_dir.path());
+    let config = create_test_config(
+        &format!("{}/posts.json", mock_server.uri()),
+        temp_dir.path(),
+    );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
@@ -276,14 +327,15 @@ async fn test_poll_once_detects_quoted_links() {
 
     let mock_server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/posts.rss"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw(QUOTED_LINK_RSS, "application/rss+xml"),
-        )
+        .and(path("/posts.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(QUOTED_LINK_JSON, "application/json"))
         .mount(&mock_server)
         .await;
 
-    let config = create_test_config(&format!("{}/posts.rss", mock_server.uri()), temp_dir.path());
+    let config = create_test_config(
+        &format!("{}/posts.json", mock_server.uri()),
+        temp_dir.path(),
+    );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
@@ -306,12 +358,15 @@ async fn test_poll_once_handles_http_error() {
 
     let mock_server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/posts.rss"))
+        .and(path("/posts.json"))
         .respond_with(ResponseTemplate::new(500))
         .mount(&mock_server)
         .await;
 
-    let config = create_test_config(&format!("{}/posts.rss", mock_server.uri()), temp_dir.path());
+    let config = create_test_config(
+        &format!("{}/posts.json", mock_server.uri()),
+        temp_dir.path(),
+    );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
@@ -322,19 +377,22 @@ async fn test_poll_once_handles_http_error() {
 }
 
 #[tokio::test]
-async fn test_poll_once_handles_invalid_rss() {
+async fn test_poll_once_handles_invalid_json() {
     let (db, temp_dir) = setup_db().await;
 
     let mock_server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/posts.rss"))
+        .and(path("/posts.json"))
         .respond_with(
-            ResponseTemplate::new(200).set_body_raw("not valid xml <><>", "application/rss+xml"),
+            ResponseTemplate::new(200).set_body_raw("not valid json {}{", "application/json"),
         )
         .mount(&mock_server)
         .await;
 
-    let config = create_test_config(&format!("{}/posts.rss", mock_server.uri()), temp_dir.path());
+    let config = create_test_config(
+        &format!("{}/posts.json", mock_server.uri()),
+        temp_dir.path(),
+    );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()

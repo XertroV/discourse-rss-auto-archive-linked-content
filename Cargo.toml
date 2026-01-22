@@ -32,8 +32,8 @@ rust-s3 = { version = "0.35", default-features = false, features = ["tokio-rustl
 aws-sdk-s3 = "1.68"
 aws-config = "1.5"
 
-# RSS parsing
-feed-rs = "2"
+# Posts polling (using JSON API, not RSS anymore)
+# feed-rs = "2"  # No longer needed - using JSON API via serde_json
 
 # HTML parsing
 scraper = "0.22"
