@@ -390,8 +390,14 @@ pub fn extract_subtitle_info(metadata_json: &str) -> Vec<TikTokSubtitleInfo> {
     let mut results: Vec<TikTokSubtitleInfo> = subtitles
         .iter()
         .filter_map(|(lang_code, entries)| {
-            // Get the first entry from the array (they're usually duplicates)
-            let entry = entries.as_array()?.first()?;
+            let entries_arr = entries.as_array()?;
+
+            // Prefer VTT format over JSON (TikTok provides both for some languages)
+            let entry = entries_arr
+                .iter()
+                .find(|e| e.get("ext").and_then(|v| v.as_str()) == Some("vtt"))
+                .or_else(|| entries_arr.first())?;
+
             let url = entry.get("url")?.as_str()?.to_string();
             let ext = entry
                 .get("ext")
@@ -685,6 +691,40 @@ mod tests {
         let json = r#"{"subtitles": {}}"#;
         let subs = extract_subtitle_info(json);
         assert!(subs.is_empty());
+    }
+
+    #[test]
+    fn test_extract_subtitle_info_prefers_vtt() {
+        // TikTok provides both JSON and VTT formats - we should prefer VTT
+        let json = r#"{
+            "subtitles": {
+                "eng-US": [
+                    {"url": "https://example.com/subs.json", "ext": "json"},
+                    {"url": "https://example.com/subs.vtt", "ext": "vtt"}
+                ]
+            }
+        }"#;
+
+        let subs = extract_subtitle_info(json);
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].ext, "vtt");
+        assert_eq!(subs[0].url, "https://example.com/subs.vtt");
+    }
+
+    #[test]
+    fn test_extract_subtitle_info_falls_back_to_first() {
+        // If no VTT available, fall back to first entry
+        let json = r#"{
+            "subtitles": {
+                "eng-US": [
+                    {"url": "https://example.com/subs.json", "ext": "json"}
+                ]
+            }
+        }"#;
+
+        let subs = extract_subtitle_info(json);
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].ext, "json");
     }
 
     #[test]
