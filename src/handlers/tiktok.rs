@@ -369,6 +369,83 @@ pub struct TikTokSubtitleInfo {
     pub ext: String,
 }
 
+/// Extract subtitles from the "subtitles" object format.
+/// Format: { "subtitles": { "eng-US": [{"url": "...", "ext": "vtt"}] } }
+fn extract_from_subtitles_object(json: &serde_json::Value) -> Option<Vec<TikTokSubtitleInfo>> {
+    let subtitles = json.get("subtitles")?.as_object()?;
+
+    let results: Vec<_> = subtitles
+        .iter()
+        .filter_map(|(lang_code, entries)| {
+            let entries_arr = entries.as_array()?;
+
+            // Prefer VTT format over JSON
+            let entry = entries_arr
+                .iter()
+                .find(|e| e.get("ext").and_then(|v| v.as_str()) == Some("vtt"))
+                .or_else(|| entries_arr.first())?;
+
+            Some(TikTokSubtitleInfo {
+                language_code: lang_code.clone(),
+                url: entry.get("url")?.as_str()?.to_string(),
+                ext: entry
+                    .get("ext")
+                    .and_then(|e| e.as_str())
+                    .unwrap_or("vtt")
+                    .to_string(),
+            })
+        })
+        .collect();
+
+    if results.is_empty() {
+        None
+    } else {
+        Some(results)
+    }
+}
+
+/// Extract subtitles from the "subtitleInfos" array format (newer TikTok API).
+/// Format: { "subtitleInfos": [{"LanguageCodeName": "eng-US", "Url": "...", "Format": "webvtt"}] }
+fn extract_from_subtitle_infos_array(json: &serde_json::Value) -> Option<Vec<TikTokSubtitleInfo>> {
+    let subtitle_infos = json.get("subtitleInfos")?.as_array()?;
+
+    let results: Vec<_> = subtitle_infos
+        .iter()
+        .filter_map(|info| {
+            let format = info.get("Format")?.as_str()?;
+
+            // Map TikTok format names to extensions
+            let ext = match format {
+                "webvtt" | "creator_caption" => "vtt",
+                other => other,
+            };
+
+            Some(TikTokSubtitleInfo {
+                language_code: info.get("LanguageCodeName")?.as_str()?.to_string(),
+                url: info.get("Url")?.as_str()?.to_string(),
+                ext: ext.to_string(),
+            })
+        })
+        .collect();
+
+    if results.is_empty() {
+        None
+    } else {
+        Some(results)
+    }
+}
+
+/// Compute priority for language code sorting.
+/// eng-US (0) > eng-GB (1) > other eng-* (2) > all others (3)
+fn language_priority(code: &str) -> u8 {
+    match code {
+        "eng-US" => 0,
+        "eng-GB" => 1,
+        _ if code.starts_with("eng-") => 2,
+        _ => 3,
+    }
+}
+
 /// Extract subtitle URLs from TikTok JSON metadata.
 ///
 /// TikTok metadata contains a "subtitles" object with language codes as keys
@@ -382,59 +459,20 @@ pub fn extract_subtitle_info(metadata_json: &str) -> Vec<TikTokSubtitleInfo> {
         Err(_) => return Vec::new(),
     };
 
-    let subtitles = match json.get("subtitles").and_then(|s| s.as_object()) {
-        Some(s) => s,
-        None => return Vec::new(),
-    };
+    // Try both formats and use whichever succeeds
+    let mut results = extract_from_subtitles_object(&json)
+        .or_else(|| extract_from_subtitle_infos_array(&json))
+        .unwrap_or_default();
 
-    let mut results: Vec<TikTokSubtitleInfo> = subtitles
-        .iter()
-        .filter_map(|(lang_code, entries)| {
-            let entries_arr = entries.as_array()?;
+    if results.is_empty() {
+        return Vec::new();
+    }
 
-            // Prefer VTT format over JSON (TikTok provides both for some languages)
-            let entry = entries_arr
-                .iter()
-                .find(|e| e.get("ext").and_then(|v| v.as_str()) == Some("vtt"))
-                .or_else(|| entries_arr.first())?;
-
-            let url = entry.get("url")?.as_str()?.to_string();
-            let ext = entry
-                .get("ext")
-                .and_then(|e| e.as_str())
-                .unwrap_or("vtt")
-                .to_string();
-
-            Some(TikTokSubtitleInfo {
-                language_code: lang_code.clone(),
-                url,
-                ext,
-            })
-        })
-        .collect();
-
-    // Sort by priority: eng-US first, then eng-GB, then other eng-*, then others alphabetically
+    // Sort by priority, then alphabetically within same priority
     results.sort_by(|a, b| {
-        let priority = |code: &str| -> u8 {
-            if code == "eng-US" {
-                0
-            } else if code == "eng-GB" {
-                1
-            } else if code.starts_with("eng-") {
-                2
-            } else {
-                3
-            }
-        };
-
-        let pa = priority(&a.language_code);
-        let pb = priority(&b.language_code);
-
-        if pa != pb {
-            pa.cmp(&pb)
-        } else {
-            a.language_code.cmp(&b.language_code)
-        }
+        language_priority(&a.language_code)
+            .cmp(&language_priority(&b.language_code))
+            .then_with(|| a.language_code.cmp(&b.language_code))
     });
 
     results
@@ -749,5 +787,38 @@ mod tests {
             subs.len(),
             subs[0].language_code
         );
+    }
+
+    #[test]
+    fn test_extract_subtitle_info_subtitleinfos_format() {
+        // Test the newer TikTok subtitleInfos array format
+        let json = r#"{
+            "subtitleInfos": [
+                {
+                    "LanguageCodeName": "eng-US",
+                    "Url": "https://example.com/subs1.vtt",
+                    "Format": "webvtt"
+                },
+                {
+                    "LanguageCodeName": "eng-US",
+                    "Url": "https://example.com/subs2.vtt",
+                    "Format": "creator_caption"
+                },
+                {
+                    "LanguageCodeName": "ind-ID",
+                    "Url": "https://example.com/subs3.vtt",
+                    "Format": "webvtt"
+                }
+            ]
+        }"#;
+
+        let subs = extract_subtitle_info(json);
+        assert_eq!(subs.len(), 3);
+
+        // All should be VTT format
+        assert!(subs.iter().all(|s| s.ext == "vtt"));
+
+        // Should prioritize eng-US
+        assert_eq!(subs[0].language_code, "eng-US");
     }
 }
