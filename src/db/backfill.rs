@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 
 use crate::db::{
     get_archives_needing_transcript_backfill, get_tiktok_archives_needing_subtitle_backfill,
-    set_archive_transcript_text, Database,
+    insert_artifact, set_archive_transcript_text, Database,
 };
 use crate::s3::S3Client;
 
@@ -213,25 +213,48 @@ pub async fn run_tiktok_subtitle_backfill_worker(
         let mut batch_success = 0u64;
 
         for (archive_id, meta_s3_key) in batch {
-            match backfill_tiktok_subtitles(&db, &s3, archive_id, &meta_s3_key).await {
-                Ok(count) if count > 0 => {
-                    batch_success += 1;
-                    total_success += 1;
-                    info!(
-                        archive_id,
-                        subtitle_count = count,
-                        "Backfilled TikTok subtitles"
-                    );
-                }
-                Ok(_) => {
-                    debug!(archive_id, "No subtitles found in TikTok meta.json");
-                }
-                Err(e) => {
+            let (count, should_mark) =
+                match backfill_tiktok_subtitles(&db, &s3, archive_id, &meta_s3_key).await {
+                    Ok((count, should_mark)) => {
+                        if count > 0 {
+                            batch_success += 1;
+                            total_success += 1;
+                            info!(
+                                archive_id,
+                                subtitle_count = count,
+                                "Backfilled TikTok subtitles"
+                            );
+                        }
+                        (count, should_mark)
+                    }
+                    Err(e) => {
+                        warn!(
+                            archive_id,
+                            meta_s3_key,
+                            error = %e,
+                            "Failed to backfill TikTok subtitles"
+                        );
+                        (0, true) // Mark as attempted on error too
+                    }
+                };
+
+            // Insert marker artifact to prevent re-processing this archive
+            if should_mark && count == 0 {
+                if let Err(e) = insert_artifact(
+                    db.pool(),
+                    archive_id,
+                    "subtitle_backfill_attempted",
+                    "none", // No actual S3 key
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                {
                     warn!(
                         archive_id,
-                        meta_s3_key,
                         error = %e,
-                        "Failed to backfill TikTok subtitles"
+                        "Failed to insert subtitle backfill marker"
                     );
                 }
             }
@@ -258,12 +281,14 @@ pub async fn run_tiktok_subtitle_backfill_worker(
 /// Backfill subtitles for a single TikTok archive.
 ///
 /// Returns the number of subtitle files downloaded, or 0 if none found/available.
+/// Returns -1 (cast to usize wraps) when we've attempted but found nothing (for marking).
 async fn backfill_tiktok_subtitles(
     db: &Database,
     s3: &S3Client,
     archive_id: i64,
     meta_s3_key: &str,
-) -> Result<usize> {
+) -> Result<(usize, bool)> {
+    // Returns (count, should_mark_attempted)
     use crate::archiver::process_subtitle_files;
     use crate::handlers::tiktok::{download_tiktok_subtitles, extract_subtitle_info};
 
@@ -271,7 +296,8 @@ async fn backfill_tiktok_subtitles(
     let response = s3.get_object(meta_s3_key).await?;
 
     let Some((bytes, _content_type)) = response else {
-        return Ok(0);
+        debug!(archive_id, meta_s3_key, "meta.json not found in S3");
+        return Ok((0, true)); // Mark as attempted - no meta.json
     };
 
     // Parse JSON
@@ -284,19 +310,29 @@ async fn backfill_tiktok_subtitles(
                 error = %e,
                 "TikTok meta.json is not valid UTF-8"
             );
-            return Ok(0);
+            return Ok((0, true)); // Mark as attempted - invalid JSON
         }
     };
 
     // Extract subtitle info
     let subtitles = extract_subtitle_info(&meta_json);
     if subtitles.is_empty() {
-        return Ok(0);
+        debug!(
+            archive_id,
+            "No subtitles field in meta.json or subtitles object is empty"
+        );
+        return Ok((0, true)); // Mark as attempted - no subtitles in JSON
     }
 
+    // Log what languages we found
+    let languages: Vec<&str> = subtitles.iter().map(|s| s.language_code.as_str()).collect();
+    let has_english = subtitles
+        .iter()
+        .any(|s| s.language_code.starts_with("eng-"));
     debug!(
         archive_id,
-        count = subtitles.len(),
+        languages = ?languages,
+        has_english,
         "Found subtitles in TikTok meta.json"
     );
 
@@ -304,7 +340,7 @@ async fn backfill_tiktok_subtitles(
     let work_dir = std::env::temp_dir().join(format!("tiktok-subtitle-backfill-{}", archive_id));
     std::fs::create_dir_all(&work_dir)?;
 
-    // Download subtitles (English only)
+    // Download subtitles (English only for now)
     let filenames = match download_tiktok_subtitles(&subtitles, &work_dir, true).await {
         Ok(files) => files,
         Err(e) => {
@@ -314,8 +350,12 @@ async fn backfill_tiktok_subtitles(
     };
 
     if filenames.is_empty() {
+        debug!(
+            archive_id,
+            has_english, "No English subtitles downloaded (subtitles exist in other languages)"
+        );
         let _ = std::fs::remove_dir_all(&work_dir);
-        return Ok(0);
+        return Ok((0, true)); // Mark as attempted - no English subtitles
     }
 
     let count = filenames.len();
@@ -327,5 +367,5 @@ async fn backfill_tiktok_subtitles(
     // Clean up
     let _ = std::fs::remove_dir_all(&work_dir);
 
-    Ok(count)
+    Ok((count, true)) // Mark as attempted and we got subtitles!
 }

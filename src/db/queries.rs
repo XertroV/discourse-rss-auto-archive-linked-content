@@ -3083,6 +3083,7 @@ pub async fn get_archives_needing_transcript_backfill(
 /// - Status is "complete"
 /// - Has meta.json artifact (which may contain subtitle URLs)
 /// - No subtitle artifact exists
+/// - No subtitle_backfill_attempted marker exists (we haven't tried yet)
 pub async fn get_tiktok_archives_needing_subtitle_backfill(
     pool: &SqlitePool,
     limit: i64,
@@ -3100,6 +3101,10 @@ pub async fn get_tiktok_archives_needing_subtitle_backfill(
           AND NOT EXISTS (
             SELECT 1 FROM archive_artifacts sub
             WHERE sub.archive_id = a.id AND sub.kind = 'subtitles'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM archive_artifacts marker
+            WHERE marker.archive_id = a.id AND marker.kind = 'subtitle_backfill_attempted'
           )
         LIMIT ?
         ",
