@@ -5,12 +5,9 @@ set -e
 
 echo "Resetting TikTok subtitle backfill markers..."
 
-# Path to the database (adjust if needed)
-DB_PATH="${DATABASE_PATH:-/app/data/archive.sqlite}"
-
 # Delete subtitle_backfill_attempted markers
 echo "Deleting backfill markers..."
-MARKERS_DELETED=$(sqlite3 "$DB_PATH" "
+MARKERS_DELETED=$(docker compose exec -T archiver sqlite3 /app/data/archive.sqlite "
 DELETE FROM archive_artifacts
 WHERE kind = 'subtitle_backfill_attempted'
   AND archive_id IN (
@@ -26,7 +23,7 @@ echo "Deleted $MARKERS_DELETED backfill markers"
 
 # # Delete JSON subtitle artifacts (will be replaced with VTT)
 # echo "Deleting JSON subtitle artifacts..."
-# JSON_DELETED=$(sqlite3 "$DB_PATH" "
+# JSON_DELETED=$(docker compose exec -T archiver sqlite3 /app/data/archive.sqlite "
 # DELETE FROM archive_artifacts
 # WHERE kind = 'subtitles'
 #   AND s3_key LIKE '%.json'
