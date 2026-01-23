@@ -233,6 +233,19 @@ async fn run() -> Result<()> {
     });
     info!("Search content backfill worker started");
 
+    // Start TikTok subtitle backfill worker (runs once then exits)
+    let tiktok_backfill_db = db.clone();
+    let tiktok_backfill_s3 = s3_client.clone();
+    let tiktok_backfill_handle = tokio::spawn(async move {
+        discourse_link_archiver::db::backfill::run_tiktok_subtitle_backfill_worker(
+            tiktok_backfill_db,
+            tiktok_backfill_s3,
+            discourse_link_archiver::db::backfill::TikTokSubtitleBackfillConfig::default(),
+        )
+        .await;
+    });
+    info!("TikTok subtitle backfill worker started");
+
     // Start RSS polling loop
     let poll_handle = tokio::spawn(async move {
         rss::poll_loop(config, db).await;
@@ -253,6 +266,7 @@ async fn run() -> Result<()> {
     thread_archive_handle.abort();
     comment_worker_handle.abort();
     backfill_handle.abort();
+    tiktok_backfill_handle.abort();
     cleanup_handle.abort();
     if let Some(handle) = backup_handle {
         handle.abort();

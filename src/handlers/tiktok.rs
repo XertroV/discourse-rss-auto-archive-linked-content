@@ -177,6 +177,33 @@ impl SiteHandler for TikTokHandler {
                 }
             }
 
+            // Download TikTok subtitles if present (best-effort, non-fatal)
+            // Only download for videos, not photo slideshows
+            if meta.format == ytdlp::TikTokContentFormat::Video {
+                let subtitles = extract_subtitle_info(&meta.json);
+                if !subtitles.is_empty() {
+                    debug!(
+                        count = subtitles.len(),
+                        "Found TikTok subtitles in metadata"
+                    );
+                    match download_tiktok_subtitles(&subtitles, work_dir, true).await {
+                        Ok(filenames) => {
+                            for filename in filenames {
+                                debug!(filename = %filename, "Downloaded TikTok subtitle");
+                                result.extra_files.push(filename);
+                            }
+                        }
+                        Err(e) => {
+                            // Non-fatal: subtitles are supplementary content
+                            tracing::warn!(
+                                error = %e,
+                                "Failed to download TikTok subtitles (non-fatal)"
+                            );
+                        }
+                    }
+                }
+            }
+
             // For photo slideshows, extract and store image order
             if meta.format == ytdlp::TikTokContentFormat::PhotoSlideshow {
                 if let Some(image_order) = extract_image_order(&meta.json) {
@@ -331,6 +358,175 @@ fn extract_image_order(metadata_json: &str) -> Option<String> {
     .ok()
 }
 
+/// Subtitle info extracted from TikTok metadata.
+#[derive(Debug, Clone)]
+pub struct TikTokSubtitleInfo {
+    /// Language code (e.g., "eng-US", "ind-ID")
+    pub language_code: String,
+    /// URL to the VTT subtitle file
+    pub url: String,
+    /// File extension (typically "vtt")
+    pub ext: String,
+}
+
+/// Extract subtitle URLs from TikTok JSON metadata.
+///
+/// TikTok metadata contains a "subtitles" object with language codes as keys
+/// (e.g., "eng-US", "ind-ID") and arrays of subtitle objects with "url" and "ext" fields.
+///
+/// Returns a list of subtitle info, prioritized with English subtitles first.
+/// Priority: eng-US > eng-GB > eng-* > all others (alphabetically)
+pub fn extract_subtitle_info(metadata_json: &str) -> Vec<TikTokSubtitleInfo> {
+    let json: serde_json::Value = match serde_json::from_str(metadata_json) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    let subtitles = match json.get("subtitles").and_then(|s| s.as_object()) {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+
+    let mut results: Vec<TikTokSubtitleInfo> = subtitles
+        .iter()
+        .filter_map(|(lang_code, entries)| {
+            // Get the first entry from the array (they're usually duplicates)
+            let entry = entries.as_array()?.first()?;
+            let url = entry.get("url")?.as_str()?.to_string();
+            let ext = entry
+                .get("ext")
+                .and_then(|e| e.as_str())
+                .unwrap_or("vtt")
+                .to_string();
+
+            Some(TikTokSubtitleInfo {
+                language_code: lang_code.clone(),
+                url,
+                ext,
+            })
+        })
+        .collect();
+
+    // Sort by priority: eng-US first, then eng-GB, then other eng-*, then others alphabetically
+    results.sort_by(|a, b| {
+        let priority = |code: &str| -> u8 {
+            if code == "eng-US" {
+                0
+            } else if code == "eng-GB" {
+                1
+            } else if code.starts_with("eng-") {
+                2
+            } else {
+                3
+            }
+        };
+
+        let pa = priority(&a.language_code);
+        let pb = priority(&b.language_code);
+
+        if pa != pb {
+            pa.cmp(&pb)
+        } else {
+            a.language_code.cmp(&b.language_code)
+        }
+    });
+
+    results
+}
+
+/// Download TikTok subtitles from extracted URLs.
+///
+/// Downloads VTT files from TikTok CDN and saves them to work_dir.
+/// Returns list of downloaded filenames.
+///
+/// Naming convention: `tiktok_subtitles_{language_code}.{ext}`
+/// e.g., `tiktok_subtitles_eng-US.vtt`
+///
+/// # Arguments
+///
+/// * `subtitles` - List of subtitle info extracted from metadata
+/// * `work_dir` - Directory to save downloaded files
+/// * `english_only` - If true, only download English subtitles (eng-*)
+///
+/// # Errors
+///
+/// Returns an error only if work_dir is invalid. Individual subtitle download
+/// failures are logged as warnings but don't fail the operation.
+pub async fn download_tiktok_subtitles(
+    subtitles: &[TikTokSubtitleInfo],
+    work_dir: &Path,
+    english_only: bool,
+) -> Result<Vec<String>> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .context("Failed to build HTTP client")?;
+
+    let mut downloaded = Vec::new();
+
+    for sub in subtitles {
+        // Skip non-English if english_only is set
+        if english_only && !sub.language_code.starts_with("eng-") {
+            continue;
+        }
+
+        let filename = format!("tiktok_subtitles_{}.{}", sub.language_code, sub.ext);
+        let file_path = work_dir.join(&filename);
+
+        match download_single_subtitle(&client, &sub.url, &file_path).await {
+            Ok(size) => {
+                debug!(
+                    language = %sub.language_code,
+                    filename = %filename,
+                    size_bytes = size,
+                    "Downloaded TikTok subtitle"
+                );
+                downloaded.push(filename);
+            }
+            Err(e) => {
+                // Non-fatal: log warning and continue with other subtitles
+                tracing::warn!(
+                    language = %sub.language_code,
+                    url = %sub.url,
+                    error = %e,
+                    "Failed to download TikTok subtitle (non-fatal)"
+                );
+            }
+        }
+    }
+
+    Ok(downloaded)
+}
+
+/// Download a single subtitle file.
+async fn download_single_subtitle(
+    client: &reqwest::Client,
+    url: &str,
+    file_path: &Path,
+) -> Result<usize> {
+    let response = client
+        .get(url)
+        .header("User-Agent", ARCHIVAL_USER_AGENT)
+        .send()
+        .await
+        .context("Failed to fetch subtitle")?;
+
+    if !response.status().is_success() {
+        anyhow::bail!("Subtitle download failed with status {}", response.status());
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .context("Failed to read subtitle data")?;
+
+    tokio::fs::write(file_path, &bytes)
+        .await
+        .context("Failed to write subtitle file")?;
+
+    Ok(bytes.len())
+}
+
 /// Download TikTok background music.
 ///
 /// # Errors
@@ -431,5 +627,63 @@ mod tests {
         // No video ID
         assert_eq!(extract_video_id("https://vm.tiktok.com/abc123"), None);
         assert_eq!(extract_video_id("https://tiktok.com/@user"), None);
+    }
+
+    #[test]
+    fn test_extract_subtitle_info_basic() {
+        let json = r#"{
+            "subtitles": {
+                "eng-US": [{"url": "https://example.com/eng-us.vtt", "ext": "vtt"}],
+                "ind-ID": [{"url": "https://example.com/ind-id.vtt", "ext": "vtt"}]
+            }
+        }"#;
+
+        let subs = extract_subtitle_info(json);
+        assert_eq!(subs.len(), 2);
+        // English should be first
+        assert_eq!(subs[0].language_code, "eng-US");
+        assert_eq!(subs[0].url, "https://example.com/eng-us.vtt");
+        assert_eq!(subs[0].ext, "vtt");
+    }
+
+    #[test]
+    fn test_extract_subtitle_info_priority() {
+        let json = r#"{
+            "subtitles": {
+                "ind-ID": [{"url": "https://example.com/ind.vtt", "ext": "vtt"}],
+                "eng-GB": [{"url": "https://example.com/gb.vtt", "ext": "vtt"}],
+                "eng-US": [{"url": "https://example.com/us.vtt", "ext": "vtt"}],
+                "eng-AU": [{"url": "https://example.com/au.vtt", "ext": "vtt"}]
+            }
+        }"#;
+
+        let subs = extract_subtitle_info(json);
+        assert_eq!(subs.len(), 4);
+        // Priority: eng-US > eng-GB > eng-AU > ind-ID
+        assert_eq!(subs[0].language_code, "eng-US");
+        assert_eq!(subs[1].language_code, "eng-GB");
+        assert_eq!(subs[2].language_code, "eng-AU");
+        assert_eq!(subs[3].language_code, "ind-ID");
+    }
+
+    #[test]
+    fn test_extract_subtitle_info_no_subtitles() {
+        let json = r#"{"title": "Test Video"}"#;
+        let subs = extract_subtitle_info(json);
+        assert!(subs.is_empty());
+    }
+
+    #[test]
+    fn test_extract_subtitle_info_invalid_json() {
+        let json = "not valid json";
+        let subs = extract_subtitle_info(json);
+        assert!(subs.is_empty());
+    }
+
+    #[test]
+    fn test_extract_subtitle_info_empty_subtitles() {
+        let json = r#"{"subtitles": {}}"#;
+        let subs = extract_subtitle_info(json);
+        assert!(subs.is_empty());
     }
 }

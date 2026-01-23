@@ -224,6 +224,76 @@ impl ArchiveWorker {
             screenshot_service: Some(&*self.screenshot),
         };
 
+        // For TikTok, try to get subtitles from meta.json instead of yt-dlp
+        // (yt-dlp doesn't download TikTok subtitles properly)
+        if link.domain.contains("tiktok") && (needs_subtitles || needs_transcript) {
+            info!(archive_id, "Using TikTok-specific subtitle handling");
+
+            // Try to fetch meta.json from S3
+            let meta_key = format!("archives/{}/meta.json", archive_id);
+            if let Ok(Some((meta_bytes, _))) = self.s3.get_object(&meta_key).await {
+                if let Ok(meta_json) = String::from_utf8(meta_bytes) {
+                    let subtitles = crate::handlers::tiktok::extract_subtitle_info(&meta_json);
+                    if !subtitles.is_empty() {
+                        debug!(
+                            archive_id,
+                            count = subtitles.len(),
+                            "Found subtitles in TikTok meta.json"
+                        );
+
+                        // Download subtitles to work_dir (English only)
+                        match crate::handlers::tiktok::download_tiktok_subtitles(
+                            &subtitles, &work_dir, true,
+                        )
+                        .await
+                        {
+                            Ok(filenames) if !filenames.is_empty() => {
+                                let s3_prefix = format!("archives/{}/", archive_id);
+                                process_subtitle_files(
+                                    &self.db, &self.s3, archive_id, &filenames, &work_dir,
+                                    &s3_prefix,
+                                )
+                                .await;
+
+                                info!(
+                                    archive_id,
+                                    count = filenames.len(),
+                                    "Successfully fetched TikTok subtitle artifacts from meta.json"
+                                );
+                            }
+                            Ok(_) => {
+                                debug!(
+                                    archive_id,
+                                    "No TikTok subtitles downloaded (none matched language filter)"
+                                );
+                            }
+                            Err(e) => {
+                                warn!(
+                                    archive_id,
+                                    error = %e,
+                                    "Failed to download TikTok subtitles from meta.json"
+                                );
+                            }
+                        }
+                    } else {
+                        debug!(archive_id, "No subtitles found in TikTok meta.json");
+                    }
+                } else {
+                    warn!(archive_id, "TikTok meta.json is not valid UTF-8");
+                }
+            } else {
+                debug!(archive_id, "No meta.json found in S3 for TikTok archive");
+            }
+
+            // Clean up work directory
+            if let Err(e) = std::fs::remove_dir_all(&work_dir) {
+                debug!(error = %e, "Failed to clean up work directory");
+            }
+
+            // Skip yt-dlp for TikTok (it doesn't download subtitles properly)
+            return Ok(());
+        }
+
         // Download supplementary artifacts (subtitles, transcripts, comments)
         let should_download_comments = self.config.comments_enabled
             && is_comments_supported_platform(&link.domain, &self.config)
@@ -2221,7 +2291,10 @@ async fn compute_perceptual_hash(path: &Path) -> Result<String> {
 ///
 /// Returns the original artifact if a duplicate is found, or None if unique.
 /// Process subtitle files: upload them with metadata and generate a transcript.
-async fn process_subtitle_files(
+///
+/// This function uploads each subtitle file to S3, records artifacts in the database,
+/// and generates a transcript from the best available subtitle.
+pub async fn process_subtitle_files(
     db: &Database,
     s3: &S3Client,
     archive_id: i64,

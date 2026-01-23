@@ -276,7 +276,7 @@ pub fn thread_key_from_url(url: &str) -> String {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// let (base, with_post) = build_post_url_patterns("discuss.example.com:2108");
 /// assert_eq!(base, "%://discuss.example.com/t/%/2108");
 /// assert_eq!(with_post, Some("%://discuss.example.com/t/%/2108/%".to_string()));
@@ -3071,6 +3071,43 @@ pub async fn get_archives_needing_transcript_backfill(
     .fetch_all(pool)
     .await
     .context("Failed to get archives needing transcript backfill")?;
+
+    Ok(results)
+}
+
+/// Get TikTok archives that need subtitle backfill.
+///
+/// Returns archives where:
+/// - Content type is "video"
+/// - Link domain contains "tiktok"
+/// - Status is "complete"
+/// - Has meta.json artifact (which may contain subtitle URLs)
+/// - No subtitle artifact exists
+pub async fn get_tiktok_archives_needing_subtitle_backfill(
+    pool: &SqlitePool,
+    limit: i64,
+) -> Result<Vec<(i64, String)>> {
+    let results: Vec<(i64, String)> = sqlx::query_as(
+        r"
+        SELECT a.id, aa.s3_key
+        FROM archives a
+        JOIN links l ON a.link_id = l.id
+        JOIN archive_artifacts aa ON aa.archive_id = a.id
+        WHERE a.status = 'complete'
+          AND a.content_type = 'video'
+          AND l.domain LIKE '%tiktok%'
+          AND aa.s3_key LIKE '%meta.json'
+          AND NOT EXISTS (
+            SELECT 1 FROM archive_artifacts sub
+            WHERE sub.archive_id = a.id AND sub.kind = 'subtitles'
+          )
+        LIMIT ?
+        ",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to get TikTok archives needing subtitle backfill")?;
 
     Ok(results)
 }

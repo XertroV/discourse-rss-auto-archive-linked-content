@@ -867,6 +867,91 @@ async fn process_supplementary_artifacts_job(
         screenshot_service: None,
     };
 
+    // For TikTok, try to get subtitles from meta.json instead of yt-dlp
+    // (yt-dlp doesn't download TikTok subtitles properly)
+    if link.domain.contains("tiktok") {
+        tracing::info!(archive_id, "Using TikTok-specific subtitle handling");
+
+        // Try to fetch meta.json from S3
+        let meta_key = format!("archives/{}/meta.json", archive_id);
+        if let Ok(Some((meta_bytes, _))) = state.s3.get_object(&meta_key).await {
+            if let Ok(meta_json) = String::from_utf8(meta_bytes) {
+                let subtitles = crate::handlers::tiktok::extract_subtitle_info(&meta_json);
+                if !subtitles.is_empty() {
+                    tracing::debug!(
+                        archive_id,
+                        count = subtitles.len(),
+                        "Found subtitles in TikTok meta.json"
+                    );
+
+                    // Download subtitles to work_dir (English only)
+                    match crate::handlers::tiktok::download_tiktok_subtitles(
+                        &subtitles, &work_dir, true,
+                    )
+                    .await
+                    {
+                        Ok(filenames) if !filenames.is_empty() => {
+                            use crate::archiver::worker::process_subtitle_files;
+                            let s3_prefix = format!("archives/{}/", archive_id);
+                            process_subtitle_files(
+                                &state.db, &state.s3, archive_id, &filenames, &work_dir, &s3_prefix,
+                            )
+                            .await;
+
+                            tracing::info!(
+                                archive_id,
+                                count = filenames.len(),
+                                "Successfully fetched TikTok subtitle artifacts from meta.json"
+                            );
+
+                            // Clean up and mark job as completed
+                            let _ = std::fs::remove_dir_all(&work_dir);
+                            let metadata = serde_json::json!({
+                                "source": "tiktok_meta_json",
+                                "subtitle_count": filenames.len(),
+                            });
+                            let _ = set_job_completed(
+                                state.db.pool(),
+                                job_id,
+                                Some(&metadata.to_string()),
+                            )
+                            .await;
+                            return;
+                        }
+                        Ok(_) => {
+                            tracing::debug!(
+                                archive_id,
+                                "No TikTok subtitles downloaded (none matched language filter)"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                archive_id,
+                                error = %e,
+                                "Failed to download TikTok subtitles from meta.json"
+                            );
+                        }
+                    }
+                } else {
+                    tracing::debug!(archive_id, "No subtitles found in TikTok meta.json");
+                }
+            } else {
+                tracing::warn!(archive_id, "TikTok meta.json is not valid UTF-8");
+            }
+        } else {
+            tracing::debug!(archive_id, "No meta.json found in S3 for TikTok archive");
+        }
+
+        // Clean up and mark as completed (even if no subtitles found - TikTok doesn't support yt-dlp subtitles)
+        let _ = std::fs::remove_dir_all(&work_dir);
+        let metadata = serde_json::json!({
+            "source": "tiktok_meta_json",
+            "note": "No subtitles available in TikTok metadata",
+        });
+        let _ = set_job_completed(state.db.pool(), job_id, Some(&metadata.to_string())).await;
+        return;
+    }
+
     // Download supplementary artifacts (subtitles and transcripts only)
     // Note: Comments are handled by a separate CommentExtraction job
     let result = match ytdlp::download_supplementary_artifacts(

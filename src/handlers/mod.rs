@@ -9,7 +9,7 @@ mod imgur;
 mod instagram;
 mod reddit;
 mod streamable;
-mod tiktok;
+pub mod tiktok;
 mod twitter;
 pub mod youtube;
 
