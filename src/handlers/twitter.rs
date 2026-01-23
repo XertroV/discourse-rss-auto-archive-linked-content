@@ -280,7 +280,7 @@ async fn archive_with_ytdlp(
     cookies: &CookieOptions<'_>,
     config: &crate::config::Config,
 ) -> Result<ArchiveResult> {
-    let mut result = ytdlp::download(url, work_dir, cookies, config, None, None).await?;
+    let mut result = ytdlp::download(url, work_dir, cookies, config, None, None, false).await?;
 
     debug!("yt-dlp succeeded for Twitter");
 
@@ -498,7 +498,7 @@ async fn archive_nitter(
     config: &crate::config::Config,
 ) -> Result<ArchiveResult> {
     // Try yt-dlp first (consistent with direct Twitter archiving)
-    match ytdlp::download(nitter_url, work_dir, cookies, config, None, None).await {
+    match ytdlp::download(nitter_url, work_dir, cookies, config, None, None, false).await {
         Ok(result) => {
             debug!("yt-dlp succeeded for nitter");
             return Ok(result);

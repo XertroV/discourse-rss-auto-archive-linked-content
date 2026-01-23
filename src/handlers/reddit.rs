@@ -220,7 +220,7 @@ impl SiteHandler for RedditHandler {
         let has_video = media.as_ref().is_some_and(|m| m.video_url.is_some());
         let ytdlp_result = if has_video {
             debug!(url = %archive_url, "Running yt-dlp for detected Reddit video");
-            match ytdlp::download(archive_url, work_dir, cookies, config, None, None).await {
+            match ytdlp::download(archive_url, work_dir, cookies, config, None, None, false).await {
                 Ok(result) => Some(result),
                 Err(e) => {
                     debug!("yt-dlp failed for Reddit video: {e}");
@@ -856,7 +856,7 @@ async fn archive_direct_media(
     // For v.redd.it videos, use yt-dlp
     if url.contains("://v.redd.it/") {
         debug!(url = %url, "Downloading v.redd.it video via yt-dlp");
-        return ytdlp::download(url, work_dir, cookies, config, None, None).await;
+        return ytdlp::download(url, work_dir, cookies, config, None, None, false).await;
     }
 
     // For i.redd.it and preview.redd.it images, download directly

@@ -115,7 +115,7 @@ impl SiteHandler for TikTokHandler {
             }
             Some(ref meta) if meta.format == ytdlp::TikTokContentFormat::Video => {
                 debug!(url = %resolved_url, "Routing to yt-dlp for TikTok video");
-                ytdlp::download(&resolved_url, work_dir, cookies, config, None, None)
+                ytdlp::download(&resolved_url, work_dir, cookies, config, None, None, false)
                     .await
                     .with_context(|| {
                         format!(
@@ -131,7 +131,7 @@ impl SiteHandler for TikTokHandler {
                     Ok(result) => result,
                     Err(gallery_err) => {
                         debug!(error = %gallery_err, "gallery-dl failed, trying yt-dlp");
-                        ytdlp::download(&resolved_url, work_dir, cookies, config, None, None)
+                        ytdlp::download(&resolved_url, work_dir, cookies, config, None, None, false)
                             .await
                             .with_context(|| {
                                 format!(

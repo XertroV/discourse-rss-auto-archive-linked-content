@@ -17,6 +17,11 @@ static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
         Regex::new(r"^https?://(www\.)?youtube\.com/playlist").unwrap(),
         Regex::new(r"^https?://youtu\.be/").unwrap(),
         Regex::new(r"^https?://m\.youtube\.com/").unwrap(),
+        // Channel/user URL patterns (archived as web pages, no video download)
+        Regex::new(r"^https?://(www\.)?youtube\.com/@").unwrap(),
+        Regex::new(r"^https?://(www\.)?youtube\.com/channel/").unwrap(),
+        Regex::new(r"^https?://(www\.)?youtube\.com/c/").unwrap(),
+        Regex::new(r"^https?://(www\.)?youtube\.com/user/").unwrap(),
     ]
 });
 
@@ -71,8 +76,17 @@ impl SiteHandler for YouTubeHandler {
             }
         }
 
-        // Regular video handling
-        let mut result = ytdlp::download(url, work_dir, cookies, config, None, None).await?;
+        // Check if this is a video URL (has extractable video ID)
+        // Non-video URLs (channels, user pages) are still archived but without subtitle download
+        let is_video = extract_video_id(url).is_some();
+        let skip_subtitles = !is_video;
+
+        if skip_subtitles {
+            debug!(url = %url, "Non-video YouTube URL, skipping subtitle download");
+        }
+
+        let mut result =
+            ytdlp::download(url, work_dir, cookies, config, None, None, skip_subtitles).await?;
 
         // Store video_id in metadata for predictable S3 path
         if let Some(video_id) = extract_video_id(url) {
@@ -87,6 +101,23 @@ impl SiteHandler for YouTubeHandler {
 /// Check if a URL is a YouTube playlist URL.
 pub fn is_playlist_url(url: &str) -> bool {
     url.contains("youtube.com/playlist")
+}
+
+/// Check if a URL is a YouTube channel/user page (not a video).
+///
+/// Channel URLs have patterns like:
+/// - `youtube.com/@username`
+/// - `youtube.com/channel/UC...`
+/// - `youtube.com/c/channelname`
+/// - `youtube.com/user/username`
+pub fn is_channel_url(url: &str) -> bool {
+    let channel_patterns = [
+        "youtube.com/@",
+        "youtube.com/channel/",
+        "youtube.com/c/",
+        "youtube.com/user/",
+    ];
+    channel_patterns.iter().any(|pattern| url.contains(pattern))
 }
 
 /// Extract playlist ID from YouTube URL.
@@ -165,14 +196,38 @@ mod tests {
     fn test_can_handle() {
         let handler = YouTubeHandler::new();
 
+        // Desktop video URLs
         assert!(handler.can_handle("https://www.youtube.com/watch?v=abc123"));
         assert!(handler.can_handle("https://youtube.com/watch?v=abc123"));
         assert!(handler.can_handle("https://youtu.be/abc123"));
         assert!(handler.can_handle("https://www.youtube.com/shorts/abc123"));
-        assert!(handler.can_handle("https://m.youtube.com/watch?v=abc123"));
+        assert!(handler.can_handle("https://www.youtube.com/live/abc123"));
+        assert!(handler.can_handle("https://www.youtube.com/embed/abc123"));
 
+        // Mobile video URLs
+        assert!(handler.can_handle("https://m.youtube.com/watch?v=abc123"));
+        assert!(handler.can_handle("https://m.youtube.com/shorts/abc123"));
+        assert!(handler.can_handle("https://m.youtube.com/live/abc123"));
+        assert!(handler.can_handle("https://m.youtube.com/embed/abc123"));
+
+        // Non-YouTube URLs
         assert!(!handler.can_handle("https://example.com/"));
         assert!(!handler.can_handle("https://reddit.com/"));
+    }
+
+    #[test]
+    fn test_can_handle_channel_urls() {
+        let handler = YouTubeHandler::new();
+
+        // Desktop channel URLs should be handled (archived as web pages, no comments)
+        assert!(handler.can_handle("https://www.youtube.com/@someuser"));
+        assert!(handler.can_handle("https://youtube.com/channel/UCxyz123"));
+        assert!(handler.can_handle("https://www.youtube.com/c/channelname"));
+        assert!(handler.can_handle("https://youtube.com/user/username"));
+
+        // Mobile channel URLs via broad m.youtube.com pattern
+        assert!(handler.can_handle("https://m.youtube.com/@mobileuser"));
+        assert!(handler.can_handle("https://m.youtube.com/channel/UCabc"));
     }
 
     #[test]
@@ -278,5 +333,26 @@ mod tests {
             extract_playlist_id("https://www.youtube.com/watch?v=abc123"),
             None
         );
+    }
+
+    #[test]
+    fn test_is_channel_url() {
+        // Channel URLs (various formats)
+        assert!(is_channel_url("https://www.youtube.com/@someuser"));
+        assert!(is_channel_url("https://youtube.com/channel/UCxyz123"));
+        assert!(is_channel_url("https://www.youtube.com/c/channelname"));
+        assert!(is_channel_url("https://youtube.com/user/username"));
+        assert!(is_channel_url("https://m.youtube.com/@mobileuser"));
+        assert!(is_channel_url("https://m.youtube.com/channel/UCabc"));
+
+        // Video URLs should NOT be detected as channels
+        assert!(!is_channel_url("https://www.youtube.com/watch?v=abc123"));
+        assert!(!is_channel_url("https://youtu.be/abc123"));
+        assert!(!is_channel_url("https://youtube.com/shorts/xyz789"));
+        assert!(!is_channel_url("https://www.youtube.com/live/abc123"));
+        assert!(!is_channel_url("https://www.youtube.com/embed/abc123"));
+        assert!(!is_channel_url(
+            "https://www.youtube.com/playlist?list=PLxyz"
+        ));
     }
 }

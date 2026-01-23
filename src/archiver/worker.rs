@@ -2039,10 +2039,13 @@ async fn process_archive_inner(
     .await?;
 
     // Queue comment extraction job if this is a comments-supported platform
-    // Skip comment extraction for playlists (they have no comments)
+    // Skip comment extraction for playlists and YouTube channels (they have no individual video comments)
     let is_playlist = result.content_type == "playlist";
+    let url_for_check = link.final_url.as_deref().unwrap_or(&link.normalized_url);
+    let is_youtube_channel = crate::handlers::youtube::is_channel_url(url_for_check);
     if config.comments_enabled
         && !is_playlist
+        && !is_youtube_channel
         && is_comments_supported_platform(&link.domain, config)
     {
         match create_archive_job(db.pool(), archive_id, ArchiveJobType::CommentExtraction).await {
@@ -2066,6 +2069,11 @@ async fn process_archive_inner(
         debug!(
             archive_id,
             "Skipping comment extraction for playlist (playlists have no comments)"
+        );
+    } else if is_youtube_channel {
+        debug!(
+            archive_id,
+            "Skipping comment extraction for YouTube channel (channels have no individual video comments)"
         );
     }
 

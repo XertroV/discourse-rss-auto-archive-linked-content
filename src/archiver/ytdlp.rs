@@ -441,6 +441,9 @@ async fn get_video_metadata(url: &str, cookies: &CookieOptions<'_>) -> Result<Vi
 ///
 /// If `archive_id` and `pool` are provided, progress updates will be written to the database.
 ///
+/// Set `skip_subtitles` to true for non-video content (e.g., YouTube channels) where
+/// subtitle download doesn't make sense.
+///
 /// # Errors
 ///
 /// Returns an error if yt-dlp fails or times out.
@@ -451,6 +454,7 @@ pub async fn download(
     config: &Config,
     archive_id: Option<i64>,
     pool: Option<&SqlitePool>,
+    skip_subtitles: bool,
 ) -> Result<ArchiveResult> {
     // Acquire yt-dlp semaphore - only one yt-dlp operation at a time to avoid 429s
     let _permit = YTDLP_SEMAPHORE
@@ -495,17 +499,26 @@ pub async fn download(
         "--no-playlist".to_string(),
         "--write-info-json".to_string(),
         "--write-thumbnail".to_string(),
-        // Subtitle downloads are best-effort and non-critical:
-        // - Request only English ('en') to minimize API calls and reduce 429 rate limits
-        // - Use VTT format (preferred, has better metadata)
-        // - Failures are detected via stderr parsing and treated as warnings
-        // - Archives succeed even when subtitles unavailable (see classify_ytdlp_errors)
-        "--write-subs".to_string(),
-        "--write-auto-subs".to_string(),
-        "--sub-langs".to_string(),
-        "en".to_string(),
-        "--sub-format".to_string(),
-        "vtt".to_string(),
+    ];
+
+    // Subtitle downloads are best-effort and non-critical:
+    // - Request only English ('en') to minimize API calls and reduce 429 rate limits
+    // - Use VTT format (preferred, has better metadata)
+    // - Failures are detected via stderr parsing and treated as warnings
+    // - Archives succeed even when subtitles unavailable (see classify_ytdlp_errors)
+    // Skip subtitles for non-video content (e.g., YouTube channels)
+    if !skip_subtitles {
+        args.extend([
+            "--write-subs".to_string(),
+            "--write-auto-subs".to_string(),
+            "--sub-langs".to_string(),
+            "en".to_string(),
+            "--sub-format".to_string(),
+            "vtt".to_string(),
+        ]);
+    }
+
+    args.extend([
         "--output".to_string(),
         output_template.to_string_lossy().to_string(),
         // Sanitize filenames to prevent filesystem issues with special characters
@@ -520,7 +533,7 @@ pub async fn download(
         // For now, yt-dlp will use default extractors (may have limited format availability)
         // "--remote-components".to_string(),
         // "ejs:github".to_string(),
-    ];
+    ]);
 
     // Skip comment extraction during main download - comments will be extracted
     // by the dedicated comment worker to avoid blocking other archives
