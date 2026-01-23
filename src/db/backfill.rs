@@ -361,7 +361,8 @@ async fn backfill_tiktok_subtitles(
     let count = filenames.len();
 
     // Process and upload subtitle files
-    let s3_prefix = format!("archives/{}/", archive_id);
+    // Derive s3_prefix from meta_s3_key (strip "meta.json" suffix)
+    let s3_prefix = meta_s3_key.trim_end_matches("meta.json").to_string();
     process_subtitle_files(db, s3, archive_id, &filenames, &work_dir, &s3_prefix).await;
 
     // Clean up

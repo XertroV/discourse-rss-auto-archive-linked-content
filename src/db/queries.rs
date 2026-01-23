@@ -1830,6 +1830,24 @@ pub async fn get_artifacts_for_archive(
         .context("Failed to fetch artifacts")
 }
 
+/// Get the S3 key for an archive's metadata artifact (meta.json).
+///
+/// Returns `None` if no metadata artifact exists for this archive.
+pub async fn get_metadata_s3_key_for_archive(
+    pool: &SqlitePool,
+    archive_id: i64,
+) -> Result<Option<String>> {
+    let result: Option<(String,)> = sqlx::query_as(
+        "SELECT s3_key FROM archive_artifacts WHERE archive_id = ? AND kind = 'metadata' LIMIT 1",
+    )
+    .bind(archive_id)
+    .fetch_optional(pool)
+    .await
+    .context("Failed to get metadata artifact")?;
+
+    Ok(result.map(|(key,)| key))
+}
+
 /// Get distinct artifact kinds that exist for an archive.
 pub async fn get_existing_artifact_kinds(
     pool: &SqlitePool,

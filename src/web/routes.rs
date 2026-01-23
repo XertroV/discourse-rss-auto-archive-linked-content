@@ -872,15 +872,54 @@ async fn process_supplementary_artifacts_job(
     if link.domain.contains("tiktok") {
         tracing::info!(archive_id, "Using TikTok-specific subtitle handling");
 
-        // Try to fetch meta.json from S3
-        let meta_key = format!("archives/{}/meta.json", archive_id);
+        // Get meta.json S3 key from database (respects configured s3_prefix)
+        let meta_key = match crate::db::get_metadata_s3_key_for_archive(state.db.pool(), archive_id)
+            .await
+        {
+            Ok(Some(key)) => key,
+            Ok(None) => {
+                tracing::debug!(
+                    archive_id,
+                    "No metadata artifact found in database for TikTok archive"
+                );
+                // Clean up and mark as completed
+                let _ = std::fs::remove_dir_all(&work_dir);
+                let metadata = serde_json::json!({
+                    "source": "tiktok_meta_json",
+                    "note": "No metadata artifact in database",
+                });
+                let _ =
+                    set_job_completed(state.db.pool(), job_id, Some(&metadata.to_string())).await;
+                return;
+            }
+            Err(e) => {
+                tracing::warn!(archive_id, error = %e, "Failed to query metadata artifact for TikTok archive");
+                let _ = std::fs::remove_dir_all(&work_dir);
+                let _ = set_job_failed(
+                    state.db.pool(),
+                    job_id,
+                    &format!("Failed to query metadata: {e}"),
+                )
+                .await;
+                return;
+            }
+        };
+
+        // Fetch meta.json from S3
         if let Ok(Some((meta_bytes, _))) = state.s3.get_object(&meta_key).await {
             if let Ok(meta_json) = String::from_utf8(meta_bytes) {
                 let subtitles = crate::handlers::tiktok::extract_subtitle_info(&meta_json);
                 if !subtitles.is_empty() {
+                    let languages: Vec<&str> =
+                        subtitles.iter().map(|s| s.language_code.as_str()).collect();
+                    let has_english = subtitles
+                        .iter()
+                        .any(|s| s.language_code.starts_with("eng-"));
                     tracing::debug!(
                         archive_id,
                         count = subtitles.len(),
+                        languages = ?languages,
+                        has_english,
                         "Found subtitles in TikTok meta.json"
                     );
 
@@ -892,7 +931,8 @@ async fn process_supplementary_artifacts_job(
                     {
                         Ok(filenames) if !filenames.is_empty() => {
                             use crate::archiver::worker::process_subtitle_files;
-                            let s3_prefix = format!("archives/{}/", archive_id);
+                            // Derive s3_prefix from meta_key (strip "meta.json" suffix)
+                            let s3_prefix = meta_key.trim_end_matches("meta.json").to_string();
                             process_subtitle_files(
                                 &state.db, &state.s3, archive_id, &filenames, &work_dir, &s3_prefix,
                             )
@@ -921,6 +961,7 @@ async fn process_supplementary_artifacts_job(
                         Ok(_) => {
                             tracing::debug!(
                                 archive_id,
+                                has_english,
                                 "No TikTok subtitles downloaded (none matched language filter)"
                             );
                         }
@@ -933,13 +974,20 @@ async fn process_supplementary_artifacts_job(
                         }
                     }
                 } else {
-                    tracing::debug!(archive_id, "No subtitles found in TikTok meta.json");
+                    tracing::debug!(
+                        archive_id,
+                        "No subtitles field in TikTok meta.json or subtitles object is empty"
+                    );
                 }
             } else {
                 tracing::warn!(archive_id, "TikTok meta.json is not valid UTF-8");
             }
         } else {
-            tracing::debug!(archive_id, "No meta.json found in S3 for TikTok archive");
+            tracing::debug!(
+                archive_id,
+                meta_key,
+                "meta.json not found in S3 for TikTok archive"
+            );
         }
 
         // Clean up and mark as completed (even if no subtitles found - TikTok doesn't support yt-dlp subtitles)

@@ -229,15 +229,45 @@ impl ArchiveWorker {
         if link.domain.contains("tiktok") && (needs_subtitles || needs_transcript) {
             info!(archive_id, "Using TikTok-specific subtitle handling");
 
-            // Try to fetch meta.json from S3
-            let meta_key = format!("archives/{}/meta.json", archive_id);
+            // Get meta.json S3 key from database (respects configured s3_prefix)
+            let meta_key = match crate::db::get_metadata_s3_key_for_archive(
+                self.db.pool(),
+                archive_id,
+            )
+            .await
+            {
+                Ok(Some(key)) => key,
+                Ok(None) => {
+                    debug!(
+                        archive_id,
+                        "No metadata artifact found in database for TikTok archive"
+                    );
+                    // Clean up and skip yt-dlp
+                    let _ = std::fs::remove_dir_all(&work_dir);
+                    return Ok(());
+                }
+                Err(e) => {
+                    warn!(archive_id, error = %e, "Failed to query metadata artifact for TikTok archive");
+                    let _ = std::fs::remove_dir_all(&work_dir);
+                    return Ok(());
+                }
+            };
+
+            // Fetch meta.json from S3
             if let Ok(Some((meta_bytes, _))) = self.s3.get_object(&meta_key).await {
                 if let Ok(meta_json) = String::from_utf8(meta_bytes) {
                     let subtitles = crate::handlers::tiktok::extract_subtitle_info(&meta_json);
                     if !subtitles.is_empty() {
+                        let languages: Vec<&str> =
+                            subtitles.iter().map(|s| s.language_code.as_str()).collect();
+                        let has_english = subtitles
+                            .iter()
+                            .any(|s| s.language_code.starts_with("eng-"));
                         debug!(
                             archive_id,
                             count = subtitles.len(),
+                            languages = ?languages,
+                            has_english,
                             "Found subtitles in TikTok meta.json"
                         );
 
@@ -248,7 +278,8 @@ impl ArchiveWorker {
                         .await
                         {
                             Ok(filenames) if !filenames.is_empty() => {
-                                let s3_prefix = format!("archives/{}/", archive_id);
+                                // Derive s3_prefix from meta_key (strip "meta.json" suffix)
+                                let s3_prefix = meta_key.trim_end_matches("meta.json").to_string();
                                 process_subtitle_files(
                                     &self.db, &self.s3, archive_id, &filenames, &work_dir,
                                     &s3_prefix,
@@ -264,6 +295,7 @@ impl ArchiveWorker {
                             Ok(_) => {
                                 debug!(
                                     archive_id,
+                                    has_english,
                                     "No TikTok subtitles downloaded (none matched language filter)"
                                 );
                             }
@@ -276,13 +308,19 @@ impl ArchiveWorker {
                             }
                         }
                     } else {
-                        debug!(archive_id, "No subtitles found in TikTok meta.json");
+                        debug!(
+                            archive_id,
+                            "No subtitles field in TikTok meta.json or subtitles object is empty"
+                        );
                     }
                 } else {
                     warn!(archive_id, "TikTok meta.json is not valid UTF-8");
                 }
             } else {
-                debug!(archive_id, "No meta.json found in S3 for TikTok archive");
+                debug!(
+                    archive_id,
+                    meta_key, "meta.json not found in S3 for TikTok archive"
+                );
             }
 
             // Clean up work directory

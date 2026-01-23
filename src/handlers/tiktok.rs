@@ -686,4 +686,28 @@ mod tests {
         let subs = extract_subtitle_info(json);
         assert!(subs.is_empty());
     }
+
+    #[test]
+    fn test_extract_subtitle_info_real_file() {
+        let json_content = std::fs::read_to_string("api-examples/tiktok_meta_video2.json")
+            .expect("Failed to read test file");
+
+        let subs = extract_subtitle_info(&json_content);
+
+        // The file should have subtitles
+        assert!(!subs.is_empty(), "Expected subtitles, got none");
+
+        // Should have eng-US
+        let has_eng_us = subs.iter().any(|s| s.language_code == "eng-US");
+        assert!(has_eng_us, "Expected eng-US subtitle");
+
+        // First should be eng-US (priority order)
+        assert_eq!(subs[0].language_code, "eng-US");
+
+        println!(
+            "Found {} subtitles, first is: {}",
+            subs.len(),
+            subs[0].language_code
+        );
+    }
 }
