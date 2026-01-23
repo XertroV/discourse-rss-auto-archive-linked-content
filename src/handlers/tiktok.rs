@@ -405,9 +405,14 @@ fn extract_from_subtitles_object(json: &serde_json::Value) -> Option<Vec<TikTokS
 }
 
 /// Extract subtitles from the "subtitleInfos" array format (newer TikTok API).
-/// Format: { "subtitleInfos": [{"LanguageCodeName": "eng-US", "Url": "...", "Format": "webvtt"}] }
+/// Format: { "video": { "subtitleInfos": [{"LanguageCodeName": "eng-US", "Url": "...", "Format": "webvtt"}] } }
+/// Or: { "subtitleInfos": [{"LanguageCodeName": "eng-US", "Url": "...", "Format": "webvtt"}] }
 fn extract_from_subtitle_infos_array(json: &serde_json::Value) -> Option<Vec<TikTokSubtitleInfo>> {
-    let subtitle_infos = json.get("subtitleInfos")?.as_array()?;
+    // Check both root level and nested in .video object
+    let subtitle_infos = json
+        .get("subtitleInfos")
+        .or_else(|| json.get("video").and_then(|v| v.get("subtitleInfos")))?
+        .as_array()?;
 
     let results: Vec<_> = subtitle_infos
         .iter()
@@ -820,5 +825,53 @@ mod tests {
 
         // Should prioritize eng-US
         assert_eq!(subs[0].language_code, "eng-US");
+    }
+
+    #[test]
+    fn test_extract_subtitle_info_nested_video_subtitleinfos() {
+        // Test subtitleInfos nested in video object (actual TikTok API format)
+        let json = r#"{
+            "video": {
+                "id": "12345",
+                "subtitleInfos": [
+                    {
+                        "LanguageCodeName": "eng-US",
+                        "Url": "https://example.com/nested.vtt",
+                        "Format": "webvtt"
+                    }
+                ]
+            }
+        }"#;
+
+        let subs = extract_subtitle_info(json);
+        assert!(!subs.is_empty(), "Should find nested subtitleInfos");
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].language_code, "eng-US");
+        assert_eq!(subs[0].ext, "vtt");
+    }
+
+    #[test]
+    fn test_extract_subtitle_info_real_file_255() {
+        // Test with actual archive 255 file that has nested video.subtitleInfos
+        let json_content = std::fs::read_to_string("api-examples/tiktok_meta_video-255.json")
+            .expect("Failed to read test file");
+
+        let subs = extract_subtitle_info(&json_content);
+
+        // Should find subtitles in the nested video object
+        assert!(
+            !subs.is_empty(),
+            "Expected subtitles in video.subtitleInfos, got none"
+        );
+
+        // Should have eng-US
+        let has_eng_us = subs.iter().any(|s| s.language_code == "eng-US");
+        assert!(has_eng_us, "Expected eng-US subtitle");
+
+        println!(
+            "Found {} subtitles from nested format, first is: {}",
+            subs.len(),
+            subs[0].language_code
+        );
     }
 }
