@@ -419,10 +419,10 @@ fn extract_from_subtitle_infos_array(json: &serde_json::Value) -> Option<Vec<Tik
         .filter_map(|info| {
             let format = info.get("Format")?.as_str()?;
 
-            // Map TikTok format names to extensions
+            // Only accept webvtt format - other formats like "creator_caption" may be JSON
             let ext = match format {
-                "webvtt" | "creator_caption" => "vtt",
-                other => other,
+                "webvtt" => "vtt",
+                _ => return None, // Skip non-VTT formats
             };
 
             Some(TikTokSubtitleInfo {
@@ -488,8 +488,8 @@ pub fn extract_subtitle_info(metadata_json: &str) -> Vec<TikTokSubtitleInfo> {
 /// Downloads VTT files from TikTok CDN and saves them to work_dir.
 /// Returns list of downloaded filenames.
 ///
-/// Naming convention: `tiktok_subtitles_{language_code}.{ext}`
-/// e.g., `tiktok_subtitles_eng-US.vtt`
+/// Naming convention: `tiktok.{language_code}.{ext}` (yt-dlp compatible format)
+/// e.g., `tiktok.eng-US.vtt`
 ///
 /// # Arguments
 ///
@@ -519,7 +519,8 @@ pub async fn download_tiktok_subtitles(
             continue;
         }
 
-        let filename = format!("tiktok_subtitles_{}.{}", sub.language_code, sub.ext);
+        // Use yt-dlp compatible format: tiktok.{lang}.{ext}
+        let filename = format!("tiktok.{}.{}", sub.language_code, sub.ext);
         let file_path = work_dir.join(&filename);
 
         match download_single_subtitle(&client, &sub.url, &file_path).await {
@@ -797,6 +798,7 @@ mod tests {
     #[test]
     fn test_extract_subtitle_info_subtitleinfos_format() {
         // Test the newer TikTok subtitleInfos array format
+        // Note: only "webvtt" format is extracted, "creator_caption" is skipped
         let json = r#"{
             "subtitleInfos": [
                 {
@@ -818,13 +820,17 @@ mod tests {
         }"#;
 
         let subs = extract_subtitle_info(json);
-        assert_eq!(subs.len(), 3);
+        // Should only extract webvtt formats (2 out of 3)
+        assert_eq!(subs.len(), 2);
 
         // All should be VTT format
         assert!(subs.iter().all(|s| s.ext == "vtt"));
 
         // Should prioritize eng-US
         assert_eq!(subs[0].language_code, "eng-US");
+
+        // Second should be ind-ID (creator_caption was skipped)
+        assert_eq!(subs[1].language_code, "ind-ID");
     }
 
     #[test]
