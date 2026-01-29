@@ -4,6 +4,7 @@ mod traits;
 
 // Site handlers
 mod bluesky;
+mod facebook;
 mod generic;
 mod imgur;
 mod instagram;
@@ -28,6 +29,7 @@ pub static HANDLERS: std::sync::LazyLock<HandlerRegistry> = std::sync::LazyLock:
     registry.register(Box::new(imgur::ImgurHandler::new()));
     registry.register(Box::new(bluesky::BlueskyHandler::new()));
     registry.register(Box::new(streamable::StreamableHandler::new()));
+    registry.register(Box::new(facebook::FacebookHandler::new()));
     registry.register(Box::new(generic::GenericHandler::new()));
     registry
 });
