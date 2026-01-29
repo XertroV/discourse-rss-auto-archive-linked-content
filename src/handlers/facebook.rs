@@ -60,6 +60,21 @@ impl SiteHandler for FacebookHandler {
             result.video_id = Some(reel_id);
         }
 
+        // Facebook reels don't have proper titles - yt-dlp generates a title from
+        // view/reaction counts (e.g., "3.9M views · 135K reactions | Author on Reels").
+        // If there's a description (the creator's caption), use that as the title instead.
+        if let Some(ref text) = result.text {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                debug!(
+                    original_title = ?result.title,
+                    description = %trimmed,
+                    "Using description as title for Facebook reel"
+                );
+                result.title = Some(trimmed.to_string());
+            }
+        }
+
         Ok(result)
     }
 }
@@ -74,7 +89,7 @@ pub fn extract_reel_id(url: &str) -> Option<String> {
     // Find the /reel/ segment and extract the ID after it
     if let Some(reel_pos) = url.find("/reel/") {
         let after_reel = &url[reel_pos + 6..]; // Skip "/reel/"
-        // ID ends at query string, fragment, or end of string
+                                               // ID ends at query string, fragment, or end of string
         let reel_id = after_reel
             .split('?')
             .next()
@@ -200,5 +215,83 @@ mod tests {
     fn test_priority() {
         let handler = FacebookHandler::new();
         assert_eq!(handler.priority(), 100);
+    }
+
+    #[test]
+    fn test_title_from_description() {
+        use super::super::traits::ArchiveResult;
+
+        // Simulate a Facebook reel result where title is auto-generated
+        // and description contains the creator's caption
+        let mut result = ArchiveResult {
+            title: Some("3.9M views · 135K reactions | Author Jason K Pargin on Reels".to_string()),
+            text: Some("This is the actual caption the creator wrote for the reel".to_string()),
+            ..Default::default()
+        };
+
+        // Apply the same logic as in archive()
+        if let Some(ref text) = result.text {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                result.title = Some(trimmed.to_string());
+            }
+        }
+
+        assert_eq!(
+            result.title,
+            Some("This is the actual caption the creator wrote for the reel".to_string())
+        );
+    }
+
+    #[test]
+    fn test_title_preserved_when_no_description() {
+        use super::super::traits::ArchiveResult;
+
+        // Simulate a Facebook reel with no description (empty caption)
+        let mut result = ArchiveResult {
+            title: Some("3.9M views · 135K reactions | Author Jason K Pargin on Reels".to_string()),
+            text: Some("".to_string()),
+            ..Default::default()
+        };
+
+        // Apply the same logic as in archive()
+        if let Some(ref text) = result.text {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                result.title = Some(trimmed.to_string());
+            }
+        }
+
+        // Title should remain unchanged when description is empty
+        assert_eq!(
+            result.title,
+            Some("3.9M views · 135K reactions | Author Jason K Pargin on Reels".to_string())
+        );
+    }
+
+    #[test]
+    fn test_title_preserved_when_description_is_whitespace() {
+        use super::super::traits::ArchiveResult;
+
+        // Simulate a Facebook reel where description is just whitespace
+        let mut result = ArchiveResult {
+            title: Some("3.9M views · 135K reactions | Author Jason K Pargin on Reels".to_string()),
+            text: Some("   \n\t  ".to_string()),
+            ..Default::default()
+        };
+
+        // Apply the same logic as in archive()
+        if let Some(ref text) = result.text {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                result.title = Some(trimmed.to_string());
+            }
+        }
+
+        // Title should remain unchanged when description is only whitespace
+        assert_eq!(
+            result.title,
+            Some("3.9M views · 135K reactions | Author Jason K Pargin on Reels".to_string())
+        );
     }
 }
