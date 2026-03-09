@@ -81,7 +81,7 @@ RUN useradd -r -s /bin/false -m -d /app archiver
 
 # Set up yt-dlp cache directory for remote components
 # yt-dlp stores downloaded challenge solvers in XDG_CACHE_HOME or ~/.cache
-RUN mkdir -p /app/.cache/yt-dlp && chown -R archiver:archiver /app/.cache
+RUN mkdir -p /app/.cache/yt-dlp && chown -R archiver:archiver /app/.cache /opt/venv
 
 # Set environment for yt-dlp cache before switching users
 ENV HOME=/app

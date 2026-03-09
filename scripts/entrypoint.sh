@@ -16,13 +16,16 @@ if [ "$(id -u)" = "0" ]; then
   chown -R archiver:archiver /app/data /app/.cache || true
 
   # Run the actual command as the archiver user.
+  # Background-update yt-dlp and gallery-dl on startup so they stay fresh between rebuilds.
   if [ "$#" -gt 0 ]; then
-    exec su -s /bin/sh archiver -c "$*"
+    exec su -s /bin/sh archiver -c "yt-dlp -U >/dev/null 2>&1 & gallery-dl -U >/dev/null 2>&1 & $*"
   fi
-  exec su -s /bin/sh archiver -c "$APP_BIN"
+  exec su -s /bin/sh archiver -c "yt-dlp -U >/dev/null 2>&1 & gallery-dl -U >/dev/null 2>&1 & $APP_BIN"
 fi
 
 # Already non-root.
+yt-dlp -U >/dev/null 2>&1 &
+gallery-dl -U >/dev/null 2>&1 &
 if [ "$#" -gt 0 ]; then
   exec "$@"
 fi

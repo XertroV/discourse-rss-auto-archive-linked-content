@@ -10,7 +10,7 @@ use sqlx::SqlitePool;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::Semaphore;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use super::CookieOptions;
 use crate::config::Config;
@@ -1627,6 +1627,111 @@ pub async fn extract_comments_only(
     }
 
     Ok(comment_count)
+}
+
+/// Periodically update yt-dlp and gallery-dl to keep them fresh.
+///
+/// Runs every 24 hours. Acquires the yt-dlp semaphore to avoid conflicts
+/// with active downloads.
+pub async fn run_update_loop() {
+    let update_interval = Duration::from_secs(24 * 60 * 60);
+
+    loop {
+        tokio::time::sleep(update_interval).await;
+
+        info!("Starting periodic yt-dlp/gallery-dl update");
+
+        // Acquire semaphore to avoid conflicts with active downloads
+        let permit = match YTDLP_SEMAPHORE.acquire().await {
+            Ok(permit) => permit,
+            Err(_) => {
+                error!("yt-dlp semaphore closed, stopping update loop");
+                return;
+            }
+        };
+
+        // Update yt-dlp
+        match tokio::time::timeout(
+            Duration::from_secs(120),
+            Command::new("yt-dlp")
+                .arg("-U")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output(),
+        )
+        .await
+        {
+            Ok(Ok(output)) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if output.status.success() {
+                    info!(stdout = %stdout.trim(), "yt-dlp update completed");
+                } else {
+                    warn!(stderr = %stderr.trim(), "yt-dlp update failed");
+                }
+            }
+            Ok(Err(e)) => warn!(error = %e, "Failed to run yt-dlp update"),
+            Err(_) => warn!("yt-dlp update timed out after 120s"),
+        }
+
+        // Refresh EJS remote components for YouTube challenge solver
+        match tokio::time::timeout(
+            Duration::from_secs(120),
+            Command::new("yt-dlp")
+                .args([
+                    "--remote-components",
+                    "ejs:github",
+                    "--simulate",
+                    "--quiet",
+                    "--print",
+                    "%(title)s",
+                    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output(),
+        )
+        .await
+        {
+            Ok(Ok(output)) => {
+                if output.status.success() {
+                    info!("yt-dlp EJS component refresh completed");
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    warn!(stderr = %stderr.trim(), "yt-dlp EJS component refresh failed");
+                }
+            }
+            Ok(Err(e)) => warn!(error = %e, "Failed to run yt-dlp EJS refresh"),
+            Err(_) => warn!("yt-dlp EJS refresh timed out after 120s"),
+        }
+
+        // Update gallery-dl
+        match tokio::time::timeout(
+            Duration::from_secs(60),
+            Command::new("gallery-dl")
+                .arg("--update")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output(),
+        )
+        .await
+        {
+            Ok(Ok(output)) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if output.status.success() {
+                    info!(stdout = %stdout.trim(), "gallery-dl update completed");
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    warn!(stderr = %stderr.trim(), "gallery-dl update failed");
+                }
+            }
+            Ok(Err(e)) => warn!(error = %e, "Failed to run gallery-dl update"),
+            Err(_) => warn!("gallery-dl update timed out after 60s"),
+        }
+
+        drop(permit);
+        info!("Periodic yt-dlp/gallery-dl update cycle complete");
+    }
 }
 
 #[cfg(test)]

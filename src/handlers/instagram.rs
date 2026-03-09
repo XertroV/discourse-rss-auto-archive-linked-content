@@ -3,15 +3,17 @@ use std::path::Path;
 use anyhow::Result;
 use async_trait::async_trait;
 use regex::Regex;
+use tracing::debug;
 
 use super::traits::{ArchiveResult, SiteHandler};
-use crate::archiver::{gallerydl, CookieOptions};
+use crate::archiver::{ytdlp, CookieOptions};
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
     vec![
         // Standard Instagram URLs
         Regex::new(r"^https?://(www\.)?instagram\.com/p/[A-Za-z0-9_-]+").unwrap(),
         Regex::new(r"^https?://(www\.)?instagram\.com/reel/[A-Za-z0-9_-]+").unwrap(),
+        Regex::new(r"^https?://(www\.)?instagram\.com/reels/[A-Za-z0-9_-]+").unwrap(),
         Regex::new(r"^https?://(www\.)?instagram\.com/stories/[^/]+/[0-9]+").unwrap(),
         Regex::new(r"^https?://(www\.)?instagram\.com/[A-Za-z0-9_.]+/?$").unwrap(),
         // Instagram TV
@@ -54,7 +56,9 @@ impl SiteHandler for InstagramHandler {
         // Normalize instagr.am to instagram.com
         let normalized = url
             .replace("://instagr.am/", "://instagram.com/")
-            .replace("://www.instagram.com/", "://instagram.com/");
+            .replace("://www.instagram.com/", "://instagram.com/")
+            // Normalize /reels/ (plural share URL) to /reel/ (canonical)
+            .replace("/reels/", "/reel/");
 
         // Remove query parameters and trailing slashes
         let without_query = if let Some(pos) = normalized.find('?') {
@@ -73,8 +77,45 @@ impl SiteHandler for InstagramHandler {
         cookies: &CookieOptions<'_>,
         config: &crate::config::Config,
     ) -> Result<ArchiveResult> {
-        gallerydl::download(url, work_dir, cookies, config).await
+        let mut result = ytdlp::download(url, work_dir, cookies, config, None, None, false).await?;
+
+        if let Some(shortcode) = extract_shortcode(url) {
+            debug!(shortcode = %shortcode, "Extracted Instagram shortcode");
+            result.video_id = Some(shortcode);
+        }
+
+        Ok(result)
     }
+}
+
+/// Extract shortcode from Instagram URL.
+///
+/// Supports URL formats:
+/// - `instagram.com/p/SHORTCODE`
+/// - `instagram.com/reel/SHORTCODE`
+/// - `instagram.com/reels/SHORTCODE`
+/// - `instagram.com/tv/SHORTCODE`
+fn extract_shortcode(url: &str) -> Option<String> {
+    for segment in &["/p/", "/reel/", "/reels/", "/tv/"] {
+        if let Some(pos) = url.find(segment) {
+            let after = &url[pos + segment.len()..];
+            let shortcode = after
+                .split('?')
+                .next()
+                .unwrap_or(after)
+                .split('#')
+                .next()
+                .unwrap_or(after)
+                .split('/')
+                .next()
+                .unwrap_or(after);
+
+            if !shortcode.is_empty() {
+                return Some(shortcode.to_string());
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -90,9 +131,13 @@ mod tests {
         assert!(handler.can_handle("https://www.instagram.com/p/ABC123"));
         assert!(handler.can_handle("https://instagram.com/p/ABC123_-xyz"));
 
-        // Reel URLs
+        // Reel URLs (singular)
         assert!(handler.can_handle("https://instagram.com/reel/ABC123"));
         assert!(handler.can_handle("https://www.instagram.com/reel/ABC123"));
+
+        // Reels URLs (plural - share URLs)
+        assert!(handler.can_handle("https://instagram.com/reels/ABC123"));
+        assert!(handler.can_handle("https://www.instagram.com/reels/DRzuPzVCcmB"));
 
         // Story URLs
         assert!(handler.can_handle("https://instagram.com/stories/username/1234567890"));
@@ -139,6 +184,65 @@ mod tests {
         assert_eq!(
             handler.normalize_url("https://instagram.com/p/ABC123?utm_source=ig_web"),
             "https://instagram.com/p/ABC123"
+        );
+
+        // Normalize /reels/ to /reel/
+        assert_eq!(
+            handler.normalize_url("https://www.instagram.com/reels/DRzuPzVCcmB/"),
+            "https://instagram.com/reel/DRzuPzVCcmB"
+        );
+
+        assert_eq!(
+            handler.normalize_url("https://instagram.com/reels/ABC123?igsh=foo"),
+            "https://instagram.com/reel/ABC123"
+        );
+    }
+
+    #[test]
+    fn test_extract_shortcode() {
+        // Post URLs
+        assert_eq!(
+            extract_shortcode("https://instagram.com/p/ABC123"),
+            Some("ABC123".to_string())
+        );
+
+        // Reel URLs (singular)
+        assert_eq!(
+            extract_shortcode("https://instagram.com/reel/XYZ789"),
+            Some("XYZ789".to_string())
+        );
+
+        // Reels URLs (plural)
+        assert_eq!(
+            extract_shortcode("https://instagram.com/reels/DRzuPzVCcmB"),
+            Some("DRzuPzVCcmB".to_string())
+        );
+
+        // TV URLs
+        assert_eq!(
+            extract_shortcode("https://instagram.com/tv/DEF456"),
+            Some("DEF456".to_string())
+        );
+
+        // With query parameters
+        assert_eq!(
+            extract_shortcode("https://instagram.com/p/ABC123?utm_source=ig"),
+            Some("ABC123".to_string())
+        );
+
+        // With trailing slash
+        assert_eq!(
+            extract_shortcode("https://instagram.com/reel/ABC123/"),
+            Some("ABC123".to_string())
+        );
+
+        // Profile URL (no shortcode segment)
+        assert_eq!(extract_shortcode("https://instagram.com/username"), None);
+
+        // Story URL (no shortcode segment)
+        assert_eq!(
+            extract_shortcode("https://instagram.com/stories/user/123"),
+            None
         );
     }
 }

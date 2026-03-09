@@ -246,6 +246,12 @@ async fn run() -> Result<()> {
     });
     info!("TikTok subtitle backfill worker started");
 
+    // Start periodic yt-dlp/gallery-dl update loop
+    let ytdlp_update_handle = tokio::spawn(async move {
+        discourse_link_archiver::archiver::ytdlp::run_update_loop().await;
+    });
+    info!("yt-dlp periodic update loop started");
+
     // Start RSS polling loop
     let poll_handle = tokio::spawn(async move {
         rss::poll_loop(config, db).await;
@@ -267,6 +273,7 @@ async fn run() -> Result<()> {
     comment_worker_handle.abort();
     backfill_handle.abort();
     tiktok_backfill_handle.abort();
+    ytdlp_update_handle.abort();
     cleanup_handle.abort();
     if let Some(handle) = backup_handle {
         handle.abort();
