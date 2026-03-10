@@ -204,8 +204,12 @@ pub async fn fetch_html_with_chromium(
         cmd.arg(format!("--profile-directory={profile_dir}"));
     }
 
-    // Dump final DOM after JS execution/navigation
-    cmd.arg("--dump-dom").arg(url);
+    // Dump final DOM after JS execution/navigation.
+    // --virtual-time-budget advances the virtual clock so timers/animations fire
+    // before the DOM is captured, helping SPAs render their initial state.
+    cmd.arg("--virtual-time-budget=9000")
+        .arg("--dump-dom")
+        .arg(url);
 
     let output = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output())
         .await

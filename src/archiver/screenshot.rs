@@ -14,7 +14,7 @@ use chromiumoxide::cdp::browser_protocol::network::{
 };
 use chromiumoxide::cdp::browser_protocol::page::{
     AddScriptToEvaluateOnNewDocumentParams, CaptureScreenshotFormat, CaptureSnapshotFormat,
-    CaptureSnapshotParams, PrintToPdfParams,
+    CaptureSnapshotParams, EventLifecycleEvent, PrintToPdfParams, SetLifecycleEventsEnabledParams,
 };
 use chromiumoxide::page::ScreenshotParams;
 use futures_util::StreamExt;
@@ -251,7 +251,6 @@ impl ScreenshotService {
             .arg("--disable-software-rasterizer")
             .arg("--no-first-run")
             .arg("--no-default-browser-check")
-            .arg("--disable-background-networking")
             .arg("--disable-extensions")
             .arg("--disable-sync")
             .arg("--disable-translate")
@@ -347,6 +346,16 @@ impl ScreenshotService {
             }
         }
 
+        // Enable lifecycle events and subscribe before navigation so the networkIdle
+        // event is buffered even if it fires during page.goto().
+        if let Err(e) = page
+            .execute(SetLifecycleEventsEnabledParams::new(true))
+            .await
+        {
+            warn!(url = %url, error = %e, "Failed to enable lifecycle events");
+        }
+        let lifecycle_events = page.event_listener::<EventLifecycleEvent>().await.ok();
+
         // Navigate to the actual URL
         page.goto(url).await.context("Failed to navigate to URL")?;
 
@@ -355,10 +364,8 @@ impl ScreenshotService {
             .await
             .context("Navigation timeout")?;
 
-        // Wait for resources to load (images, CSS, JS, fonts, etc.)
-        // Longer timeout than before to ensure complete page loading
-        // TODO: Use network idle detection when chromiumoxide supports it
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        // Wait for network idle so JS-rendered content (SPAs, React hydration) is present.
+        wait_for_network_idle(lifecycle_events, Duration::from_secs(12)).await;
 
         // Capture full page screenshot using webp format for better compression
         let screenshot_params = ScreenshotParams::builder()
@@ -456,6 +463,16 @@ impl ScreenshotService {
             }
         }
 
+        // Enable lifecycle events and subscribe before navigation so the networkIdle
+        // event is buffered even if it fires during page.goto().
+        if let Err(e) = page
+            .execute(SetLifecycleEventsEnabledParams::new(true))
+            .await
+        {
+            warn!(url = %url, error = %e, "Failed to enable lifecycle events for PDF");
+        }
+        let lifecycle_events = page.event_listener::<EventLifecycleEvent>().await.ok();
+
         // Navigate to the actual URL
         page.goto(url).await.context("Failed to navigate to URL")?;
 
@@ -464,9 +481,8 @@ impl ScreenshotService {
             .await
             .context("Navigation timeout")?;
 
-        // Wait for resources to load before PDF generation
-        // Longer timeout ensures CSS, fonts, and images are loaded
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        // Wait for network idle so JS-rendered content is present before PDF generation.
+        wait_for_network_idle(lifecycle_events, Duration::from_secs(12)).await;
 
         // Generate PDF with configured paper size
         let pdf_params = PrintToPdfParams::builder()
@@ -561,6 +577,16 @@ impl ScreenshotService {
             }
         }
 
+        // Enable lifecycle events and subscribe before navigation so the networkIdle
+        // event is buffered even if it fires during page.goto().
+        if let Err(e) = page
+            .execute(SetLifecycleEventsEnabledParams::new(true))
+            .await
+        {
+            warn!(url = %url, error = %e, "Failed to enable lifecycle events for MHTML");
+        }
+        let lifecycle_events = page.event_listener::<EventLifecycleEvent>().await.ok();
+
         // Navigate to the actual URL
         page.goto(url).await.context("Failed to navigate to URL")?;
 
@@ -569,9 +595,8 @@ impl ScreenshotService {
             .await
             .context("Navigation timeout")?;
 
-        // Wait longer for MHTML to ensure all resources are loaded
-        // MHTML captures complete page state including all assets
-        tokio::time::sleep(Duration::from_secs(4)).await;
+        // Wait for network idle so all assets are present before MHTML snapshot.
+        wait_for_network_idle(lifecycle_events, Duration::from_secs(12)).await;
 
         // Capture MHTML using CDP Page.captureSnapshot
         let snapshot_params = CaptureSnapshotParams::builder()
@@ -661,6 +686,16 @@ impl ScreenshotService {
             }
         }
 
+        // Enable lifecycle events and subscribe before navigation so the networkIdle
+        // event is buffered even if it fires during page.goto().
+        if let Err(e) = page
+            .execute(SetLifecycleEventsEnabledParams::new(true))
+            .await
+        {
+            warn!(url = %url, error = %e, "Failed to enable lifecycle events for HTML capture");
+        }
+        let lifecycle_events = page.event_listener::<EventLifecycleEvent>().await.ok();
+
         // Navigate to the actual URL
         page.goto(url).await.context("Failed to navigate to URL")?;
 
@@ -669,9 +704,8 @@ impl ScreenshotService {
             .await
             .context("Navigation timeout")?;
 
-        // Wait for JavaScript to render content
-        // Twitter and similar SPA sites need time for React/JS to hydrate
-        tokio::time::sleep(Duration::from_secs(4)).await;
+        // Wait for network idle so JS-rendered content (React/Next.js hydration) is present.
+        wait_for_network_idle(lifecycle_events, Duration::from_secs(12)).await;
 
         // Get the rendered HTML content
         let html = page
@@ -714,6 +748,30 @@ impl ScreenshotService {
             }
         }
     }
+}
+
+/// Wait for the page's network to become idle, falling back to a fixed delay on failure.
+///
+/// The `events` stream **must** be created before navigation (via
+/// `page.event_listener::<EventLifecycleEvent>()`) so that lifecycle events emitted
+/// during `page.goto()` are buffered and not lost.
+async fn wait_for_network_idle<S>(events: Option<S>, max_wait: Duration)
+where
+    S: futures_util::Stream<Item = std::sync::Arc<EventLifecycleEvent>> + Unpin,
+{
+    let Some(mut stream) = events else {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        return;
+    };
+    let _ = tokio::time::timeout(max_wait, async move {
+        while let Some(event) = StreamExt::next(&mut stream).await {
+            if event.name == "networkIdle" {
+                debug!("Network idle detected");
+                break;
+            }
+        }
+    })
+    .await;
 }
 
 async fn clone_chromium_user_data_dir_for_service(
