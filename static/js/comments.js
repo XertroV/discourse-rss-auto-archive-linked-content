@@ -55,6 +55,15 @@ async function loadPlatformComments(container) {
 function renderComments(container, data) {
     const { platform, stats, comments, limited, limit_applied } = data;
 
+    // Update the summary badge with actual count
+    const details = container.closest('details');
+    if (details) {
+        const badge = details.querySelector('.comments-count-badge');
+        if (badge) {
+            badge.textContent = `${stats.extracted_comments} comments`;
+        }
+    }
+
     // Store original data for filtering/sorting
     container.dataset.originalComments = JSON.stringify(comments);
     container.dataset.platform = platform;

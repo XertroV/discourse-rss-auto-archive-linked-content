@@ -257,13 +257,14 @@ async fn extract_comments_for_archive(
         };
 
         // Insert artifact record
-        crate::db::insert_artifact(
+        crate::db::insert_artifact_with_metadata(
             db.pool(),
             archive.id,
             "comments",
             &s3_key,
             Some("application/json"),
             file_size,
+            None,
             metadata.as_deref(),
         )
         .await
