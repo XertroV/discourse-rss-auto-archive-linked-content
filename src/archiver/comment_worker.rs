@@ -232,29 +232,14 @@ async fn extract_comments_for_archive(
             .ok()
             .map(|m| m.len() as i64);
 
-        // Read comments.json to extract stats for metadata
-        let metadata = match tokio::fs::read_to_string(&comments_json_path).await {
-            Ok(content) => {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    // Extract stats and platform for the artifact metadata
-                    // Wrap in container to match format from worker.rs
-                    json.get("stats").map(|stats| {
-                        let platform = json
-                            .get("platform")
-                            .and_then(|p| p.as_str())
-                            .unwrap_or("unknown");
-                        serde_json::json!({
-                            "stats": stats,
-                            "platform": platform,
-                        })
-                        .to_string()
-                    })
-                } else {
-                    None
-                }
-            }
-            Err(_) => None,
-        };
+        // Build artifact metadata with normalized comment_count key
+        let metadata = Some(
+            serde_json::json!({
+                "comment_count": comment_count as i64,
+                "platform": crate::archiver::worker::extract_platform_name(&link.domain),
+            })
+            .to_string(),
+        );
 
         // Insert artifact record
         crate::db::insert_artifact_with_metadata(

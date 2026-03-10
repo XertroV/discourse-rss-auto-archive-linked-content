@@ -391,14 +391,18 @@ impl ArchiveWorker {
                     let s3_prefix = format!("archives/{}/", archive_id);
                     let s3_key = format!("{}comments.json", s3_prefix);
 
-                    // Read comment stats from JSON for metadata
-                    let comment_stats = tokio::fs::read_to_string(&comments_path)
+                    // Read comment count from JSON for metadata
+                    let comment_count = tokio::fs::read_to_string(&comments_path)
                         .await
                         .ok()
                         .and_then(|content| {
                             serde_json::from_str::<serde_json::Value>(&content).ok()
                         })
-                        .and_then(|json| json.get("stats").cloned());
+                        .and_then(|json| {
+                            json.get("stats")
+                                .and_then(|s| s.get("extracted_comments"))
+                                .and_then(|c| c.as_i64())
+                        });
 
                     // Upload to S3
                     match self
@@ -410,9 +414,9 @@ impl ArchiveWorker {
                             let size = comments_path.metadata().ok().map(|m| m.len() as i64);
 
                             // Prepare metadata JSON
-                            let metadata_json = comment_stats.map(|stats| {
+                            let metadata_json = comment_count.map(|count| {
                                 serde_json::json!({
-                                    "stats": stats,
+                                    "comment_count": count,
                                     "platform": extract_platform_name(&link.domain)
                                 })
                                 .to_string()
