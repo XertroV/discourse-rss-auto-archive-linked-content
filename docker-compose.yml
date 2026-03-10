@@ -83,7 +83,7 @@ services:
     volumes:
       - archiver-data:/app/data
       # Shared cookies volume (write via cookie-browser, read by archiver)
-      - cookies-data:/app/cookies
+      - cookies-data:/app/cookies:ro
       # Optional: bind-mount a local cookie file instead of using the volume
       # - ./cookies.txt:/app/cookies/cookies.txt:ro
       # - ./yt-cookies.json:/app/yt-cookies.json:ro

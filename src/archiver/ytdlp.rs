@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -15,6 +15,25 @@ use tracing::{debug, error, info, warn};
 use super::CookieOptions;
 use crate::config::Config;
 use crate::handlers::ArchiveResult;
+
+/// Copy a cookies file to a writable temp location for yt-dlp.
+///
+/// yt-dlp always tries to save updated cookies after each session. If the source
+/// cookies path is on a read-only mount this causes an OSError. The returned temp
+/// path persists until the OS cleans /tmp (yt-dlp may also update the copy).
+fn writable_cookies_copy(cookies_path: &Path) -> Result<PathBuf> {
+    let (_, tmp_path) = tempfile::Builder::new()
+        // keep() call below prevents deletion on drop
+        .prefix("yt-dlp-cookies-")
+        .suffix(".txt")
+        .tempfile()
+        .context("Failed to create temp cookies file")?
+        .keep()
+        .context("Failed to persist temp cookies file")?;
+    std::fs::copy(cookies_path, &tmp_path)
+        .context("Failed to copy cookies to writable temp file")?;
+    Ok(tmp_path)
+}
 
 /// Global semaphore to ensure only one yt-dlp operation runs at a time.
 /// This prevents 429 rate limit errors from YouTube, TikTok, and other platforms.
@@ -207,8 +226,9 @@ pub async fn get_tiktok_metadata(url: &str, cookies: &CookieOptions<'_>) -> Resu
     }
     if let Some(cookies_path) = cookies.cookies_file {
         if cookies_path.exists() && !cookies_path.is_dir() {
+            let copy = writable_cookies_copy(cookies_path)?;
             args.push("--cookies".to_string());
-            args.push(cookies_path.to_string_lossy().to_string());
+            args.push(copy.to_string_lossy().to_string());
         }
     }
 
@@ -406,8 +426,9 @@ async fn get_video_metadata(url: &str, cookies: &CookieOptions<'_>) -> Result<Vi
     }
     if let Some(cookies_path) = cookies.cookies_file {
         if cookies_path.exists() && !cookies_path.is_dir() {
+            let copy = writable_cookies_copy(cookies_path)?;
             args.push("--cookies".to_string());
-            args.push(cookies_path.to_string_lossy().to_string());
+            args.push(copy.to_string_lossy().to_string());
         }
     }
 
@@ -557,9 +578,10 @@ pub async fn download(
         } else if cookies_path.is_dir() {
             warn!(path = %cookies_path.display(), "Cookies path is a directory, continuing without cookies");
         } else {
-            debug!(path = %cookies_path.display(), "Using cookies file for authenticated download");
+            let copy = writable_cookies_copy(cookies_path)?;
+            debug!(path = %copy.display(), "Using cookies file for authenticated download");
             args.push("--cookies".to_string());
-            args.push(cookies_path.to_string_lossy().to_string());
+            args.push(copy.to_string_lossy().to_string());
         }
     }
 
@@ -781,9 +803,10 @@ pub async fn download_supplementary_artifacts(
 
     if let Some(cookies_path) = cookies.cookies_file {
         if cookies_path.exists() && !cookies_path.is_dir() {
-            debug!(path = %cookies_path.display(), "Using cookies file");
+            let copy = writable_cookies_copy(cookies_path)?;
+            debug!(path = %copy.display(), "Using cookies file");
             args.push("--cookies".to_string());
-            args.push(cookies_path.to_string_lossy().to_string());
+            args.push(copy.to_string_lossy().to_string());
         }
     }
 
@@ -1338,9 +1361,10 @@ pub async fn fetch_metadata_only(url: &str, cookies: &CookieOptions<'_>) -> Resu
 
     if let Some(cookies_path) = cookies.cookies_file {
         if cookies_path.exists() && !cookies_path.is_dir() {
-            debug!(path = %cookies_path.display(), "Using cookies file for metadata fetch");
+            let copy = writable_cookies_copy(cookies_path)?;
+            debug!(path = %copy.display(), "Using cookies file for metadata fetch");
             args.push("--cookies".to_string());
-            args.push(cookies_path.to_string_lossy().to_string());
+            args.push(copy.to_string_lossy().to_string());
         }
     }
 
@@ -1484,8 +1508,9 @@ pub async fn extract_comments_only(
     }
     if let Some(cookies_path) = cookies.cookies_file {
         if cookies_path.exists() && !cookies_path.is_dir() {
+            let copy = writable_cookies_copy(cookies_path)?;
             args.push("--cookies".to_string());
-            args.push(cookies_path.to_string_lossy().to_string());
+            args.push(copy.to_string_lossy().to_string());
         }
     }
 
