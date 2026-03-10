@@ -3138,17 +3138,15 @@ pub async fn get_tiktok_archives_needing_subtitle_backfill(
 /// Get YouTube archives with VTT subtitles that have transcript text (candidates for dedup backfill).
 ///
 /// Returns (archive_id, vtt_s3_key, transcript_s3_key) tuples.
+/// When no transcript artifact exists, derives the key from the VTT key's directory.
 pub async fn get_youtube_archives_with_vtt_subtitles(
     pool: &SqlitePool,
     limit: i64,
 ) -> Result<Vec<(i64, String, String)>> {
-    let results: Vec<(i64, String, String)> = sqlx::query_as(
+    // Query returns (archive_id, vtt_s3_key, transcript_s3_key_or_null)
+    let rows: Vec<(i64, String, Option<String>)> = sqlx::query_as(
         r"
-        SELECT a.id, sub.s3_key,
-               COALESCE(
-                   trans.s3_key,
-                   REPLACE(sub.s3_key, REPLACE(sub.s3_key, RTRIM(sub.s3_key, REPLACE(sub.s3_key, '/', '')), ''), 'subtitles/transcript.txt')
-               ) as transcript_key
+        SELECT a.id, sub.s3_key, trans.s3_key
         FROM archives a
         JOIN links l ON a.link_id = l.id
         JOIN archive_artifacts sub ON a.id = sub.archive_id
@@ -3168,6 +3166,22 @@ pub async fn get_youtube_archives_with_vtt_subtitles(
     .fetch_all(pool)
     .await
     .context("Failed to get YouTube archives with VTT subtitles")?;
+
+    // Derive transcript key from VTT key's directory when no transcript artifact exists
+    let results = rows
+        .into_iter()
+        .map(|(id, vtt_key, trans_key)| {
+            let transcript_key = trans_key.unwrap_or_else(|| {
+                // VTT key is like "archives/123/subtitles/video.en.vtt"
+                // Transcript key is "archives/123/subtitles/transcript.txt"
+                match vtt_key.rfind('/') {
+                    Some(pos) => format!("{}/transcript.txt", &vtt_key[..pos]),
+                    None => "transcript.txt".to_string(),
+                }
+            });
+            (id, vtt_key, transcript_key)
+        })
+        .collect();
 
     Ok(results)
 }
