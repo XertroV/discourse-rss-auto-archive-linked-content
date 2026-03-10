@@ -2142,11 +2142,7 @@ fn render_platform_comments_section(archive: &Archive, artifacts: &[ArchiveArtif
         .metadata
         .as_ref()
         .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
-        .and_then(|json| {
-            json.get("stats")
-                .and_then(|s| s.get("extracted_comments"))
-                .and_then(|c| c.as_i64())
-        })
+        .and_then(|json| json.get("comment_count").and_then(|c| c.as_i64()))
         .unwrap_or(0);
 
     html! {
@@ -2277,6 +2273,21 @@ mod tests {
             created_at: "2024-01-15 11:00:00".to_string(),
             duration_seconds: Some(1800.0),
         }
+    }
+
+    #[test]
+    fn test_comments_badge_shows_count() {
+        let archive = sample_archive();
+        let mut artifact = sample_artifact();
+        artifact.kind = "comments".to_string();
+        artifact.metadata =
+            Some(r#"{"comment_count":1000,"extraction_method":"api","limited":false}"#.to_string());
+
+        let html = render_platform_comments_section(&archive, &[artifact]).into_string();
+        assert!(
+            html.contains("1000 comments"),
+            "Badge should show count from metadata"
+        );
     }
 
     #[test]
