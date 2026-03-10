@@ -23,7 +23,7 @@ check_image_age_and_set_rebuild_flag() {
 get_build_args() {
     local BUILD_ARGS="--pull"
     if [ "${FORCE_REBUILD:-0}" = "1" ]; then
-        echo "Using --no-cache to ensure fresh dependencies"
+        echo "Using --no-cache to ensure fresh dependencies" >&2
         BUILD_ARGS="$BUILD_ARGS --no-cache"
     fi
     echo "$BUILD_ARGS"
