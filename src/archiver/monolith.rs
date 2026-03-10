@@ -101,7 +101,7 @@ pub async fn create_complete_html(
     // Cookies file if provided
     if let Some(cookies) = cookies_file {
         if cookies.exists() {
-            cmd.arg("-c").arg(cookies);
+            cmd.arg("-C").arg(cookies);
         }
     }
 
