@@ -199,12 +199,13 @@ pub async fn get_tiktok_metadata(url: &str, cookies: &CookieOptions<'_>) -> Resu
         "--quiet".to_string(),
     ];
 
-    // Add cookie options
+    // Add cookie options — use both sources when available; yt-dlp merges them
     if let Some(spec) = cookies.browser_profile {
         let spec = maybe_adjust_chromium_user_data_dir_spec(spec);
         args.push("--cookies-from-browser".to_string());
         args.push(spec);
-    } else if let Some(cookies_path) = cookies.cookies_file {
+    }
+    if let Some(cookies_path) = cookies.cookies_file {
         if cookies_path.exists() && !cookies_path.is_dir() {
             args.push("--cookies".to_string());
             args.push(cookies_path.to_string_lossy().to_string());
@@ -397,12 +398,13 @@ async fn get_video_metadata(url: &str, cookies: &CookieOptions<'_>) -> Result<Vi
         "--quiet".to_string(),
     ];
 
-    // Add cookie options
+    // Add cookie options — use both sources when available; yt-dlp merges them
     if let Some(spec) = cookies.browser_profile {
         let spec = maybe_adjust_chromium_user_data_dir_spec(spec);
         args.push("--cookies-from-browser".to_string());
         args.push(spec);
-    } else if let Some(cookies_path) = cookies.cookies_file {
+    }
+    if let Some(cookies_path) = cookies.cookies_file {
         if cookies_path.exists() && !cookies_path.is_dir() {
             args.push("--cookies".to_string());
             args.push(cookies_path.to_string_lossy().to_string());
@@ -539,30 +541,25 @@ pub async fn download(
     // by the dedicated comment worker to avoid blocking other archives
     // Comment extraction is now done as a separate background job
 
-    // Prefer browser profile over cookies file (fresher cookies)
-    // Only use one method to avoid potential conflicts
-    let mut cookie_method_used = false;
-
+    // Use both browser profile and cookies file when available; yt-dlp merges them.
+    // This allows a browser profile (e.g. YouTube) and a cookies.txt (e.g. Instagram)
+    // to coexist without one overriding the other.
     if let Some(spec) = cookies.browser_profile {
         let spec = maybe_adjust_chromium_user_data_dir_spec(spec);
         debug!(spec = %spec, "Using cookies from browser profile");
         args.push("--cookies-from-browser".to_string());
         args.push(spec);
-        cookie_method_used = true;
     }
 
-    // Only use cookies file if browser profile not set
-    if !cookie_method_used {
-        if let Some(cookies_path) = cookies.cookies_file {
-            if !cookies_path.exists() {
-                warn!(path = %cookies_path.display(), "Cookies file specified but does not exist, continuing without cookies");
-            } else if cookies_path.is_dir() {
-                warn!(path = %cookies_path.display(), "Cookies path is a directory, continuing without cookies");
-            } else {
-                debug!(path = %cookies_path.display(), "Using cookies file for authenticated download");
-                args.push("--cookies".to_string());
-                args.push(cookies_path.to_string_lossy().to_string());
-            }
+    if let Some(cookies_path) = cookies.cookies_file {
+        if !cookies_path.exists() {
+            warn!(path = %cookies_path.display(), "Cookies file specified but does not exist, continuing without cookies");
+        } else if cookies_path.is_dir() {
+            warn!(path = %cookies_path.display(), "Cookies path is a directory, continuing without cookies");
+        } else {
+            debug!(path = %cookies_path.display(), "Using cookies file for authenticated download");
+            args.push("--cookies".to_string());
+            args.push(cookies_path.to_string_lossy().to_string());
         }
     }
 
@@ -774,24 +771,19 @@ pub async fn download_supplementary_artifacts(
         debug!("Comment extraction enabled for supplementary artifacts");
     }
 
-    // Cookie handling
-    let mut cookie_method_used = false;
-
+    // Cookie handling — use both sources when available; yt-dlp merges them
     if let Some(spec) = cookies.browser_profile {
         let spec = maybe_adjust_chromium_user_data_dir_spec(spec);
         debug!(spec = %spec, "Using cookies from browser profile");
         args.push("--cookies-from-browser".to_string());
         args.push(spec);
-        cookie_method_used = true;
     }
 
-    if !cookie_method_used {
-        if let Some(cookies_path) = cookies.cookies_file {
-            if cookies_path.exists() && !cookies_path.is_dir() {
-                debug!(path = %cookies_path.display(), "Using cookies file");
-                args.push("--cookies".to_string());
-                args.push(cookies_path.to_string_lossy().to_string());
-            }
+    if let Some(cookies_path) = cookies.cookies_file {
+        if cookies_path.exists() && !cookies_path.is_dir() {
+            debug!(path = %cookies_path.display(), "Using cookies file");
+            args.push("--cookies".to_string());
+            args.push(cookies_path.to_string_lossy().to_string());
         }
     }
 
@@ -1336,24 +1328,19 @@ pub async fn fetch_metadata_only(url: &str, cookies: &CookieOptions<'_>) -> Resu
         "--quiet".to_string(),
     ];
 
-    // Prefer browser profile over cookies file (fresher cookies)
-    let mut cookie_method_used = false;
-
+    // Use both browser profile and cookies file when available; yt-dlp merges them
     if let Some(spec) = cookies.browser_profile {
         let spec = maybe_adjust_chromium_user_data_dir_spec(spec);
         debug!(spec = %spec, "Using cookies from browser profile for metadata fetch");
         args.push("--cookies-from-browser".to_string());
         args.push(spec);
-        cookie_method_used = true;
     }
 
-    if !cookie_method_used {
-        if let Some(cookies_path) = cookies.cookies_file {
-            if cookies_path.exists() && !cookies_path.is_dir() {
-                debug!(path = %cookies_path.display(), "Using cookies file for metadata fetch");
-                args.push("--cookies".to_string());
-                args.push(cookies_path.to_string_lossy().to_string());
-            }
+    if let Some(cookies_path) = cookies.cookies_file {
+        if cookies_path.exists() && !cookies_path.is_dir() {
+            debug!(path = %cookies_path.display(), "Using cookies file for metadata fetch");
+            args.push("--cookies".to_string());
+            args.push(cookies_path.to_string_lossy().to_string());
         }
     }
 
@@ -1489,12 +1476,13 @@ pub async fn extract_comments_only(
     args.push("--sleep-requests".to_string());
     args.push(format!("{:.1}", delay_secs));
 
-    // Add cookie options
+    // Add cookie options — use both sources when available; yt-dlp merges them
     if let Some(spec) = cookies.browser_profile {
         let spec = maybe_adjust_chromium_user_data_dir_spec(spec);
         args.push("--cookies-from-browser".to_string());
         args.push(spec);
-    } else if let Some(cookies_path) = cookies.cookies_file {
+    }
+    if let Some(cookies_path) = cookies.cookies_file {
         if cookies_path.exists() && !cookies_path.is_dir() {
             args.push("--cookies".to_string());
             args.push(cookies_path.to_string_lossy().to_string());
