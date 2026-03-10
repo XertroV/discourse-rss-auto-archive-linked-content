@@ -188,7 +188,6 @@ pub async fn fetch_html_with_chromium(
         .arg("--disable-dev-shm-usage")
         .arg("--disable-software-rasterizer")
         .arg("--disable-extensions")
-        .arg("--disable-background-networking")
         .arg("--disable-blink-features=AutomationControlled")
         .arg("--no-first-run")
         .arg("--no-default-browser-check")
