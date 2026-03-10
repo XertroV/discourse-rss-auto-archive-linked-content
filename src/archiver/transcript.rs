@@ -14,11 +14,43 @@ pub struct SubtitleCue {
     pub text: String,
 }
 
+/// Check if a line contains inline timing tags (e.g., `<00:00:05.040><c> word</c>`).
+///
+/// Looks for `<NN:` pattern where N is an ASCII digit.
+pub fn has_inline_timing_tags(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    if bytes.len() < 4 {
+        return false;
+    }
+    for i in 0..bytes.len() - 3 {
+        if bytes[i] == b'<'
+            && bytes[i + 1].is_ascii_digit()
+            && bytes[i + 2].is_ascii_digit()
+            && bytes[i + 3] == b':'
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// Parse a WebVTT (.vtt) subtitle file.
 pub async fn parse_vtt(path: &Path) -> Result<Vec<SubtitleCue>> {
     let content = tokio::fs::read_to_string(path)
         .await
         .context("Failed to read VTT file")?;
+
+    let cues = parse_vtt_content(&content);
+    debug!(path = %path.display(), cue_count = cues.len(), "Parsed VTT file");
+    Ok(cues)
+}
+
+/// Parse VTT content string into subtitle cues.
+///
+/// Handles YouTube's rolling subtitle format by detecting inline timing tags
+/// and deduplicating repeated lines.
+pub fn parse_vtt_content(content: &str) -> Vec<SubtitleCue> {
+    let is_youtube_rolling = content.lines().any(|l| has_inline_timing_tags(l));
 
     let mut cues = Vec::new();
     let lines: Vec<&str> = content.lines().collect();
@@ -51,9 +83,22 @@ pub async fn parse_vtt(path: &Path) -> Result<Vec<SubtitleCue>> {
         // Check if this is a timestamp line
         if line.contains("-->") {
             if let Some((start, end)) = parse_timestamp_line(line) {
+                // YouTube rolling dedup: skip snapshot cues (duration < 100ms)
+                if is_youtube_rolling && (end - start) < 0.1 {
+                    i += 1;
+                    // Skip past the cue's text lines
+                    while i < lines.len() && !lines[i].trim().is_empty() {
+                        if lines[i].trim().contains("-->") {
+                            break;
+                        }
+                        i += 1;
+                    }
+                    continue;
+                }
+
                 // Collect text lines until we hit an empty line
                 // (YouTube VTT format may have empty lines right after timestamp)
-                let mut text_lines = Vec::new();
+                let mut raw_lines: Vec<&str> = Vec::new();
                 i += 1;
 
                 // Skip leading empty lines after timestamp (YouTube format quirk)
@@ -71,13 +116,38 @@ pub async fn parse_vtt(path: &Path) -> Result<Vec<SubtitleCue>> {
                     if text_line.contains("-->") {
                         break;
                     }
-                    // Remove VTT tags like <c>, <v>, etc.
-                    let cleaned = remove_vtt_tags(text_line);
-                    if !cleaned.is_empty() {
-                        text_lines.push(cleaned);
-                    }
+                    raw_lines.push(text_line);
                     i += 1;
                 }
+
+                // YouTube rolling dedup: if cue has both tagged and plain lines,
+                // keep only tagged lines (plain lines are repeats from previous cue)
+                let text_lines: Vec<String> = if is_youtube_rolling {
+                    let has_tagged = raw_lines.iter().any(|l| has_inline_timing_tags(l));
+                    let has_plain = raw_lines.iter().any(|l| !has_inline_timing_tags(l));
+
+                    if has_tagged && has_plain {
+                        // Keep only tagged lines
+                        raw_lines
+                            .iter()
+                            .filter(|l| has_inline_timing_tags(l))
+                            .map(|l| remove_vtt_tags(l))
+                            .filter(|l| !l.is_empty())
+                            .collect()
+                    } else {
+                        raw_lines
+                            .iter()
+                            .map(|l| remove_vtt_tags(l))
+                            .filter(|l| !l.is_empty())
+                            .collect()
+                    }
+                } else {
+                    raw_lines
+                        .iter()
+                        .map(|l| remove_vtt_tags(l))
+                        .filter(|l| !l.is_empty())
+                        .collect()
+                };
 
                 if !text_lines.is_empty() {
                     cues.push(SubtitleCue {
@@ -94,8 +164,7 @@ pub async fn parse_vtt(path: &Path) -> Result<Vec<SubtitleCue>> {
         }
     }
 
-    debug!(path = %path.display(), cue_count = cues.len(), "Parsed VTT file");
-    Ok(cues)
+    cues
 }
 
 /// Parse an SRT (.srt) subtitle file.
@@ -453,17 +522,129 @@ video.<00:00:02.720><c> A</c><00:00:02.960><c> few</c><00:00:03.040><c> hours</c
 
         let cues = parse_vtt(&vtt_path).await.unwrap();
 
-        // Should have parsed multiple cues
-        assert!(!cues.is_empty(), "Expected cues but got none");
-        assert_eq!(cues.len(), 3);
+        // Snapshot cue (10ms) should be skipped, plain repeat line dropped from rolling cue
+        assert_eq!(cues.len(), 2, "Expected 2 cues (snapshot skipped)");
 
-        // First cue should have the text content with tags removed
+        // First cue: only the tagged line kept
         assert!(cues[0].text.contains("PayPal"));
         assert!(cues[0].text.contains("does"));
         assert!(cues[0].text.contains("not"));
-
-        // Verify timestamps were parsed correctly
         assert!((cues[0].start_time - 0.160).abs() < 0.001);
         assert!((cues[0].end_time - 2.149).abs() < 0.001);
+
+        // Second cue: only the tagged line kept (plain repeat dropped)
+        assert!(cues[1].text.contains("video."));
+        assert!(cues[1].text.contains("A"));
+        assert!(cues[1].text.contains("few"));
+        // The plain "PayPal does not want you seeing this" line should be dropped,
+        // but the tagged line contains "PayPal's lawyer" so we check specifically
+        assert!(
+            !cues[1]
+                .text
+                .contains("PayPal does not want you seeing this"),
+            "Plain repeat line should be dropped"
+        );
+    }
+
+    #[test]
+    fn test_has_inline_timing_tags() {
+        assert!(has_inline_timing_tags("PayPal<00:00:00.800><c> does</c>"));
+        assert!(has_inline_timing_tags("word<12:34:56.789><c> next</c>"));
+        assert!(!has_inline_timing_tags("Plain text line"));
+        assert!(!has_inline_timing_tags("<c>just a tag</c>"));
+        assert!(!has_inline_timing_tags("<v Speaker>text"));
+        assert!(!has_inline_timing_tags(""));
+        assert!(!has_inline_timing_tags("<a:"));
+    }
+
+    #[test]
+    fn test_parse_vtt_content_youtube_rolling() {
+        let content = r#"WEBVTT
+Kind: captions
+Language: en
+
+00:00:00.160 --> 00:00:02.149 align:start position:0%
+
+PayPal<00:00:00.800><c> does</c><00:00:01.040><c> not</c>
+
+00:00:02.149 --> 00:00:02.159 align:start position:0%
+PayPal does not
+
+00:00:02.159 --> 00:00:04.309 align:start position:0%
+PayPal does not
+want<00:00:02.720><c> you</c><00:00:02.960><c> seeing</c>
+
+00:00:04.309 --> 00:00:04.319 align:start position:0%
+want you seeing
+
+00:00:04.319 --> 00:00:06.390 align:start position:0%
+want you seeing
+this<00:00:05.040><c> video</c>
+
+00:00:06.390 --> 00:00:06.400 align:start position:0%
+this video
+"#;
+
+        let cues = parse_vtt_content(content);
+
+        // 3 rolling cues kept, 3 snapshot cues skipped
+        assert_eq!(cues.len(), 3);
+        assert_eq!(cues[0].text, "PayPal does not");
+        assert_eq!(cues[1].text, "want you seeing");
+        assert_eq!(cues[2].text, "this video");
+    }
+
+    #[test]
+    fn test_parse_vtt_content_normal_vtt() {
+        let content = "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nHello world\n\n00:00:02.000 --> 00:00:04.000\nGoodbye world\n";
+
+        let cues = parse_vtt_content(content);
+        assert_eq!(cues.len(), 2);
+        assert_eq!(cues[0].text, "Hello world");
+        assert_eq!(cues[1].text, "Goodbye world");
+    }
+
+    #[test]
+    fn test_parse_vtt_content_snapshot_skip() {
+        let content = r#"WEBVTT
+Kind: captions
+Language: en
+
+00:00:00.000 --> 00:00:02.000 align:start position:0%
+
+Hello<00:00:00.500><c> world</c>
+
+00:00:02.000 --> 00:00:02.010 align:start position:0%
+Hello world
+
+00:00:02.010 --> 00:00:04.000 align:start position:0%
+Hello world
+Goodbye<00:00:02.500><c> world</c>
+"#;
+
+        let cues = parse_vtt_content(content);
+        // Snapshot cue (10ms) should be skipped
+        assert_eq!(cues.len(), 2);
+        assert_eq!(cues[0].text, "Hello world");
+        assert_eq!(cues[1].text, "Goodbye world");
+    }
+
+    #[test]
+    fn test_parse_vtt_content_mixed_plain_tagged() {
+        let content = r#"WEBVTT
+Kind: captions
+Language: en
+
+00:00:02.159 --> 00:00:04.309 align:start position:0%
+PayPal does not want you seeing this
+video.<00:00:02.720><c> A</c><00:00:02.960><c> few</c>
+"#;
+
+        let cues = parse_vtt_content(content);
+        assert_eq!(cues.len(), 1);
+        // Only the tagged line should be kept
+        assert!(cues[0].text.contains("video."));
+        assert!(cues[0].text.contains("A"));
+        assert!(!cues[0].text.contains("PayPal"));
     }
 }

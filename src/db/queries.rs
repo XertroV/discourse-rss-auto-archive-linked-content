@@ -3135,6 +3135,43 @@ pub async fn get_tiktok_archives_needing_subtitle_backfill(
     Ok(results)
 }
 
+/// Get YouTube archives with VTT subtitles that have transcript text (candidates for dedup backfill).
+///
+/// Returns (archive_id, vtt_s3_key, transcript_s3_key) tuples.
+pub async fn get_youtube_archives_with_vtt_subtitles(
+    pool: &SqlitePool,
+    limit: i64,
+) -> Result<Vec<(i64, String, String)>> {
+    let results: Vec<(i64, String, String)> = sqlx::query_as(
+        r"
+        SELECT a.id, sub.s3_key,
+               COALESCE(
+                   trans.s3_key,
+                   REPLACE(sub.s3_key, REPLACE(sub.s3_key, RTRIM(sub.s3_key, REPLACE(sub.s3_key, '/', '')), ''), 'subtitles/transcript.txt')
+               ) as transcript_key
+        FROM archives a
+        JOIN links l ON a.link_id = l.id
+        JOIN archive_artifacts sub ON a.id = sub.archive_id
+            AND sub.kind = 'subtitles' AND sub.s3_key LIKE '%.vtt'
+        LEFT JOIN archive_artifacts trans ON a.id = trans.archive_id
+            AND trans.kind = 'transcript'
+        WHERE l.domain IN ('youtube.com', 'youtu.be', 'www.youtube.com')
+          AND a.transcript_text IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM archive_artifacts marker
+            WHERE marker.archive_id = a.id AND marker.kind = 'vtt_dedup_done'
+          )
+        LIMIT ?
+        ",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("Failed to get YouTube archives with VTT subtitles")?;
+
+    Ok(results)
+}
+
 // ========== Archive Jobs ==========
 
 /// Create a new archive job.

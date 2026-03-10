@@ -1,7 +1,8 @@
 //! Integration tests for subtitle and transcript functionality.
 
 use discourse_link_archiver::archiver::transcript::{
-    build_transcript_from_file, generate_transcript, parse_srt, parse_vtt, SubtitleCue,
+    build_transcript_from_file, generate_transcript, parse_srt, parse_vtt, parse_vtt_content,
+    SubtitleCue,
 };
 use discourse_link_archiver::archiver::ytdlp::parse_subtitle_info;
 use discourse_link_archiver::db::{
@@ -341,6 +342,108 @@ async fn test_multiple_subtitle_artifacts() {
     assert_eq!(artifacts.len(), 3);
     assert!(artifacts.iter().all(|a| a.kind == "subtitles"));
     assert!(artifacts.iter().all(|a| a.metadata.is_some()));
+}
+
+#[tokio::test]
+async fn test_youtube_rolling_subtitle_deduplication() {
+    // Real YouTube rolling subtitle content (from sample VTT file)
+    let content = r#"WEBVTT
+Kind: captions
+Language: en
+
+00:00:04.799 --> 00:00:06.390 align:start position:0%
+
+We<00:00:05.040><c> have</c><00:00:05.200><c> to</c><00:00:05.359><c> dive</c><00:00:05.680><c> straight</c><00:00:05.920><c> in</c><00:00:06.080><c> with</c><00:00:06.240><c> our</c>
+
+00:00:06.390 --> 00:00:06.400 align:start position:0%
+We have to dive straight in with our
+
+00:00:06.400 --> 00:00:08.150 align:start position:0%
+We have to dive straight in with our
+main<00:00:06.720><c> story</c><00:00:06.879><c> this</c><00:00:07.120><c> week,</c><00:00:07.279><c> which</c><00:00:07.520><c> concerns</c>
+
+00:00:08.150 --> 00:00:08.160 align:start position:0%
+main story this week, which concerns
+
+00:00:08.160 --> 00:00:09.830 align:start position:0%
+main story this week, which concerns
+what's<00:00:08.480><c> been</c><00:00:08.639><c> happening</c><00:00:08.880><c> in</c><00:00:09.200><c> Minnesota.</c><00:00:09.679><c> From</c>
+
+00:00:09.830 --> 00:00:09.840 align:start position:0%
+what's been happening in Minnesota. From
+
+00:00:09.840 --> 00:00:11.589 align:start position:0%
+what's been happening in Minnesota. From
+the<00:00:10.000><c> surge</c><00:00:10.240><c> in</c><00:00:10.400><c> immigration</c><00:00:10.800><c> raids</c><00:00:11.200><c> to</c><00:00:11.360><c> the</c>
+
+00:00:11.589 --> 00:00:11.599 align:start position:0%
+the surge in immigration raids to the
+
+00:00:11.599 --> 00:00:13.749 align:start position:0%
+the surge in immigration raids to the
+killings<00:00:11.920><c> of</c><00:00:12.000><c> Renee</c><00:00:12.320><c> Good</c><00:00:12.559><c> and</c><00:00:12.719><c> Alex</c><00:00:12.960><c> Prey</c><00:00:13.519><c> to</c>
+
+00:00:13.749 --> 00:00:13.759 align:start position:0%
+killings of Renee Good and Alex Prey to
+
+00:00:13.759 --> 00:00:15.589 align:start position:0%
+killings of Renee Good and Alex Prey to
+the<00:00:14.000><c> massive</c><00:00:14.480><c> protests</c><00:00:14.880><c> in</c><00:00:15.040><c> the</c><00:00:15.200><c> streets.</c><00:00:15.440><c> And</c>
+
+00:00:15.589 --> 00:00:15.599 align:start position:0%
+the massive protests in the streets. And
+
+00:00:15.599 --> 00:00:17.269 align:start position:0%
+the massive protests in the streets. And
+to<00:00:15.759><c> be</c><00:00:15.839><c> clear,</c><00:00:16.640><c> for</c><00:00:16.880><c> all</c><00:00:17.039><c> this</c>
+
+00:00:17.269 --> 00:00:17.279 align:start position:0%
+to be clear, for all this
+
+00:00:17.279 --> 00:00:19.830 align:start position:0%
+to be clear, for all this
+administration's<00:00:18.000><c> talk</c><00:00:18.160><c> of</c><00:00:18.400><c> paid</c><00:00:18.720><c> agitators,</c>
+
+00:00:19.830 --> 00:00:19.840 align:start position:0%
+administration's talk of paid agitators,
+
+00:00:19.840 --> 00:00:22.230 align:start position:0%
+administration's talk of paid agitators,
+the<00:00:20.080><c> protests</c><00:00:20.640><c> there</c><00:00:21.039><c> came</c><00:00:21.199><c> from</c><00:00:21.439><c> justifiably</c>
+"#;
+
+    let cues = parse_vtt_content(content);
+
+    // 9 rolling cues, 8 snapshot cues → should get 9 cues (snapshots skipped)
+    assert_eq!(cues.len(), 9, "Expected 9 cues, got {}", cues.len());
+
+    // Generate transcript and verify no triplication
+    let transcript = generate_transcript(&cues);
+
+    // Each phrase should appear exactly once
+    // "We have to dive straight in with our" appears in rolling cue 1's tagged line
+    let count = transcript
+        .matches("We have to dive straight in with our")
+        .count();
+    assert_eq!(count, 1, "Expected 'We have to dive...' once, got {count}");
+
+    let count = transcript
+        .matches("main story this week, which concerns")
+        .count();
+    assert_eq!(count, 1, "Expected 'main story...' once, got {count}");
+
+    let count = transcript
+        .matches("what's been happening in Minnesota.")
+        .count();
+    assert_eq!(count, 1, "Expected 'Minnesota' once, got {count}");
+
+    let count = transcript
+        .matches("the surge in immigration raids to the")
+        .count();
+    assert_eq!(
+        count, 1,
+        "Expected 'surge in immigration...' once, got {count}"
+    );
 }
 
 #[tokio::test]

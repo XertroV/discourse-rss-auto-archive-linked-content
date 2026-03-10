@@ -246,6 +246,19 @@ async fn run() -> Result<()> {
     });
     info!("TikTok subtitle backfill worker started");
 
+    // Start YouTube VTT dedup backfill worker (runs once then exits)
+    let yt_dedup_db = db.clone();
+    let yt_dedup_s3 = s3_client.clone();
+    let yt_dedup_handle = tokio::spawn(async move {
+        discourse_link_archiver::db::backfill::run_youtube_vtt_dedup_backfill(
+            yt_dedup_db,
+            yt_dedup_s3,
+            discourse_link_archiver::db::backfill::YouTubeVttDedupConfig::default(),
+        )
+        .await;
+    });
+    info!("YouTube VTT dedup backfill worker started");
+
     // Start periodic yt-dlp/gallery-dl update loop
     let ytdlp_update_handle = tokio::spawn(async move {
         discourse_link_archiver::archiver::ytdlp::run_update_loop().await;
@@ -273,6 +286,7 @@ async fn run() -> Result<()> {
     comment_worker_handle.abort();
     backfill_handle.abort();
     tiktok_backfill_handle.abort();
+    yt_dedup_handle.abort();
     ytdlp_update_handle.abort();
     cleanup_handle.abort();
     if let Some(handle) = backup_handle {

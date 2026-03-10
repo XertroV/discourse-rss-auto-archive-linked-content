@@ -3,6 +3,7 @@
 //! This module provides background tasks for:
 //! - Populating `transcript_text` for existing archives with transcripts on S3
 //! - Downloading TikTok subtitles from meta.json for archives without subtitles
+//! - Regenerating YouTube transcripts to fix VTT rolling subtitle triplication
 
 use std::time::Duration;
 
@@ -11,7 +12,8 @@ use tracing::{debug, info, warn};
 
 use crate::db::{
     get_archives_needing_transcript_backfill, get_tiktok_archives_needing_subtitle_backfill,
-    insert_artifact, set_archive_transcript_text, Database,
+    get_youtube_archives_with_vtt_subtitles, insert_artifact, set_archive_transcript_text,
+    Database,
 };
 use crate::s3::S3Client;
 
@@ -369,4 +371,171 @@ async fn backfill_tiktok_subtitles(
     let _ = std::fs::remove_dir_all(&work_dir);
 
     Ok((count, true)) // Mark as attempted and we got subtitles!
+}
+
+// ========== YouTube VTT Dedup Backfill ==========
+
+/// Configuration for the YouTube VTT dedup backfill worker.
+pub struct YouTubeVttDedupConfig {
+    pub batch_size: i64,
+    pub item_delay: Duration,
+    pub batch_delay: Duration,
+}
+
+impl Default for YouTubeVttDedupConfig {
+    fn default() -> Self {
+        Self {
+            batch_size: 50,
+            item_delay: Duration::from_millis(100),
+            batch_delay: Duration::from_secs(1),
+        }
+    }
+}
+
+/// Run the YouTube VTT dedup backfill worker.
+///
+/// Re-parses YouTube VTT files with the deduplication logic to fix triplicated
+/// transcripts caused by rolling subtitles. Runs once at startup then exits.
+pub async fn run_youtube_vtt_dedup_backfill(
+    db: Database,
+    s3: S3Client,
+    config: YouTubeVttDedupConfig,
+) {
+    info!("Starting YouTube VTT dedup backfill worker");
+
+    let mut total_processed: u64 = 0;
+    let mut total_updated: u64 = 0;
+
+    loop {
+        let batch = match get_youtube_archives_with_vtt_subtitles(db.pool(), config.batch_size)
+            .await
+        {
+            Ok(batch) => batch,
+            Err(e) => {
+                warn!(error = %e, "Failed to get YouTube archives for VTT dedup, retrying in 1 minute");
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                continue;
+            }
+        };
+
+        if batch.is_empty() {
+            info!(
+                total_processed,
+                total_updated, "YouTube VTT dedup backfill complete - no more archives to process"
+            );
+            break;
+        }
+
+        let batch_len = batch.len();
+        let mut batch_updated = 0u64;
+
+        for (archive_id, vtt_s3_key, transcript_s3_key) in &batch {
+            match backfill_youtube_vtt_dedup(&db, &s3, *archive_id, vtt_s3_key, transcript_s3_key)
+                .await
+            {
+                Ok(true) => {
+                    batch_updated += 1;
+                    total_updated += 1;
+                }
+                Ok(false) => {
+                    debug!(archive_id, "VTT dedup: no significant change, marking done");
+                }
+                Err(e) => {
+                    warn!(archive_id, vtt_s3_key, error = %e, "Failed to dedup YouTube VTT");
+                }
+            }
+
+            // Mark as processed regardless of outcome
+            if let Err(e) = insert_artifact(
+                db.pool(),
+                *archive_id,
+                "vtt_dedup_done",
+                "none",
+                None,
+                None,
+                None,
+            )
+            .await
+            {
+                warn!(archive_id, error = %e, "Failed to insert vtt_dedup_done marker");
+            }
+
+            total_processed += 1;
+            tokio::time::sleep(config.item_delay).await;
+        }
+
+        info!(
+            batch_size = batch_len,
+            batch_updated, total_processed, total_updated, "Processed YouTube VTT dedup batch"
+        );
+
+        tokio::time::sleep(config.batch_delay).await;
+    }
+}
+
+/// Dedup a single YouTube archive's VTT transcript.
+///
+/// Returns `Ok(true)` if the transcript was updated (was triplicated),
+/// `Ok(false)` if no significant change.
+async fn backfill_youtube_vtt_dedup(
+    db: &Database,
+    s3: &S3Client,
+    archive_id: i64,
+    vtt_s3_key: &str,
+    transcript_s3_key: &str,
+) -> Result<bool> {
+    use crate::archiver::transcript::{generate_transcript, parse_vtt_content};
+
+    // Fetch VTT from S3
+    let response = s3.get_object(vtt_s3_key).await?;
+    let Some((bytes, _)) = response else {
+        debug!(archive_id, vtt_s3_key, "VTT file not found in S3");
+        return Ok(false);
+    };
+
+    let vtt_content = match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(e) => {
+            warn!(archive_id, vtt_s3_key, error = %e, "VTT is not valid UTF-8");
+            return Ok(false);
+        }
+    };
+
+    // Parse with dedup logic
+    let cues = parse_vtt_content(&vtt_content);
+    let new_transcript = generate_transcript(&cues);
+
+    if new_transcript.trim().is_empty() {
+        return Ok(false);
+    }
+
+    // Get existing transcript length from DB for comparison
+    let existing_len =
+        sqlx::query_scalar::<_, i64>("SELECT LENGTH(transcript_text) FROM archives WHERE id = ?")
+            .bind(archive_id)
+            .fetch_optional(db.pool())
+            .await?
+            .unwrap_or(0);
+
+    let new_len = new_transcript.len() as i64;
+
+    // Only update if new transcript is significantly shorter (< 60% of old = was triplicated)
+    if existing_len > 0 && new_len < (existing_len * 60 / 100) {
+        // Upload new transcript to S3
+        s3.upload_bytes(new_transcript.as_bytes(), transcript_s3_key, "text/plain")
+            .await?;
+
+        // Update DB
+        set_archive_transcript_text(db.pool(), archive_id, &new_transcript).await?;
+
+        info!(
+            archive_id,
+            old_len = existing_len,
+            new_len,
+            "Deduped YouTube transcript"
+        );
+        return Ok(true);
+    }
+
+    Ok(false)
 }
