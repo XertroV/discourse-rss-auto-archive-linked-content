@@ -343,6 +343,8 @@ pub fn render_admin_panel(params: &AdminPanelParams) -> Markup {
                     onclick="switchTab('subtitle-langs')" { "Subtitle Langs" }
                 button class=(if active_tab == "audit" { "active" } else { "" })
                     onclick="switchTab('audit')" { "Audit Log" }
+                button class=(if active_tab == "tools" { "active" } else { "" })
+                    onclick="switchTab('tools')" { "Tools" }
             }
 
             // Users tab
@@ -370,6 +372,33 @@ pub fn render_admin_panel(params: &AdminPanelParams) -> Markup {
             div id="tab-audit" class=(format!("tab-content {}", if active_tab == "audit" { "active" } else { "" })) {
                 (render_audit_table(params.audit_events, params.users))
             }
+
+            // Tools tab
+            div id="tab-tools" class=(format!("tab-content {}", if active_tab == "tools" { "active" } else { "" })) {
+                h3 class="admin-section-header" { "External Tool Updates" }
+
+                div class="tool-card" {
+                    h4 { "yt-dlp" }
+                    p { "Update yt-dlp to the latest version." }
+                    button class="btn btn-primary"
+                        data-stream-command="/admin/upgrade/ytdlp"
+                        data-stream-target="output-ytdlp"
+                        data-stream-label="Upgrade yt-dlp"
+                    { "Upgrade yt-dlp" }
+                    pre id="output-ytdlp" class="stream-output" {}
+                }
+
+                div class="tool-card" {
+                    h4 { "gallery-dl" }
+                    p { "Update gallery-dl to the latest version." }
+                    button class="btn btn-primary"
+                        data-stream-command="/admin/upgrade/gallery-dl"
+                        data-stream-target="output-gallery-dl"
+                        data-stream-label="Upgrade gallery-dl"
+                    { "Upgrade gallery-dl" }
+                    pre id="output-gallery-dl" class="stream-output" {}
+                }
+            }
         }
 
         // Tab switching JavaScript
@@ -395,6 +424,9 @@ pub fn render_admin_panel(params: &AdminPanelParams) -> Markup {
                 }
             "#))
         }
+
+        // Stream command JS (for tool upgrade buttons)
+        script src="/static/js/stream-command.js" {}
     };
 
     BaseLayout::new("Admin Panel", Some(params.current_user)).render(content)

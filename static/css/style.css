@@ -3242,6 +3242,38 @@ body.nsfw-hidden .carousel[data-nsfw="true"] {
     color: var(--error-text);
 }
 
+/* ==================== Streaming Command Output ==================== */
+
+.stream-output {
+    display: none;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    padding: var(--spacing-sm);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin-top: var(--spacing-sm);
+}
+
+.tool-card {
+    border: 1px solid var(--border);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.tool-card h4 {
+    margin: 0 0 var(--spacing-xs) 0;
+}
+
+.tool-card p {
+    margin: 0 0 var(--spacing-sm) 0;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
 /* ==================== NSFW Filtering ==================== */
 
 /* Archive card NSFW placeholder - hidden by default */

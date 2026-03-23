@@ -10,6 +10,7 @@ license = "MIT"
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time", "process", "fs"] }
 tokio-util = "0.7"
+async-stream = "0.3"
 
 # Web framework
 axum = { version = "0.7", features = ["macros"] }
