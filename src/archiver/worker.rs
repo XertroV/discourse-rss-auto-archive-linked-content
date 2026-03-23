@@ -932,8 +932,11 @@ async fn process_archive_inner(
     } else {
         None
     };
+    // True only for individual YouTube videos (not channels or playlists).
+    // Channels and playlists have no extractable video_id and are archived as web pages.
+    let is_youtube_video = video_id.is_some();
 
-    let primary_job_type = if is_youtube {
+    let primary_job_type = if is_youtube_video {
         ArchiveJobType::YtDlp
     } else {
         ArchiveJobType::FetchHtml
@@ -1883,7 +1886,7 @@ async fn process_archive_inner(
     // Capture screenshot if enabled (non-fatal if it fails)
     // Skip screenshots for direct PDF files - they're already archived
     let is_pdf = result.content_type == "pdf";
-    let skip_browser_captures = is_pdf || is_youtube;
+    let skip_browser_captures = is_pdf || is_youtube_video;
 
     if screenshot.is_enabled() && !skip_browser_captures {
         let screenshot_job = start_job(db.pool(), archive_id, ArchiveJobType::Screenshot).await;
@@ -1921,7 +1924,7 @@ async fn process_archive_inner(
                 fail_job(db.pool(), screenshot_job, &format!("{e:#}")).await;
             }
         }
-    } else if is_youtube && screenshot.is_enabled() {
+    } else if is_youtube_video && screenshot.is_enabled() {
         skip_job(
             db.pool(),
             archive_id,
@@ -1969,7 +1972,7 @@ async fn process_archive_inner(
                 fail_job(db.pool(), pdf_job, &format!("{e:#}")).await;
             }
         }
-    } else if is_youtube && screenshot.is_pdf_enabled() {
+    } else if is_youtube_video && screenshot.is_pdf_enabled() {
         skip_job(
             db.pool(),
             archive_id,
@@ -2017,7 +2020,7 @@ async fn process_archive_inner(
                 fail_job(db.pool(), mhtml_job, &format!("{e:#}")).await;
             }
         }
-    } else if is_youtube && screenshot.is_mhtml_enabled() {
+    } else if is_youtube_video && screenshot.is_mhtml_enabled() {
         skip_job(
             db.pool(),
             archive_id,
