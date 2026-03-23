@@ -16,7 +16,7 @@ use crate::db::{
     update_user_approval, update_user_profile, Database, LatestPostsResponse, NewLink,
     NewLinkOccurrence, NewPost,
 };
-use crate::handlers::normalize_url;
+use crate::handlers::{normalize_url, HANDLERS};
 use crate::rss::link_extractor::{extract_links, ExtractedLink};
 
 /// Regex to match the link_archive_account command at the start of text content.
@@ -267,8 +267,13 @@ async fn process_single_link(
     link: &ExtractedLink,
     forum_domain: Option<&str>,
 ) -> Result<()> {
-    // Normalize the URL
+    // Normalize the URL: generic first, then handler-specific (e.g. YouTube strips list=/index=).
     let normalized = normalize_url(&link.url);
+    let normalized = if let Some(handler) = HANDLERS.find_handler(&normalized) {
+        handler.normalize_url(&normalized)
+    } else {
+        normalized
+    };
     let domain = extract_domain(&normalized).unwrap_or_default();
 
     // Skip internal links and non-http URLs
