@@ -5,8 +5,9 @@ use async_trait::async_trait;
 use regex::Regex;
 use tracing::debug;
 
+use super::generic::GenericHandler;
 use super::traits::{ArchiveResult, SiteHandler};
-use crate::archiver::{playlist as playlist_archiver, ytdlp, CookieOptions};
+use crate::archiver::{ytdlp, CookieOptions};
 
 static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
     vec![
@@ -54,6 +55,16 @@ impl SiteHandler for YouTubeHandler {
         100
     }
 
+    fn normalize_url(&self, url: &str) -> String {
+        // For video URLs that include a playlist reference, strip the list= and index=
+        // parameters so the video is treated as an individual video (not playlist-scoped).
+        // This also ensures deduplication works correctly across URLs with/without list=.
+        if extract_video_id(url).is_some() {
+            return strip_playlist_params(url);
+        }
+        url.to_string()
+    }
+
     async fn archive(
         &self,
         url: &str,
@@ -61,32 +72,16 @@ impl SiteHandler for YouTubeHandler {
         cookies: &CookieOptions<'_>,
         config: &crate::config::Config,
     ) -> Result<ArchiveResult> {
-        // Check if this is a playlist URL
-        if is_playlist_url(url) {
-            if let Some(playlist_id) = extract_playlist_id(url) {
-                debug!(playlist_id = %playlist_id, "Extracted YouTube playlist ID, delegating to playlist archiver");
-                return playlist_archiver::archive_playlist(
-                    url,
-                    work_dir,
-                    cookies,
-                    config,
-                    &playlist_id,
-                )
+        // Channels and playlists are archived as normal web pages — no yt-dlp.
+        if is_channel_url(url) || is_playlist_url(url) {
+            debug!(url = %url, "YouTube channel/playlist URL, archiving as web page");
+            return GenericHandler::new()
+                .archive(url, work_dir, cookies, config)
                 .await;
-            }
         }
 
-        // Check if this is a video URL (has extractable video ID)
-        // Non-video URLs (channels, user pages) are still archived but without subtitle download
-        let is_video = extract_video_id(url).is_some();
-        let skip_subtitles = !is_video;
-
-        if skip_subtitles {
-            debug!(url = %url, "Non-video YouTube URL, skipping subtitle download");
-        }
-
-        let mut result =
-            ytdlp::download(url, work_dir, cookies, config, None, None, skip_subtitles).await?;
+        // Individual video URL — use yt-dlp.
+        let mut result = ytdlp::download(url, work_dir, cookies, config, None, None, false).await?;
 
         // Store video_id in metadata for predictable S3 path
         if let Some(video_id) = extract_video_id(url) {
@@ -95,6 +90,28 @@ impl SiteHandler for YouTubeHandler {
         }
 
         Ok(result)
+    }
+}
+
+/// Strip playlist-related query parameters (`list=` and `index=`) from a YouTube video URL.
+///
+/// When a video link includes a playlist context (e.g., `?v=abc&list=PLxyz&index=3`),
+/// the list/index params are dropped so the URL represents only the individual video.
+fn strip_playlist_params(url: &str) -> String {
+    let (base, query) = match url.split_once('?') {
+        Some((b, q)) => (b, q),
+        None => return url.to_string(),
+    };
+
+    let params: Vec<&str> = query
+        .split('&')
+        .filter(|p| !p.starts_with("list=") && !p.starts_with("index="))
+        .collect();
+
+    if params.is_empty() {
+        base.to_string()
+    } else {
+        format!("{}?{}", base, params.join("&"))
     }
 }
 
@@ -332,6 +349,71 @@ mod tests {
         assert_eq!(
             extract_playlist_id("https://www.youtube.com/watch?v=abc123"),
             None
+        );
+    }
+
+    #[test]
+    fn test_strip_playlist_params() {
+        // Video with list and index — both stripped
+        assert_eq!(
+            strip_playlist_params("https://www.youtube.com/watch?v=abc123&list=PLxyz&index=3"),
+            "https://www.youtube.com/watch?v=abc123"
+        );
+        // Video with only list — stripped
+        assert_eq!(
+            strip_playlist_params("https://www.youtube.com/watch?v=abc123&list=PLxyz"),
+            "https://www.youtube.com/watch?v=abc123"
+        );
+        // list= before v= — only list stripped
+        assert_eq!(
+            strip_playlist_params("https://www.youtube.com/watch?list=PLxyz&v=abc123"),
+            "https://www.youtube.com/watch?v=abc123"
+        );
+        // Video without playlist params — unchanged
+        assert_eq!(
+            strip_playlist_params("https://www.youtube.com/watch?v=abc123"),
+            "https://www.youtube.com/watch?v=abc123"
+        );
+        // No query string — unchanged
+        assert_eq!(
+            strip_playlist_params("https://www.youtube.com/watch"),
+            "https://www.youtube.com/watch"
+        );
+        // Extra params preserved
+        assert_eq!(
+            strip_playlist_params("https://www.youtube.com/watch?v=abc123&t=30s&list=PLxyz"),
+            "https://www.youtube.com/watch?v=abc123&t=30s"
+        );
+    }
+
+    #[test]
+    fn test_normalize_url_strips_list_for_videos() {
+        let handler = YouTubeHandler::new();
+
+        // Video with list= → list stripped
+        assert_eq!(
+            handler.normalize_url("https://www.youtube.com/watch?v=abc123&list=PLxyz"),
+            "https://www.youtube.com/watch?v=abc123"
+        );
+        // Shorts with list= → list stripped
+        assert_eq!(
+            handler.normalize_url("https://www.youtube.com/shorts/abc123?list=PLxyz"),
+            "https://www.youtube.com/shorts/abc123"
+        );
+        // Channel URL — no change
+        assert_eq!(
+            handler.normalize_url("https://www.youtube.com/@someuser"),
+            "https://www.youtube.com/@someuser"
+        );
+        // Playlist URL — no change
+        assert_eq!(
+            handler.normalize_url("https://www.youtube.com/playlist?list=PLxyz"),
+            "https://www.youtube.com/playlist?list=PLxyz"
+        );
+        // Plain video URL — no change
+        assert_eq!(
+            handler.normalize_url("https://www.youtube.com/watch?v=abc123"),
+            "https://www.youtube.com/watch?v=abc123"
         );
     }
 

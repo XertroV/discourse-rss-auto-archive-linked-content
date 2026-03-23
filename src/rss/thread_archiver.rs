@@ -18,7 +18,7 @@ use crate::db::{
     link_occurrence_exists, update_post, update_thread_archive_job_progress, Database,
     DiscoursePost, DiscoursePostsResponse, NewLink, NewLinkOccurrence, NewPost, ThreadArchiveJob,
 };
-use crate::handlers::normalize_url;
+use crate::handlers::{normalize_url, HANDLERS};
 use crate::rss::link_extractor::extract_links;
 
 /// Progress tracking for thread archive job.
@@ -387,8 +387,13 @@ async fn process_single_link(
     forum_domain: Option<&str>,
     post_date: Option<&str>,
 ) -> Result<LinkProcessResult> {
-    // Normalize the URL
+    // Normalize the URL: generic first, then handler-specific (e.g. YouTube strips list=/index=).
     let normalized = normalize_url(&link.url);
+    let normalized = if let Some(handler) = HANDLERS.find_handler(&normalized) {
+        handler.normalize_url(&normalized)
+    } else {
+        normalized
+    };
     let domain = extract_domain(&normalized).unwrap_or_default();
 
     // Skip internal links and non-http URLs
