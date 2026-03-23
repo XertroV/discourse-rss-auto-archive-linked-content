@@ -41,6 +41,8 @@ jobs:
       - name: Install mold linker
         run: sudo apt-get install -y mold
       - run: cargo build --release
+        env:
+          RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
 
   test:
     name: Test
@@ -52,6 +54,8 @@ jobs:
       - name: Install mold linker
         run: sudo apt-get install -y mold
       - run: cargo test --all-features
+        env:
+          RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
 
   # Build Docker image to verify Dockerfile works
   docker:
