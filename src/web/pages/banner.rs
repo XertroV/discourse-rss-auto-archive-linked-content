@@ -228,6 +228,12 @@ mod tests {
             og_extraction_attempted: false,
             transcript_text: None,
             full_text: None,
+            view_count: None,
+            like_count: None,
+            repost_count: None,
+            platform_comment_count: None,
+            save_count: None,
+            metrics_backfill_version: None,
         }
     }
 

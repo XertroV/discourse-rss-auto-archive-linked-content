@@ -910,80 +910,22 @@ async fn process_supplementary_artifacts_job(
             }
         };
 
-        // Fetch meta.json from S3
+        let s3_prefix = meta_key.trim_end_matches("meta.json").to_string();
+        let mut downloaded = false;
+
+        // First attempt: try stored meta.json from S3 (CDN URLs may still be valid)
         if let Ok(Some((meta_bytes, _))) = state.s3.get_object(&meta_key).await {
             if let Ok(meta_json) = String::from_utf8(meta_bytes) {
-                let subtitles = crate::handlers::tiktok::extract_subtitle_info(&meta_json);
-                if !subtitles.is_empty() {
-                    let languages: Vec<&str> =
-                        subtitles.iter().map(|s| s.language_code.as_str()).collect();
-                    let has_english = subtitles
-                        .iter()
-                        .any(|s| s.language_code.starts_with("eng-"));
-                    tracing::debug!(
-                        archive_id,
-                        count = subtitles.len(),
-                        languages = ?languages,
-                        has_english,
-                        "Found subtitles in TikTok meta.json"
-                    );
-
-                    // Download subtitles to work_dir (English only)
-                    match crate::handlers::tiktok::download_tiktok_subtitles(
-                        &subtitles, &work_dir, true,
-                    )
-                    .await
-                    {
-                        Ok(filenames) if !filenames.is_empty() => {
-                            use crate::archiver::worker::process_subtitle_files;
-                            // Derive s3_prefix from meta_key (strip "meta.json" suffix)
-                            let s3_prefix = meta_key.trim_end_matches("meta.json").to_string();
-                            process_subtitle_files(
-                                &state.db, &state.s3, archive_id, &filenames, &work_dir, &s3_prefix,
-                            )
-                            .await;
-
-                            tracing::info!(
-                                archive_id,
-                                count = filenames.len(),
-                                "Successfully fetched TikTok subtitle artifacts from meta.json"
-                            );
-
-                            // Clean up and mark job as completed
-                            let _ = std::fs::remove_dir_all(&work_dir);
-                            let metadata = serde_json::json!({
-                                "source": "tiktok_meta_json",
-                                "subtitle_count": filenames.len(),
-                            });
-                            let _ = set_job_completed(
-                                state.db.pool(),
-                                job_id,
-                                Some(&metadata.to_string()),
-                            )
-                            .await;
-                            return;
-                        }
-                        Ok(_) => {
-                            tracing::debug!(
-                                archive_id,
-                                has_english,
-                                "No TikTok subtitles downloaded (none matched language filter)"
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                archive_id,
-                                error = %e,
-                                "Failed to download TikTok subtitles from meta.json"
-                            );
-                        }
-                    }
-                } else {
-                    tracing::debug!(
-                        archive_id,
-                        "No subtitles field in TikTok meta.json or subtitles object is empty"
-                    );
-                }
+                downloaded = crate::archiver::worker::try_download_tiktok_subtitles_from_metadata(
+                    &state.db,
+                    &state.s3,
+                    archive_id,
+                    &meta_json,
+                    &work_dir,
+                    &s3_prefix,
+                    "stored meta.json",
+                )
+                .await;
             } else {
                 tracing::warn!(archive_id, "TikTok meta.json is not valid UTF-8");
             }
@@ -995,11 +937,47 @@ async fn process_supplementary_artifacts_job(
             );
         }
 
-        // Clean up and mark as completed (even if no subtitles found - TikTok doesn't support yt-dlp subtitles)
+        // Fallback: if stored CDN URLs were expired, re-fetch fresh metadata from TikTok
+        if !downloaded {
+            tracing::info!(
+                archive_id,
+                "Stored TikTok CDN URLs failed, re-fetching fresh metadata"
+            );
+            match crate::archiver::ytdlp::get_tiktok_metadata(&link.normalized_url, &cookies).await
+            {
+                Ok(meta) => {
+                    downloaded =
+                        crate::archiver::worker::try_download_tiktok_subtitles_from_metadata(
+                            &state.db,
+                            &state.s3,
+                            archive_id,
+                            &meta.json,
+                            &work_dir,
+                            &s3_prefix,
+                            "fresh metadata",
+                        )
+                        .await;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        archive_id,
+                        error = %e,
+                        "Failed to re-fetch fresh TikTok metadata for subtitle backfill"
+                    );
+                }
+            }
+        }
+
+        // Clean up and mark as completed
         let _ = std::fs::remove_dir_all(&work_dir);
+        let note = if downloaded {
+            "Subtitles downloaded successfully"
+        } else {
+            "No subtitles available in TikTok metadata"
+        };
         let metadata = serde_json::json!({
             "source": "tiktok_meta_json",
-            "note": "No subtitles available in TikTok metadata",
+            "note": note,
         });
         let _ = set_job_completed(state.db.pool(), job_id, Some(&metadata.to_string())).await;
         return;

@@ -11,11 +11,16 @@ use anyhow::Result;
 use tracing::{debug, info, warn};
 
 use crate::db::{
-    get_archives_needing_transcript_backfill, get_tiktok_archives_needing_subtitle_backfill,
-    get_youtube_archives_with_vtt_subtitles, insert_artifact, set_archive_transcript_text,
-    Database,
+    get_archives_needing_metrics_backfill, get_archives_needing_transcript_backfill,
+    get_tiktok_archives_needing_subtitle_backfill, get_youtube_archives_with_vtt_subtitles,
+    insert_artifact, set_archive_engagement_metrics, set_archive_transcript_text, Database,
+    EngagementMetrics,
 };
 use crate::s3::S3Client;
+
+/// Bump this version to force re-scanning metrics for all archives.
+/// You can also pass a domain filter to `run_metrics_backfill` to re-scan a specific source.
+pub const METRICS_BACKFILL_VERSION: i64 = 1;
 
 /// Configuration for the backfill worker.
 pub struct BackfillConfig {
@@ -471,6 +476,132 @@ pub async fn run_youtube_vtt_dedup_backfill(
 
         tokio::time::sleep(config.batch_delay).await;
     }
+}
+
+// ========== Engagement Metrics Backfill ==========
+
+/// Configuration for the metrics backfill worker.
+pub struct MetricsBackfillConfig {
+    /// Delay between processing each archive.
+    pub item_delay: Duration,
+    /// Optional domain filter (e.g., "tiktok.com" to only backfill TikTok).
+    pub domain_filter: Option<String>,
+}
+
+impl Default for MetricsBackfillConfig {
+    fn default() -> Self {
+        Self {
+            item_delay: Duration::from_millis(50),
+            domain_filter: None,
+        }
+    }
+}
+
+/// Run the engagement metrics backfill worker.
+///
+/// Fetches meta.json from S3 for archives missing engagement metrics,
+/// extracts view/like/repost/comment/save counts, and stores them in the DB.
+///
+/// Uses `METRICS_BACKFILL_VERSION` to track which version of the backfill
+/// has been applied. Bump the version constant to force a re-scan.
+pub async fn run_metrics_backfill(db: Database, s3: S3Client, config: MetricsBackfillConfig) {
+    info!(
+        version = METRICS_BACKFILL_VERSION,
+        domain_filter = ?config.domain_filter,
+        "Starting engagement metrics backfill"
+    );
+
+    let archives = match get_archives_needing_metrics_backfill(
+        db.pool(),
+        METRICS_BACKFILL_VERSION,
+        config.domain_filter.as_deref(),
+    )
+    .await
+    {
+        Ok(a) => a,
+        Err(e) => {
+            warn!(error = %e, "Failed to query archives needing metrics backfill");
+            return;
+        }
+    };
+
+    if archives.is_empty() {
+        info!("Engagement metrics backfill: nothing to do");
+        return;
+    }
+
+    let total = archives.len();
+    let mut success = 0u64;
+    let mut with_metrics = 0u64;
+
+    for (archive_id, meta_s3_key) in &archives {
+        match backfill_single_metrics(&db, &s3, *archive_id, meta_s3_key).await {
+            Ok(true) => {
+                success += 1;
+                with_metrics += 1;
+            }
+            Ok(false) => {
+                success += 1;
+            }
+            Err(e) => {
+                warn!(archive_id, error = %e, "Failed to backfill metrics");
+            }
+        }
+
+        tokio::time::sleep(config.item_delay).await;
+    }
+
+    info!(
+        total,
+        success,
+        with_metrics,
+        version = METRICS_BACKFILL_VERSION,
+        "Engagement metrics backfill complete"
+    );
+}
+
+/// Backfill metrics for a single archive. Returns true if metrics were found.
+async fn backfill_single_metrics(
+    db: &Database,
+    s3: &S3Client,
+    archive_id: i64,
+    meta_s3_key: &str,
+) -> Result<bool> {
+    let response = s3.get_object(meta_s3_key).await?;
+    let Some((bytes, _)) = response else {
+        // No meta.json, mark as backfilled with empty metrics
+        set_archive_engagement_metrics(
+            db.pool(),
+            archive_id,
+            &EngagementMetrics::default(),
+            Some(METRICS_BACKFILL_VERSION),
+        )
+        .await?;
+        return Ok(false);
+    };
+
+    let json_str = String::from_utf8(bytes).unwrap_or_default();
+    let metrics = EngagementMetrics::from_metadata_json(&json_str);
+    let has_metrics = metrics.has_any();
+
+    set_archive_engagement_metrics(
+        db.pool(),
+        archive_id,
+        &metrics,
+        Some(METRICS_BACKFILL_VERSION),
+    )
+    .await?;
+
+    if has_metrics {
+        debug!(
+            archive_id,
+            view_count = ?metrics.view_count,
+            like_count = ?metrics.like_count,
+            "Backfilled engagement metrics"
+        );
+    }
+
+    Ok(has_metrics)
 }
 
 /// Dedup a single YouTube archive's VTT transcript.

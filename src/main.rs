@@ -259,6 +259,19 @@ async fn run() -> Result<()> {
     });
     info!("YouTube VTT dedup backfill worker started");
 
+    // Start engagement metrics backfill worker (runs once then exits)
+    let metrics_backfill_db = db.clone();
+    let metrics_backfill_s3 = s3_client.clone();
+    let metrics_backfill_handle = tokio::spawn(async move {
+        discourse_link_archiver::db::backfill::run_metrics_backfill(
+            metrics_backfill_db,
+            metrics_backfill_s3,
+            discourse_link_archiver::db::backfill::MetricsBackfillConfig::default(),
+        )
+        .await;
+    });
+    info!("Engagement metrics backfill worker started");
+
     // Start periodic yt-dlp/gallery-dl update loop
     let ytdlp_update_handle = tokio::spawn(async move {
         discourse_link_archiver::archiver::ytdlp::run_update_loop().await;
@@ -287,6 +300,7 @@ async fn run() -> Result<()> {
     backfill_handle.abort();
     tiktok_backfill_handle.abort();
     yt_dedup_handle.abort();
+    metrics_backfill_handle.abort();
     ytdlp_update_handle.abort();
     cleanup_handle.abort();
     if let Some(handle) = backup_handle {

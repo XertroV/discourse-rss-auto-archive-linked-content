@@ -888,6 +888,20 @@ article > header {
     word-break: break-word;
 }
 
+.engagement-metrics {
+    margin-top: 0;
+}
+
+.engagement-metrics .metric-card {
+    text-align: center;
+}
+
+.engagement-metrics .info-value {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
 .archive-url-section {
     background-color: var(--bg-secondary);
     padding: var(--spacing-md);

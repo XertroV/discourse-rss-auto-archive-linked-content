@@ -575,6 +575,119 @@ pub async fn set_archive_complete(
     Ok(())
 }
 
+/// Engagement metrics extracted from platform metadata.
+#[derive(Debug, Clone, Default)]
+pub struct EngagementMetrics {
+    pub view_count: Option<i64>,
+    pub like_count: Option<i64>,
+    pub repost_count: Option<i64>,
+    pub comment_count: Option<i64>,
+    pub save_count: Option<i64>,
+}
+
+impl EngagementMetrics {
+    /// Returns true if any metric is present.
+    #[must_use]
+    pub fn has_any(&self) -> bool {
+        self.view_count.is_some()
+            || self.like_count.is_some()
+            || self.repost_count.is_some()
+            || self.comment_count.is_some()
+            || self.save_count.is_some()
+    }
+
+    /// Extract engagement metrics from yt-dlp / platform metadata JSON.
+    ///
+    /// Works for any platform that uses yt-dlp's standard field names:
+    /// `view_count`, `like_count`, `repost_count`, `comment_count`, `save_count`.
+    #[must_use]
+    pub fn from_metadata_json(json_str: &str) -> Self {
+        let json: serde_json::Value = match serde_json::from_str(json_str) {
+            Ok(v) => v,
+            Err(_) => return Self::default(),
+        };
+        Self {
+            view_count: json.get("view_count").and_then(|v| v.as_i64()),
+            like_count: json.get("like_count").and_then(|v| v.as_i64()),
+            repost_count: json.get("repost_count").and_then(|v| v.as_i64()),
+            comment_count: json.get("comment_count").and_then(|v| v.as_i64()),
+            save_count: json.get("save_count").and_then(|v| v.as_i64()),
+        }
+    }
+}
+
+/// Set engagement metrics for an archive.
+pub async fn set_archive_engagement_metrics(
+    pool: &SqlitePool,
+    id: i64,
+    metrics: &EngagementMetrics,
+    backfill_version: Option<i64>,
+) -> Result<()> {
+    sqlx::query(
+        r"UPDATE archives
+          SET view_count = ?, like_count = ?, repost_count = ?,
+              platform_comment_count = ?, save_count = ?,
+              metrics_backfill_version = COALESCE(?, metrics_backfill_version)
+          WHERE id = ?",
+    )
+    .bind(metrics.view_count)
+    .bind(metrics.like_count)
+    .bind(metrics.repost_count)
+    .bind(metrics.comment_count)
+    .bind(metrics.save_count)
+    .bind(backfill_version)
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Failed to set archive engagement metrics")?;
+
+    Ok(())
+}
+
+/// Get archive IDs that need metrics backfill.
+///
+/// Returns IDs of complete archives that have a metadata artifact but
+/// haven't been backfilled at the given version yet.
+/// If `domain_filter` is provided, only archives matching that domain are returned.
+pub async fn get_archives_needing_metrics_backfill(
+    pool: &SqlitePool,
+    backfill_version: i64,
+    domain_filter: Option<&str>,
+) -> Result<Vec<(i64, String)>> {
+    let rows: Vec<(i64, String)> = if let Some(domain) = domain_filter {
+        sqlx::query_as(
+            r"SELECT a.id, aa.s3_key
+              FROM archives a
+              JOIN archive_artifacts aa ON aa.archive_id = a.id AND aa.kind = 'metadata'
+              JOIN links l ON l.id = a.link_id
+              WHERE a.status = 'complete'
+                AND (a.metrics_backfill_version IS NULL OR a.metrics_backfill_version < ?)
+                AND l.domain LIKE ?
+              ORDER BY a.id",
+        )
+        .bind(backfill_version)
+        .bind(format!("%{domain}%"))
+        .fetch_all(pool)
+        .await
+        .context("Failed to query archives needing metrics backfill")?
+    } else {
+        sqlx::query_as(
+            r"SELECT a.id, aa.s3_key
+              FROM archives a
+              JOIN archive_artifacts aa ON aa.archive_id = a.id AND aa.kind = 'metadata'
+              WHERE a.status = 'complete'
+                AND (a.metrics_backfill_version IS NULL OR a.metrics_backfill_version < ?)
+              ORDER BY a.id",
+        )
+        .bind(backfill_version)
+        .fetch_all(pool)
+        .await
+        .context("Failed to query archives needing metrics backfill")?
+    };
+
+    Ok(rows)
+}
+
 /// Set the NSFW status for an archive.
 pub async fn set_archive_nsfw(
     pool: &SqlitePool,
@@ -5207,5 +5320,78 @@ mod tests {
         let (base, with_post) = build_post_url_patterns(":123");
         assert_eq!(base, "%:///t/%/123");
         assert_eq!(with_post, Some("%:///t/%/123/%".to_string()));
+    }
+
+    #[test]
+    fn test_engagement_metrics_from_tiktok_metadata() {
+        let json = r#"{
+            "id": "7616748909494291743",
+            "title": "Test video",
+            "view_count": 32700,
+            "like_count": 6219,
+            "repost_count": 611,
+            "comment_count": 83,
+            "save_count": 815
+        }"#;
+
+        let metrics = EngagementMetrics::from_metadata_json(json);
+        assert_eq!(metrics.view_count, Some(32700));
+        assert_eq!(metrics.like_count, Some(6219));
+        assert_eq!(metrics.repost_count, Some(611));
+        assert_eq!(metrics.comment_count, Some(83));
+        assert_eq!(metrics.save_count, Some(815));
+        assert!(metrics.has_any());
+    }
+
+    #[test]
+    fn test_engagement_metrics_from_youtube_metadata() {
+        let json = r#"{
+            "id": "dQw4w9WgXcQ",
+            "title": "Never Gonna Give You Up",
+            "view_count": 1500000000,
+            "like_count": 15000000,
+            "comment_count": 2500000
+        }"#;
+
+        let metrics = EngagementMetrics::from_metadata_json(json);
+        assert_eq!(metrics.view_count, Some(1_500_000_000));
+        assert_eq!(metrics.like_count, Some(15_000_000));
+        assert_eq!(metrics.comment_count, Some(2_500_000));
+        assert_eq!(metrics.repost_count, None);
+        assert_eq!(metrics.save_count, None);
+        assert!(metrics.has_any());
+    }
+
+    #[test]
+    fn test_engagement_metrics_from_empty_metadata() {
+        let json = r#"{"title": "No metrics here"}"#;
+        let metrics = EngagementMetrics::from_metadata_json(json);
+        assert!(!metrics.has_any());
+        assert_eq!(metrics.view_count, None);
+    }
+
+    #[test]
+    fn test_engagement_metrics_from_invalid_json() {
+        let metrics = EngagementMetrics::from_metadata_json("not json");
+        assert!(!metrics.has_any());
+    }
+
+    #[test]
+    fn test_engagement_metrics_from_real_tiktok_file() {
+        let json = std::fs::read_to_string("api-examples/tiktok_meta_video-405.json")
+            .expect("Failed to read test file");
+        let metrics = EngagementMetrics::from_metadata_json(&json);
+        assert!(
+            metrics.has_any(),
+            "Real TikTok metadata should have metrics"
+        );
+        assert!(
+            metrics.view_count.unwrap() > 0,
+            "Should have positive view count"
+        );
+        assert!(
+            metrics.like_count.unwrap() > 0,
+            "Should have positive like count"
+        );
     }
 }

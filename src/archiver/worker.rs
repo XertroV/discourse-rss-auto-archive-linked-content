@@ -253,66 +253,22 @@ impl ArchiveWorker {
                 }
             };
 
-            // Fetch meta.json from S3
+            let s3_prefix = meta_key.trim_end_matches("meta.json").to_string();
+            let mut downloaded = false;
+
+            // First attempt: try stored meta.json from S3 (CDN URLs may still be valid)
             if let Ok(Some((meta_bytes, _))) = self.s3.get_object(&meta_key).await {
                 if let Ok(meta_json) = String::from_utf8(meta_bytes) {
-                    let subtitles = crate::handlers::tiktok::extract_subtitle_info(&meta_json);
-                    if !subtitles.is_empty() {
-                        let languages: Vec<&str> =
-                            subtitles.iter().map(|s| s.language_code.as_str()).collect();
-                        let has_english = subtitles
-                            .iter()
-                            .any(|s| s.language_code.starts_with("eng-"));
-                        debug!(
-                            archive_id,
-                            count = subtitles.len(),
-                            languages = ?languages,
-                            has_english,
-                            "Found subtitles in TikTok meta.json"
-                        );
-
-                        // Download subtitles to work_dir (English only)
-                        match crate::handlers::tiktok::download_tiktok_subtitles(
-                            &subtitles, &work_dir, true,
-                        )
-                        .await
-                        {
-                            Ok(filenames) if !filenames.is_empty() => {
-                                // Derive s3_prefix from meta_key (strip "meta.json" suffix)
-                                let s3_prefix = meta_key.trim_end_matches("meta.json").to_string();
-                                process_subtitle_files(
-                                    &self.db, &self.s3, archive_id, &filenames, &work_dir,
-                                    &s3_prefix,
-                                )
-                                .await;
-
-                                info!(
-                                    archive_id,
-                                    count = filenames.len(),
-                                    "Successfully fetched TikTok subtitle artifacts from meta.json"
-                                );
-                            }
-                            Ok(_) => {
-                                debug!(
-                                    archive_id,
-                                    has_english,
-                                    "No TikTok subtitles downloaded (none matched language filter)"
-                                );
-                            }
-                            Err(e) => {
-                                warn!(
-                                    archive_id,
-                                    error = %e,
-                                    "Failed to download TikTok subtitles from meta.json"
-                                );
-                            }
-                        }
-                    } else {
-                        debug!(
-                            archive_id,
-                            "No subtitles field in TikTok meta.json or subtitles object is empty"
-                        );
-                    }
+                    downloaded = try_download_tiktok_subtitles_from_metadata(
+                        &self.db,
+                        &self.s3,
+                        archive_id,
+                        &meta_json,
+                        &work_dir,
+                        &s3_prefix,
+                        "stored meta.json",
+                    )
+                    .await;
                 } else {
                     warn!(archive_id, "TikTok meta.json is not valid UTF-8");
                 }
@@ -321,6 +277,41 @@ impl ArchiveWorker {
                     archive_id,
                     meta_key, "meta.json not found in S3 for TikTok archive"
                 );
+            }
+
+            // Fallback: if stored CDN URLs were expired, re-fetch fresh metadata from TikTok
+            if !downloaded {
+                info!(
+                    archive_id,
+                    "Stored TikTok CDN URLs failed, re-fetching fresh metadata"
+                );
+                match super::ytdlp::get_tiktok_metadata(&link.normalized_url, &cookies).await {
+                    Ok(meta) => {
+                        downloaded = try_download_tiktok_subtitles_from_metadata(
+                            &self.db,
+                            &self.s3,
+                            archive_id,
+                            &meta.json,
+                            &work_dir,
+                            &s3_prefix,
+                            "fresh metadata",
+                        )
+                        .await;
+                        if !downloaded {
+                            debug!(
+                                archive_id,
+                                "No subtitles found in fresh TikTok metadata either"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            archive_id,
+                            error = %e,
+                            "Failed to re-fetch fresh TikTok metadata for subtitle backfill"
+                        );
+                    }
+                }
             }
 
             // Clean up work directory
@@ -2080,6 +2071,23 @@ async fn process_archive_inner(
     )
     .await?;
 
+    // Extract and store engagement metrics from metadata (views, likes, etc.)
+    if let Some(ref metadata_json) = result.metadata_json {
+        let metrics = crate::db::EngagementMetrics::from_metadata_json(metadata_json);
+        if metrics.has_any() {
+            if let Err(e) = crate::db::set_archive_engagement_metrics(
+                db.pool(),
+                archive_id,
+                &metrics,
+                Some(crate::db::backfill::METRICS_BACKFILL_VERSION),
+            )
+            .await
+            {
+                warn!(archive_id, error = %e, "Failed to store engagement metrics");
+            }
+        }
+    }
+
     // Queue comment extraction job if this is a comments-supported platform
     // Skip comment extraction for playlists and YouTube channels (they have no individual video comments)
     let is_playlist = result.content_type == "playlist";
@@ -2340,6 +2348,75 @@ async fn compute_perceptual_hash(path: &Path) -> Result<String> {
 /// Check if a file is a duplicate of an existing artifact.
 ///
 /// Returns the original artifact if a duplicate is found, or None if unique.
+
+/// Try to download TikTok subtitles from metadata JSON and process them.
+///
+/// Returns `true` if at least one subtitle was successfully downloaded and processed.
+pub async fn try_download_tiktok_subtitles_from_metadata(
+    db: &Database,
+    s3: &S3Client,
+    archive_id: i64,
+    meta_json: &str,
+    work_dir: &Path,
+    s3_prefix: &str,
+    source: &str,
+) -> bool {
+    let subtitles = crate::handlers::tiktok::extract_subtitle_info(meta_json);
+    if subtitles.is_empty() {
+        debug!(
+            archive_id,
+            source, "No subtitles field in TikTok metadata or subtitles object is empty"
+        );
+        return false;
+    }
+
+    let languages: Vec<&str> = subtitles.iter().map(|s| s.language_code.as_str()).collect();
+    let has_english = subtitles
+        .iter()
+        .any(|s| s.language_code.starts_with("eng-"));
+    debug!(
+        archive_id,
+        count = subtitles.len(),
+        languages = ?languages,
+        has_english,
+        source,
+        "Found subtitles in TikTok metadata"
+    );
+
+    // Download subtitles to work_dir (English only)
+    match crate::handlers::tiktok::download_tiktok_subtitles(&subtitles, work_dir, true).await {
+        Ok(filenames) if !filenames.is_empty() => {
+            process_subtitle_files(db, s3, archive_id, &filenames, work_dir, s3_prefix).await;
+
+            info!(
+                archive_id,
+                count = filenames.len(),
+                source,
+                "Successfully fetched TikTok subtitle artifacts"
+            );
+            true
+        }
+        Ok(_) => {
+            debug!(
+                archive_id,
+                has_english,
+                source,
+                "No TikTok subtitles downloaded (none matched language filter or CDN URLs expired)"
+            );
+            false
+        }
+        Err(e) => {
+            warn!(
+                archive_id,
+                error = %e,
+                source,
+                "Failed to download TikTok subtitles"
+            );
+            false
+        }
+    }
+}
+
 /// Process subtitle files: upload them with metadata and generate a transcript.
 ///
 /// This function uploads each subtitle file to S3, records artifacts in the database,
