@@ -1366,12 +1366,24 @@ pub async fn admin_delete_subtitle_language(
 pub async fn admin_upgrade_ytdlp(RequireAdmin(_admin): RequireAdmin) -> impl IntoResponse {
     let mut cmd = tokio::process::Command::new("yt-dlp");
     cmd.arg("-U");
-    stream_command::stream_command(cmd)
+    (
+        [(
+            header::HeaderName::from_static("x-accel-buffering"),
+            header::HeaderValue::from_static("no"),
+        )],
+        stream_command::stream_command(cmd),
+    )
 }
 
 /// SSE endpoint: runs `gallery-dl --update` and streams output.
 pub async fn admin_upgrade_gallery_dl(RequireAdmin(_admin): RequireAdmin) -> impl IntoResponse {
     let mut cmd = tokio::process::Command::new("gallery-dl");
     cmd.arg("--update");
-    stream_command::stream_command(cmd)
+    (
+        [(
+            header::HeaderName::from_static("x-accel-buffering"),
+            header::HeaderValue::from_static("no"),
+        )],
+        stream_command::stream_command(cmd),
+    )
 }

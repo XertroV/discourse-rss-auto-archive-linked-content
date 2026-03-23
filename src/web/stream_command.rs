@@ -3,10 +3,48 @@
 //! Provides a helper that spawns a [`tokio::process::Command`], pipes its
 //! stdout/stderr back as Server-Sent Events, and emits a final "done" event
 //! with the exit status.
+//!
+//! # Adding a new streaming command
+//!
+//! 1. **Add a handler** in `src/web/auth.rs`:
+//!    ```rust,ignore
+//!    pub async fn admin_upgrade_foo(RequireAdmin(_): RequireAdmin) -> impl IntoResponse {
+//!        let mut cmd = tokio::process::Command::new("foo");
+//!        cmd.arg("--update");
+//!        (
+//!            [(header::HeaderName::from_static("x-accel-buffering"),
+//!              header::HeaderValue::from_static("no"))],
+//!            stream_command::stream_command(cmd),
+//!        )
+//!    }
+//!    ```
+//!
+//! 2. **Register the route** in `src/web/routes.rs`:
+//!    ```rust,ignore
+//!    .route("/admin/upgrade/foo", get(auth::admin_upgrade_foo))
+//!    ```
+//!
+//! 3. **Add a button** in `src/web/pages/admin.rs` inside the Tools tab:
+//!    ```rust,ignore
+//!    div class="tool-card" {
+//!        h4 { "foo" }
+//!        p { "Update foo." }
+//!        button class="btn btn-primary"
+//!            data-stream-command="/admin/upgrade/foo"
+//!            data-stream-target="output-foo"
+//!            data-stream-label="Upgrade foo"
+//!        { "Upgrade foo" }
+//!        pre id="output-foo" class="stream-output" {}
+//!    }
+//!    ```
+//!
+//! The JS in `static/js/stream-command.js` auto-wires any button with
+//! `data-stream-command` / `data-stream-target` attributes. No new JS needed.
 
 use std::convert::Infallible;
+use std::time::Duration;
 
-use axum::response::sse::{Event, Sse};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use futures_util::stream::Stream;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -99,5 +137,5 @@ pub fn stream_command(mut cmd: Command) -> Sse<impl Stream<Item = Result<Event, 
         yield Ok(Event::default().event("done").data(done_data));
     };
 
-    Sse::new(stream)
+    Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
