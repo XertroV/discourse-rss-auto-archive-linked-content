@@ -105,6 +105,11 @@ pub fn router() -> Router<AppState> {
             "/admin/subtitle-language/delete",
             post(auth::admin_delete_subtitle_language),
         )
+        .route("/admin/upgrade/ytdlp", get(auth::admin_upgrade_ytdlp))
+        .route(
+            "/admin/upgrade/gallery-dl",
+            get(auth::admin_upgrade_gallery_dl),
+        )
         .route("/archives/failed", get(recent_failed_archives))
         .route("/archives/all", get(recent_all_archives))
         .route("/search", get(search))

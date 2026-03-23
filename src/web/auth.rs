@@ -14,7 +14,7 @@ use crate::auth::{
     SessionDuration,
 };
 use crate::db as queries;
-use crate::web::{pages, AppState};
+use crate::web::{pages, stream_command, AppState};
 
 /// Login form data.
 #[derive(Debug, Deserialize)]
@@ -1360,4 +1360,18 @@ pub async fn admin_delete_subtitle_language(
                 .into_response()
         }
     }
+}
+
+/// SSE endpoint: runs `yt-dlp -U` and streams output.
+pub async fn admin_upgrade_ytdlp(RequireAdmin(_admin): RequireAdmin) -> impl IntoResponse {
+    let mut cmd = tokio::process::Command::new("yt-dlp");
+    cmd.arg("-U");
+    stream_command::stream_command(cmd)
+}
+
+/// SSE endpoint: runs `gallery-dl --update` and streams output.
+pub async fn admin_upgrade_gallery_dl(RequireAdmin(_admin): RequireAdmin) -> impl IntoResponse {
+    let mut cmd = tokio::process::Command::new("gallery-dl");
+    cmd.arg("--update");
+    stream_command::stream_command(cmd)
 }

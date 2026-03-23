@@ -5,6 +5,7 @@ mod feeds;
 pub mod pages;
 mod routes;
 mod stats_cache;
+pub mod stream_command;
 
 // Re-export StatsCache for tests
 pub use stats_cache::StatsCache;
