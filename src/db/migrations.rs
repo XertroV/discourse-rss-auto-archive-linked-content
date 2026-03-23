@@ -169,6 +169,12 @@ pub async fn run(pool: &SqlitePool) -> Result<()> {
         set_schema_version(pool, 27).await?;
     }
 
+    if current_version < 28 {
+        debug!("Running migration v28");
+        run_migration_v28(pool).await?;
+        set_schema_version(pool, 28).await?;
+    }
+
     Ok(())
 }
 
@@ -1489,6 +1495,44 @@ async fn run_migration_v27(pool: &SqlitePool) -> Result<()> {
         .execute(pool)
         .await
         .context("Failed to rebuild FTS index")?;
+
+    Ok(())
+}
+
+async fn run_migration_v28(pool: &SqlitePool) -> Result<()> {
+    debug!("Running migration v28: adding engagement metric columns to archives");
+
+    sqlx::query("ALTER TABLE archives ADD COLUMN view_count INTEGER")
+        .execute(pool)
+        .await
+        .context("Failed to add view_count column")?;
+
+    sqlx::query("ALTER TABLE archives ADD COLUMN like_count INTEGER")
+        .execute(pool)
+        .await
+        .context("Failed to add like_count column")?;
+
+    sqlx::query("ALTER TABLE archives ADD COLUMN repost_count INTEGER")
+        .execute(pool)
+        .await
+        .context("Failed to add repost_count column")?;
+
+    sqlx::query("ALTER TABLE archives ADD COLUMN platform_comment_count INTEGER")
+        .execute(pool)
+        .await
+        .context("Failed to add platform_comment_count column")?;
+
+    sqlx::query("ALTER TABLE archives ADD COLUMN save_count INTEGER")
+        .execute(pool)
+        .await
+        .context("Failed to add save_count column")?;
+
+    // Track which version of the metrics backfill has been applied.
+    // Allows re-scanning by bumping the version in code.
+    sqlx::query("ALTER TABLE archives ADD COLUMN metrics_backfill_version INTEGER")
+        .execute(pool)
+        .await
+        .context("Failed to add metrics_backfill_version column")?;
 
     Ok(())
 }

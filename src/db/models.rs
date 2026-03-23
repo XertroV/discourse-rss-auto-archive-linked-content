@@ -169,6 +169,18 @@ pub struct Archive {
     pub transcript_text: Option<String>,
     /// Full extracted page text (no truncation, for full-text search).
     pub full_text: Option<String>,
+    /// Number of views on the original platform (from metadata).
+    pub view_count: Option<i64>,
+    /// Number of likes on the original platform (from metadata).
+    pub like_count: Option<i64>,
+    /// Number of reposts/shares on the original platform (from metadata).
+    pub repost_count: Option<i64>,
+    /// Number of comments on the original platform (from metadata).
+    pub platform_comment_count: Option<i64>,
+    /// Number of saves/bookmarks on the original platform (from metadata).
+    pub save_count: Option<i64>,
+    /// Tracks which backfill version has been applied to this row.
+    pub metrics_backfill_version: Option<i64>,
 }
 
 impl Archive {

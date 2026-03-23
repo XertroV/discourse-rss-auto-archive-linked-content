@@ -100,6 +100,36 @@ impl SiteHandler for TikTokHandler {
             }
         };
 
+        // Download subtitles BEFORE the video download.
+        // TikTok CDN URLs are time-limited and expire within minutes.
+        // If we wait until after the video download, the subtitle URLs will be dead.
+        let mut pre_downloaded_subtitles = Vec::new();
+        if let Some(ref meta) = metadata {
+            if meta.format == ytdlp::TikTokContentFormat::Video {
+                let subtitles = extract_subtitle_info(&meta.json);
+                if !subtitles.is_empty() {
+                    debug!(
+                        count = subtitles.len(),
+                        "Downloading TikTok subtitles before video (CDN URLs expire quickly)"
+                    );
+                    match download_tiktok_subtitles(&subtitles, work_dir, true).await {
+                        Ok(filenames) => {
+                            for filename in &filenames {
+                                debug!(filename = %filename, "Pre-downloaded TikTok subtitle");
+                            }
+                            pre_downloaded_subtitles = filenames;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = %e,
+                                "Failed to pre-download TikTok subtitles (non-fatal)"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         // Route to appropriate tool based on detected format
         let mut result = match metadata {
             Some(ref meta) if meta.format == ytdlp::TikTokContentFormat::PhotoSlideshow => {
@@ -144,6 +174,13 @@ impl SiteHandler for TikTokHandler {
             }
         };
 
+        // Add pre-downloaded subtitle files to result
+        for filename in pre_downloaded_subtitles {
+            if !result.extra_files.contains(&filename) {
+                result.extra_files.push(filename);
+            }
+        }
+
         // Save pre-flight metadata if we have it
         if let Some(ref meta) = metadata {
             let metadata_filename = ytdlp::save_metadata_to_file(work_dir, &meta.json).await?;
@@ -173,33 +210,6 @@ impl SiteHandler for TikTokHandler {
                             music_url = %music_url,
                             "Failed to download TikTok music (non-fatal)"
                         );
-                    }
-                }
-            }
-
-            // Download TikTok subtitles if present (best-effort, non-fatal)
-            // Only download for videos, not photo slideshows
-            if meta.format == ytdlp::TikTokContentFormat::Video {
-                let subtitles = extract_subtitle_info(&meta.json);
-                if !subtitles.is_empty() {
-                    debug!(
-                        count = subtitles.len(),
-                        "Found TikTok subtitles in metadata"
-                    );
-                    match download_tiktok_subtitles(&subtitles, work_dir, true).await {
-                        Ok(filenames) => {
-                            for filename in filenames {
-                                debug!(filename = %filename, "Downloaded TikTok subtitle");
-                                result.extra_files.push(filename);
-                            }
-                        }
-                        Err(e) => {
-                            // Non-fatal: subtitles are supplementary content
-                            tracing::warn!(
-                                error = %e,
-                                "Failed to download TikTok subtitles (non-fatal)"
-                            );
-                        }
                     }
                 }
             }

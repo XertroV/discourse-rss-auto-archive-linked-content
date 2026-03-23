@@ -647,4 +647,113 @@ video.<00:00:02.720><c> A</c><00:00:02.960><c> few</c>
         assert!(cues[0].text.contains("A"));
         assert!(!cues[0].text.contains("PayPal"));
     }
+
+    #[test]
+    fn test_parse_vtt_content_tiktok_format() {
+        // TikTok VTT format: simple timestamps without rolling/inline tags
+        let content = r#"WEBVTT
+
+00:00:00.000 --> 00:00:03.500
+On being a woman in corporate America,
+
+00:00:03.500 --> 00:00:07.200
+the gender pay gap and more.
+
+00:00:07.200 --> 00:00:11.800
+I've been working in corporate for about 15 years now
+
+00:00:11.800 --> 00:00:15.300
+and one thing I can tell you is that
+
+00:00:15.300 --> 00:00:19.500
+the pay gap is absolutely real.
+"#;
+
+        let cues = parse_vtt_content(content);
+        assert_eq!(cues.len(), 5, "Expected 5 cues from TikTok VTT");
+        assert_eq!(cues[0].text, "On being a woman in corporate America,");
+        assert_eq!(cues[1].text, "the gender pay gap and more.");
+        assert_eq!(
+            cues[2].text,
+            "I've been working in corporate for about 15 years now"
+        );
+        assert!((cues[0].start_time - 0.0).abs() < 0.001);
+        assert!((cues[0].end_time - 3.5).abs() < 0.001);
+        assert!((cues[4].start_time - 15.3).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_generate_transcript_tiktok() {
+        // Test transcript generation from TikTok-style cues
+        let content = r#"WEBVTT
+
+00:00:00.000 --> 00:00:03.500
+On being a woman in corporate America,
+
+00:00:03.500 --> 00:00:07.200
+the gender pay gap and more.
+
+00:00:07.200 --> 00:00:11.800
+I've been working in corporate for about 15 years now
+
+00:00:33.200 --> 00:00:37.800
+well, he negotiated better.
+
+00:01:05.000 --> 00:01:10.000
+Know your worth and don't let anyone tell you otherwise.
+"#;
+
+        let cues = parse_vtt_content(content);
+        let transcript = generate_transcript(&cues);
+
+        // Should have timestamps at 0:00, 0:33, and 1:05 (every 30s or new group)
+        assert!(transcript.contains("[0:00]"), "Should have 0:00 timestamp");
+        assert!(
+            transcript.contains("[0:33]"),
+            "Should have 0:33 timestamp for 33s gap"
+        );
+        assert!(
+            transcript.contains("[1:05]"),
+            "Should have 1:05 timestamp for 65s gap"
+        );
+        assert!(transcript.contains("On being a woman"));
+        assert!(transcript.contains("negotiated better"));
+        assert!(transcript.contains("Know your worth"));
+    }
+
+    #[tokio::test]
+    async fn test_build_transcript_from_tiktok_vtt_fixture() {
+        // Regression test: ensure TikTok VTT files produce valid transcripts
+        let fixture_path = std::path::Path::new("tests/fixtures/tiktok_sample.vtt");
+        if !fixture_path.exists() {
+            // Skip if fixture not available (CI environments)
+            return;
+        }
+
+        let transcript = build_transcript_from_file(fixture_path).await.unwrap();
+
+        assert!(!transcript.is_empty(), "Transcript should not be empty");
+        assert!(
+            transcript.contains("corporate America"),
+            "Should contain subtitle text"
+        );
+        assert!(
+            transcript.contains("pay gap"),
+            "Should contain subtitle text"
+        );
+        assert!(
+            transcript.contains("[0:00]"),
+            "Should have opening timestamp"
+        );
+        // With 56.2s total duration and 30s intervals, we should have at least 2 timestamps
+        // The second timestamp appears at the first cue >= 30s after the last timestamp
+        assert!(
+            transcript.contains("[0:33]")
+                || transcript.contains("[0:42]")
+                || transcript.contains("[0:37]")
+                || transcript.contains("[0:47]"),
+            "Should have a second timestamp for later cues. Transcript: {}",
+            transcript
+        );
+    }
 }

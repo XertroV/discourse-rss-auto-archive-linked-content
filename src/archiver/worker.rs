@@ -2080,6 +2080,23 @@ async fn process_archive_inner(
     )
     .await?;
 
+    // Extract and store engagement metrics from metadata (views, likes, etc.)
+    if let Some(ref metadata_json) = result.metadata_json {
+        let metrics = crate::db::EngagementMetrics::from_metadata_json(metadata_json);
+        if metrics.has_any() {
+            if let Err(e) = crate::db::set_archive_engagement_metrics(
+                db.pool(),
+                archive_id,
+                &metrics,
+                Some(crate::db::backfill::METRICS_BACKFILL_VERSION),
+            )
+            .await
+            {
+                warn!(archive_id, error = %e, "Failed to store engagement metrics");
+            }
+        }
+    }
+
     // Queue comment extraction job if this is a comments-supported platform
     // Skip comment extraction for playlists and YouTube channels (they have no individual video comments)
     let is_playlist = result.content_type == "playlist";

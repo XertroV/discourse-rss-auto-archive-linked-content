@@ -212,6 +212,42 @@ fn render_archive_header(archive: &Archive, link: &Link) -> Markup {
             }
         }
 
+        // Engagement metrics row (if any metrics are present)
+        @if has_engagement_metrics(archive) {
+            div class="archive-header-grid engagement-metrics" {
+                @if let Some(views) = archive.view_count {
+                    div class="archive-info-card metric-card" {
+                        div class="info-label" { "Views" }
+                        div class="info-value" { (format_metric(views)) }
+                    }
+                }
+                @if let Some(likes) = archive.like_count {
+                    div class="archive-info-card metric-card" {
+                        div class="info-label" { "Likes" }
+                        div class="info-value" { (format_metric(likes)) }
+                    }
+                }
+                @if let Some(reposts) = archive.repost_count {
+                    div class="archive-info-card metric-card" {
+                        div class="info-label" { "Reposts" }
+                        div class="info-value" { (format_metric(reposts)) }
+                    }
+                }
+                @if let Some(comments) = archive.platform_comment_count {
+                    div class="archive-info-card metric-card" {
+                        div class="info-label" { "Comments" }
+                        div class="info-value" { (format_metric(comments)) }
+                    }
+                }
+                @if let Some(saves) = archive.save_count {
+                    div class="archive-info-card metric-card" {
+                        div class="info-label" { "Saves" }
+                        div class="info-value" { (format_metric(saves)) }
+                    }
+                }
+            }
+        }
+
         // Original URL - full width below the cards
         div class="archive-url-section" {
             div class="info-label" { "Original URL" }
@@ -221,6 +257,30 @@ fn render_archive_header(archive: &Archive, link: &Link) -> Markup {
                 }
             }
         }
+    }
+}
+
+/// Check if any engagement metrics are present.
+fn has_engagement_metrics(archive: &Archive) -> bool {
+    archive.view_count.is_some()
+        || archive.like_count.is_some()
+        || archive.repost_count.is_some()
+        || archive.platform_comment_count.is_some()
+        || archive.save_count.is_some()
+}
+
+/// Format a metric number for display (e.g., 32700 -> "32.7K", 1500000 -> "1.5M").
+fn format_metric(value: i64) -> String {
+    if value >= 1_000_000_000 {
+        format!("{:.1}B", value as f64 / 1_000_000_000.0)
+    } else if value >= 1_000_000 {
+        format!("{:.1}M", value as f64 / 1_000_000.0)
+    } else if value >= 10_000 {
+        format!("{:.1}K", value as f64 / 1_000.0)
+    } else if value >= 1_000 {
+        format!("{:.2}K", value as f64 / 1_000.0)
+    } else {
+        value.to_string()
     }
 }
 
@@ -2227,6 +2287,12 @@ mod tests {
             og_extraction_attempted: false,
             transcript_text: None,
             full_text: None,
+            view_count: None,
+            like_count: None,
+            repost_count: None,
+            platform_comment_count: None,
+            save_count: None,
+            metrics_backfill_version: None,
         }
     }
 
@@ -2720,5 +2786,69 @@ Don't forget to like and share!
         assert!(html.contains("Main Content"));
         assert!(html.contains("seekVideo(0)"));
         assert!(html.contains("seekVideo(120)"));
+    }
+
+    #[test]
+    fn test_format_metric() {
+        assert_eq!(format_metric(0), "0");
+        assert_eq!(format_metric(999), "999");
+        assert_eq!(format_metric(1000), "1.00K");
+        assert_eq!(format_metric(1500), "1.50K");
+        assert_eq!(format_metric(6219), "6.22K");
+        assert_eq!(format_metric(10000), "10.0K");
+        assert_eq!(format_metric(32700), "32.7K");
+        assert_eq!(format_metric(1000000), "1.0M");
+        assert_eq!(format_metric(1500000), "1.5M");
+        assert_eq!(format_metric(1500000000), "1.5B");
+    }
+
+    #[test]
+    fn test_has_engagement_metrics() {
+        let archive = sample_archive();
+        assert!(!has_engagement_metrics(&archive));
+
+        let mut archive_with_views = sample_archive();
+        archive_with_views.view_count = Some(1000);
+        assert!(has_engagement_metrics(&archive_with_views));
+    }
+
+    #[test]
+    fn test_render_engagement_metrics_in_header() {
+        let mut archive = sample_archive();
+        archive.view_count = Some(32700);
+        archive.like_count = Some(6219);
+        archive.repost_count = Some(611);
+        archive.platform_comment_count = Some(83);
+        archive.save_count = Some(815);
+
+        let link = sample_link();
+        let html = render_archive_header(&archive, &link).into_string();
+
+        assert!(html.contains("Views"), "Should show Views label");
+        assert!(html.contains("32.7K"), "Should format view count");
+        assert!(html.contains("Likes"), "Should show Likes label");
+        assert!(html.contains("6.22K"), "Should format like count");
+        assert!(html.contains("Reposts"), "Should show Reposts label");
+        assert!(html.contains("611"), "Should show repost count");
+        assert!(html.contains("Comments"), "Should show Comments label");
+        assert!(html.contains("83"), "Should show comment count");
+        assert!(html.contains("Saves"), "Should show Saves label");
+        assert!(html.contains("815"), "Should show save count");
+        assert!(
+            html.contains("engagement-metrics"),
+            "Should have metrics CSS class"
+        );
+    }
+
+    #[test]
+    fn test_render_no_engagement_metrics() {
+        let archive = sample_archive();
+        let link = sample_link();
+        let html = render_archive_header(&archive, &link).into_string();
+
+        assert!(
+            !html.contains("engagement-metrics"),
+            "Should not show metrics section when no metrics"
+        );
     }
 }
