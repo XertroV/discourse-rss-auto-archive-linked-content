@@ -14,6 +14,7 @@ static PATTERNS: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
         Regex::new(r"^https?://(www\.)?tiktok\.com/").unwrap(),
         Regex::new(r"^https?://vm\.tiktok\.com/").unwrap(),
         Regex::new(r"^https?://m\.tiktok\.com/").unwrap(),
+        Regex::new(r"^https?://vt\.tiktok\.com/").unwrap(),
     ]
 });
 
@@ -54,7 +55,7 @@ impl SiteHandler for TikTokHandler {
         config: &crate::config::Config,
     ) -> Result<ArchiveResult> {
         // Resolve short URLs first
-        let resolved_url = if url.contains("vm.tiktok.com") {
+        let resolved_url = if url.contains("vm.tiktok.com") || url.contains("vt.tiktok.com") {
             resolve_short_url(url)
                 .await
                 .unwrap_or_else(|_| url.to_string())
@@ -665,6 +666,7 @@ mod tests {
         assert!(handler.can_handle("https://tiktok.com/@user/video/123"));
         assert!(handler.can_handle("https://vm.tiktok.com/abc123"));
         assert!(handler.can_handle("https://m.tiktok.com/@user/video/123"));
+        assert!(handler.can_handle("https://vt.tiktok.com/abc123"));
 
         assert!(!handler.can_handle("https://example.com/"));
         assert!(!handler.can_handle("https://youtube.com/"));
