@@ -82,7 +82,7 @@ pub const METRICS_BACKFILL_VERSION: i64 = 1;
 ///   header → 403, language code mismatch `en` vs `eng-US`).
 /// - v2: Referer/Origin headers added, language wildcard `en.*` to match `eng-US`. Reset
 ///   all prior markers so affected archives are retried.
-pub const SUBTITLE_BACKFILL_VERSION: i64 = 2;
+pub const SUBTITLE_BACKFILL_VERSION: i64 = 3;
 
 /// Configuration for the backfill worker.
 pub struct BackfillConfig {
@@ -295,9 +295,11 @@ pub async fn run_tiktok_subtitle_backfill_worker(
         let batch_size = batch.len();
         let mut batch_success = 0u64;
 
-        for (archive_id, meta_s3_key) in batch {
+        for (archive_id, meta_s3_key, original_url) in batch {
             let (count, should_mark) =
-                match backfill_tiktok_subtitles(&db, &s3, archive_id, &meta_s3_key).await {
+                match backfill_tiktok_subtitles(&db, &s3, archive_id, &meta_s3_key, &original_url)
+                    .await
+                {
                     Ok((count, should_mark)) => {
                         if count > 0 {
                             batch_success += 1;
@@ -391,6 +393,7 @@ async fn backfill_tiktok_subtitles(
     s3: &S3Client,
     archive_id: i64,
     meta_s3_key: &str,
+    original_url: &str,
 ) -> Result<(usize, bool)> {
     // Returns (count, should_mark_attempted)
     use crate::archiver::process_subtitle_files;
@@ -457,13 +460,79 @@ async fn backfill_tiktok_subtitles(
             }
         };
 
+        // If CDN URLs from saved meta.json have expired (common for TikTok time-limited URLs),
+        // fall back to re-fetching fresh metadata via yt-dlp for new CDN URLs.
+        if filenames.is_empty() && has_english {
+            warn!(
+                archive_id,
+                original_url,
+                "TikTok subtitle CDN URLs appear expired; re-fetching fresh metadata via yt-dlp"
+            );
+            use crate::archiver::{ytdlp, CookieOptions};
+            let empty_cookies = CookieOptions::default();
+            match ytdlp::get_tiktok_metadata(original_url, &empty_cookies).await {
+                Ok(fresh_meta) => {
+                    let fresh_subtitles = extract_subtitle_info(&fresh_meta.json);
+                    let fresh_has_english = fresh_subtitles
+                        .iter()
+                        .any(|s| s.language_code.starts_with("eng-"));
+                    debug!(
+                        archive_id,
+                        subtitle_count = fresh_subtitles.len(),
+                        fresh_has_english,
+                        "Re-fetched TikTok metadata for subtitle retry"
+                    );
+                    if fresh_has_english {
+                        match download_tiktok_subtitles(&fresh_subtitles, &work_dir, true).await {
+                            Ok(fresh_files) if !fresh_files.is_empty() => {
+                                let count = fresh_files.len();
+                                let s3_prefix =
+                                    meta_s3_key.trim_end_matches("meta.json").to_string();
+                                process_subtitle_files(
+                                    db,
+                                    s3,
+                                    archive_id,
+                                    &fresh_files,
+                                    &work_dir,
+                                    &s3_prefix,
+                                )
+                                .await;
+                                let _ = std::fs::remove_dir_all(&work_dir);
+                                return Ok((count, true, ""));
+                            }
+                            Ok(_) => {
+                                warn!(
+                                    archive_id,
+                                    "Fresh TikTok subtitle download also failed (CDN blocked or subtitles removed)"
+                                );
+                            }
+                            Err(e) => {
+                                warn!(archive_id, error = %e, "Error downloading fresh TikTok subtitles");
+                            }
+                        }
+                    } else {
+                        debug!(archive_id, "Fresh TikTok metadata has no English subtitles");
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        archive_id,
+                        error = %e,
+                        "Failed to re-fetch TikTok metadata for subtitle retry"
+                    );
+                }
+            }
+            let _ = std::fs::remove_dir_all(&work_dir);
+            return Ok((0, true, "subtitle CDN URLs expired and re-fetch failed"));
+        }
+
         if filenames.is_empty() {
             debug!(
                 archive_id,
                 has_english, "No English subtitles downloaded (subtitles exist in other languages)"
             );
             let _ = std::fs::remove_dir_all(&work_dir);
-            return Ok((0, true, "no English subtitles available")); // Mark as attempted - no English subtitles
+            return Ok((0, true, "no English subtitles available")); // Mark as attempted - no English subs
         }
 
         let count = filenames.len();

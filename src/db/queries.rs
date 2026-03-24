@@ -3228,8 +3228,8 @@ pub async fn get_tiktok_archives_needing_subtitle_backfill(
     pool: &SqlitePool,
     limit: i64,
     min_version: i64,
-) -> Result<Vec<(i64, String)>> {
-    let results: Vec<(i64, String)> = sqlx::query_as(
+) -> Result<Vec<(i64, String, String)>> {
+    let results: Vec<(i64, String, String)> = sqlx::query_as(
         r"
         SELECT a.id,
             COALESCE(
@@ -3237,7 +3237,8 @@ pub async fn get_tiktok_archives_needing_subtitle_backfill(
                  WHERE aa.archive_id = a.id AND aa.s3_key LIKE '%meta.json'
                  LIMIT 1),
                 'archives/' || a.id || '/meta.json'
-            ) AS meta_s3_key
+            ) AS meta_s3_key,
+            l.normalized_url
         FROM archives a
         JOIN links l ON a.link_id = l.id
         WHERE a.status = 'complete'
