@@ -1642,9 +1642,6 @@ fn render_captures_section(
 }
 
 /// Render artifacts table section.
-/// Artifact kinds that are internal markers and should not be shown in the UI.
-const INTERNAL_ARTIFACT_KINDS: &[&str] = &["subtitle_backfill_attempted", "vtt_dedup_done"];
-
 fn render_artifacts_section(
     archive: &Archive,
     link: &Link,
@@ -1653,7 +1650,7 @@ fn render_artifacts_section(
 ) -> Markup {
     let visible: Vec<&ArchiveArtifact> = artifacts
         .iter()
-        .filter(|a| !INTERNAL_ARTIFACT_KINDS.contains(&a.kind.as_str()))
+        .filter(|a| !a.is_internal_marker())
         .collect();
 
     if visible.is_empty() {

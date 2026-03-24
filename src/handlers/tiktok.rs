@@ -530,6 +530,17 @@ pub async fn download_tiktok_subtitles(
             continue;
         }
 
+        // Skip sentinel/invalid URLs (TikTok API sometimes returns "none" when subtitles
+        // are unavailable, e.g. after a 403 rate-limit or when captions don't exist)
+        if sub.url.is_empty() || sub.url == "none" {
+            tracing::warn!(
+                language = %sub.language_code,
+                url = %sub.url,
+                "Skipping subtitle with invalid URL sentinel"
+            );
+            continue;
+        }
+
         // Use yt-dlp compatible format: tiktok.{lang}.{ext}
         let filename = format!("tiktok.{}.{}", sub.language_code, sub.ext);
         let file_path = work_dir.join(&filename);
