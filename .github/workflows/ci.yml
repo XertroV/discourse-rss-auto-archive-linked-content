@@ -53,7 +53,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install mold linker
         run: sudo apt-get install -y mold
-      - run: cargo test --all-features
+      - run: cargo test --all-features -- --test-threads=1
         env:
           RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
 
