@@ -3213,7 +3213,12 @@ pub async fn get_archives_needing_transcript_backfill(
 /// - Link domain contains "tiktok"
 /// - Status is "complete"
 /// - No subtitle artifact exists
-/// - No subtitle_backfill_attempted marker exists (we haven't tried yet)
+/// - No subtitle_backfill_attempted marker at or above `min_version` exists
+///
+/// The version is stored in the marker artifact's `s3_key` field as a string
+/// integer. Old markers (pre-versioning) have `s3_key = "none"` which casts to
+/// 0, so they are ignored when `min_version >= 1`. Bump the version constant in
+/// `backfill.rs` to force a re-scan of all previously-attempted archives.
 ///
 /// The meta.json S3 key is taken from the metadata artifact record if present,
 /// otherwise inferred as `archives/{id}/meta.json` (the canonical location used
@@ -3222,6 +3227,7 @@ pub async fn get_archives_needing_transcript_backfill(
 pub async fn get_tiktok_archives_needing_subtitle_backfill(
     pool: &SqlitePool,
     limit: i64,
+    min_version: i64,
 ) -> Result<Vec<(i64, String)>> {
     let results: Vec<(i64, String)> = sqlx::query_as(
         r"
@@ -3243,11 +3249,14 @@ pub async fn get_tiktok_archives_needing_subtitle_backfill(
           )
           AND NOT EXISTS (
             SELECT 1 FROM archive_artifacts marker
-            WHERE marker.archive_id = a.id AND marker.kind = 'subtitle_backfill_attempted'
+            WHERE marker.archive_id = a.id
+              AND marker.kind = 'subtitle_backfill_attempted'
+              AND CAST(marker.s3_key AS INTEGER) >= ?
           )
         LIMIT ?
         ",
     )
+    .bind(min_version)
     .bind(limit)
     .fetch_all(pool)
     .await
