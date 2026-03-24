@@ -3706,9 +3706,37 @@ body.nsfw-hidden [data-nsfw="true"]:not(.archive-card) {
     color: var(--text-muted);
 }
 
-/* Comment replies */
+/* Reply toggle button */
+.comment-replies-toggle {
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    padding: 2px var(--spacing-sm);
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.comment-replies-toggle:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.comment-replies-toggle.replies-open {
+    background: var(--primary-low);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+/* Comment replies container */
 .comment-replies {
     margin-top: var(--spacing-sm);
+    padding-top: var(--spacing-sm);
+    border-top: 1px dashed var(--border-color);
 }
 
 /* Responsive adjustments */
