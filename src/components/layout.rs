@@ -182,6 +182,8 @@ impl<'a> BaseLayout<'a> {
                     a href="/feed.rss" { "RSS" }
                     " | "
                     a href="/feed.atom" { "Atom" }
+                    " | Created by "
+                    a href="https://xk.io" target="_blank" rel="noopener noreferrer" { "Max Kaye" }
                 }
             }
         }
