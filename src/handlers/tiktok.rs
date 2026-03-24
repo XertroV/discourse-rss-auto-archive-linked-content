@@ -824,6 +824,27 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_subtitle_info_real_file_543() {
+        // Archive 543: subtitles object format with eng-US (both json and vtt entries)
+        // Verifies VTT is preferred over JSON when both are present
+        let json_content = std::fs::read_to_string("api-examples/tiktok_meta_video-543.json")
+            .expect("Failed to read test file");
+
+        let subs = extract_subtitle_info(&json_content);
+
+        assert!(!subs.is_empty(), "Expected subtitles, got none");
+
+        let has_eng_us = subs.iter().any(|s| s.language_code == "eng-US");
+        assert!(has_eng_us, "Expected eng-US subtitle");
+
+        // First should be eng-US (priority order)
+        assert_eq!(subs[0].language_code, "eng-US");
+
+        // Should prefer VTT over JSON
+        assert_eq!(subs[0].ext, "vtt", "Expected VTT format to be preferred");
+    }
+
+    #[test]
     fn test_extract_subtitle_info_subtitleinfos_format() {
         // Test the newer TikTok subtitleInfos array format
         // Note: only "webvtt" format is extracted, "creator_caption" is skipped
