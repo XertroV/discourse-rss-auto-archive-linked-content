@@ -3212,23 +3212,31 @@ pub async fn get_archives_needing_transcript_backfill(
 /// - Content type is "video"
 /// - Link domain contains "tiktok"
 /// - Status is "complete"
-/// - Has meta.json artifact (which may contain subtitle URLs)
 /// - No subtitle artifact exists
 /// - No subtitle_backfill_attempted marker exists (we haven't tried yet)
+///
+/// The meta.json S3 key is taken from the metadata artifact record if present,
+/// otherwise inferred as `archives/{id}/meta.json` (the canonical location used
+/// by the worker). This ensures archives whose metadata artifact record was never
+/// inserted (e.g. due to a transient DB error) are still included.
 pub async fn get_tiktok_archives_needing_subtitle_backfill(
     pool: &SqlitePool,
     limit: i64,
 ) -> Result<Vec<(i64, String)>> {
     let results: Vec<(i64, String)> = sqlx::query_as(
         r"
-        SELECT a.id, aa.s3_key
+        SELECT a.id,
+            COALESCE(
+                (SELECT aa.s3_key FROM archive_artifacts aa
+                 WHERE aa.archive_id = a.id AND aa.s3_key LIKE '%meta.json'
+                 LIMIT 1),
+                'archives/' || a.id || '/meta.json'
+            ) AS meta_s3_key
         FROM archives a
         JOIN links l ON a.link_id = l.id
-        JOIN archive_artifacts aa ON aa.archive_id = a.id
         WHERE a.status = 'complete'
           AND a.content_type = 'video'
           AND l.domain LIKE '%tiktok%'
-          AND aa.s3_key LIKE '%meta.json'
           AND NOT EXISTS (
             SELECT 1 FROM archive_artifacts sub
             WHERE sub.archive_id = a.id AND sub.kind = 'subtitles'
