@@ -579,12 +579,17 @@ async fn download_single_subtitle(
     let response = client
         .get(url)
         .header("User-Agent", ARCHIVAL_USER_AGENT)
+        // TikTok CDN requires a Referer header from the TikTok domain,
+        // otherwise it returns 403 Forbidden.
+        .header("Referer", "https://www.tiktok.com/")
+        .header("Origin", "https://www.tiktok.com")
         .send()
         .await
         .context("Failed to fetch subtitle")?;
 
-    if !response.status().is_success() {
-        anyhow::bail!("Subtitle download failed with status {}", response.status());
+    let status = response.status();
+    if !status.is_success() {
+        anyhow::bail!("Subtitle download failed with HTTP {status}");
     }
 
     let bytes = response
