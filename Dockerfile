@@ -1,6 +1,22 @@
 # syntax=docker/dockerfile:1.4
-# Build stage
-FROM rust:1.88-bookworm AS builder
+
+# Base stage: install cargo-chef for dependency layer caching
+# This stage is cached separately so cargo-chef compilation doesn't repeat
+FROM rust:1.88-bookworm AS chef
+WORKDIR /app
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo install cargo-chef --locked
+
+# Planner stage: generate a dependency recipe from Cargo manifests
+# cargo metadata needs src/ to exist to parse the manifest targets
+FROM chef AS planner
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+RUN cargo chef prepare --recipe-path recipe.json
+
+# Builder stage
+FROM chef AS builder
 
 # Allows selecting a Cargo profile for builds.
 # Options: release (default, optimized), release-fast (faster builds, less optimization), dev (fastest builds, no optimization)
@@ -10,20 +26,26 @@ FROM rust:1.88-bookworm AS builder
 #   docker build --build-arg CARGO_PROFILE=release .      # Fully optimized release build
 ARG CARGO_PROFILE=release
 
-WORKDIR /app
-
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy all source files - no dummy file tricks
+# Build dependencies only - this Docker layer is cached whenever Cargo.toml/Cargo.lock
+# are unchanged, even when application source code changes.
+# Both cache mounts are used: registry avoids re-downloading crates, target enables
+# incremental compilation on the same host across builds.
+COPY --from=planner /app/recipe.json recipe.json
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo chef cook --profile "${CARGO_PROFILE}" --recipe-path recipe.json
+
+# Copy source files and build the application
+# Dependencies are already compiled above; only application code is recompiled here
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
-
-# Build the application using BuildKit cache mounts for cargo registry and target
-# This caches dependencies between builds without any fragile dummy file workarounds
 # Note: 'dev' profile outputs to target/debug/, not target/dev/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
