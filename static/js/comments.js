@@ -2,7 +2,7 @@
  * Platform Comments Loader and Renderer
  *
  * Handles fetching and displaying archived platform comments (TikTok, YouTube, etc.)
- * on archive detail pages.
+ * on archive detail pages. Supports threaded view with collapsible replies.
  */
 
 /**
@@ -50,6 +50,34 @@ async function loadPlatformComments(container) {
 }
 
 /**
+ * Build a threaded comment tree from a flat list.
+ *
+ * Comments with parent_id === "root" (or null/missing) are top-level.
+ * All others are keyed under their parent_id in childrenMap.
+ *
+ * @param {Array} comments - flat comment list
+ * @returns {{ roots: Array, childrenMap: Map<string, Array> }}
+ */
+function buildCommentTree(comments) {
+    const childrenMap = new Map();
+    const roots = [];
+
+    comments.forEach(comment => {
+        const parentId = comment.parent_id;
+        if (!parentId || parentId === 'root') {
+            roots.push(comment);
+        } else {
+            if (!childrenMap.has(parentId)) {
+                childrenMap.set(parentId, []);
+            }
+            childrenMap.get(parentId).push(comment);
+        }
+    });
+
+    return { roots, childrenMap };
+}
+
+/**
  * Render comments JSON into HTML
  */
 function renderComments(container, data) {
@@ -64,14 +92,37 @@ function renderComments(container, data) {
         }
     }
 
-    // Store original data for filtering/sorting
-    container.dataset.originalComments = JSON.stringify(comments);
+    // Build thread tree from flat list (supports both flat parent_id and pre-nested replies)
+    const { roots, childrenMap } = buildCommentTree(comments);
+
+    // Merge pre-nested replies into childrenMap (for formats that already nest)
+    comments.forEach(comment => {
+        if (comment.replies && comment.replies.length > 0) {
+            const existing = childrenMap.get(comment.id) || [];
+            // Only add replies not already in childrenMap (avoid duplication)
+            const existingIds = new Set(existing.map(r => r.id));
+            comment.replies.forEach(reply => {
+                if (!existingIds.has(reply.id)) {
+                    existing.push(reply);
+                }
+            });
+            if (existing.length > 0) {
+                childrenMap.set(comment.id, existing);
+            }
+        }
+    });
+
+    // Store original data for filtering/sorting (only top-level roots)
+    container.dataset.originalComments = JSON.stringify(roots);
+    container.dataset.allComments = JSON.stringify(comments);
     container.dataset.platform = platform;
 
     let html = '';
 
     // Stats header
-    html += renderStatsHeader(stats, limited, limit_applied);
+    const topLevelCount = roots.length;
+    const replyCount = comments.length - topLevelCount;
+    html += renderStatsHeader(stats, limited, limit_applied, topLevelCount, replyCount);
 
     // Controls bar
     html += `
@@ -105,8 +156,9 @@ function renderComments(container, data) {
         </div>
     </div>`;
 
-    // Render list
-    renderCommentList(container, comments, platform, html);
+    // Render list (pass childrenMap via container dataset)
+    container.dataset.childrenMap = JSON.stringify(Object.fromEntries(childrenMap));
+    renderCommentList(container, roots, platform, html);
 
     // Attach event listeners
     attachControlHandlers(container);
@@ -115,7 +167,7 @@ function renderComments(container, data) {
 /**
  * Render stats header
  */
-function renderStatsHeader(stats, limited, limit_applied) {
+function renderStatsHeader(stats, limited, limit_applied, topLevelCount, replyCount) {
     let html = `<div class="comments-stats">`;
     html += `<p class="comments-summary">`;
     html += `Showing <strong>${stats.extracted_comments}</strong>`;
@@ -123,6 +175,9 @@ function renderStatsHeader(stats, limited, limit_applied) {
         html += ` of <strong>${stats.total_comments}</strong>`;
     }
     html += ` comments`;
+    if (topLevelCount !== undefined && replyCount !== undefined && replyCount > 0) {
+        html += ` <span class="text-muted">(${topLevelCount} top-level, ${replyCount} replies)</span>`;
+    }
     if (limited) {
         html += ` <span class="text-muted">(limited to ${limit_applied})</span>`;
     }
@@ -135,6 +190,9 @@ function renderStatsHeader(stats, limited, limit_applied) {
  * Render comment list (extracted for reuse)
  */
 function renderCommentList(container, comments, platform, headerHtml = '') {
+    // Restore childrenMap from dataset
+    const childrenMap = restoreChildrenMap(container);
+
     let html = headerHtml;
 
     if (comments.length > 200) {
@@ -142,7 +200,7 @@ function renderCommentList(container, comments, platform, headerHtml = '') {
         html += `<div class="comments-list virtual-scroll" style="max-height: 600px; overflow-y: auto;"></div>`;
         container.innerHTML = html;
         const listContainer = container.querySelector('.virtual-scroll');
-        new VirtualCommentScroll(listContainer, comments, platform);
+        new VirtualCommentScroll(listContainer, comments, platform, childrenMap);
     } else {
         // Standard render for small lists
         html += `<div class="comments-list">`;
@@ -150,65 +208,87 @@ function renderCommentList(container, comments, platform, headerHtml = '') {
             html += `<p class="comments-empty">No comments found matching your filters.</p>`;
         } else {
             comments.forEach(comment => {
-                html += renderComment(comment, 0, platform);
+                html += renderComment(comment, 0, platform, childrenMap);
             });
         }
         html += `</div>`;
         container.innerHTML = html;
     }
+
+    // Attach reply toggle handlers after DOM update
+    attachReplyToggleHandlers(container);
 }
 
 /**
- * Render a single comment
+ * Restore childrenMap from container dataset
  */
-function renderComment(comment, depth, platform) {
+function restoreChildrenMap(container) {
+    try {
+        const raw = container.dataset.childrenMap;
+        if (!raw) return new Map();
+        const obj = JSON.parse(raw);
+        return new Map(Object.entries(obj));
+    } catch (e) {
+        return new Map();
+    }
+}
+
+/**
+ * Render a single comment with collapsible replies
+ */
+function renderComment(comment, depth, platform, childrenMap) {
     const indentClass = depth > 0 ? `comment-depth-${Math.min(depth, 3)}` : '';
     const pinnedClass = comment.is_pinned ? 'comment-pinned' : '';
     const creatorClass = comment.is_creator ? 'comment-creator' : '';
 
     // Generate avatar initial
-    const avatarInitial = comment.author.charAt(0).toUpperCase();
+    const avatarInitial = comment.author ? comment.author.charAt(0).toUpperCase() : '?';
     const commentId = comment.id || `${comment.author}-${comment.timestamp || Date.now()}`;
+
+    // Gather replies from both childrenMap and pre-nested replies array
+    const replies = (childrenMap && childrenMap.get(comment.id)) || comment.replies || [];
 
     let html = `
         <div class="platform-comment ${indentClass} ${pinnedClass} ${creatorClass}"
              data-platform="${platform}"
-             data-comment-id="${escapeHtml(commentId)}">
+             data-comment-id="${escapeHtml(String(commentId))}">
             <div class="comment-header">
                 <div class="comment-author-wrapper">
                     <div class="comment-avatar">${avatarInitial}</div>
-                    <span class="comment-author">${escapeHtml(comment.author)}</span>
+                    <span class="comment-author">${escapeHtml(comment.author || '')}</span>
                 </div>
                 ${comment.is_creator ? '<span class="badge-creator">Creator</span>' : ''}
                 ${comment.is_pinned ? '<span class="badge-pinned">Pinned</span>' : ''}
                 ${renderTimestamp(comment.timestamp)}
             </div>
             <div class="comment-body">
-                <p class="comment-text">${escapeHtml(comment.text)}</p>
+                <p class="comment-text">${escapeHtml(comment.text || '')}</p>
             </div>
             <div class="comment-footer">
                 <div class="comment-engagement">
                     <span class="comment-likes" title="${comment.likes} likes">
-                        ❤️ ${formatNumber(comment.likes)}
+                        ❤️ ${formatNumber(comment.likes || 0)}
                     </span>
     `;
 
-    if (comment.replies && comment.replies.length > 0 && depth < 3) {
+    if (replies.length > 0 && depth < 3) {
         html += `
-                    <span class="comment-replies-count">
-                        💬 ${comment.replies.length} ${comment.replies.length === 1 ? 'reply' : 'replies'}
-                    </span>`;
+                    <button class="comment-replies-toggle"
+                            data-comment-id="${escapeHtml(String(commentId))}"
+                            aria-expanded="false">
+                        💬 ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}
+                    </button>`;
     }
 
     html += `
                 </div>
             </div>`;
 
-    // Render replies recursively
-    if (comment.replies && comment.replies.length > 0 && depth < 3) {
-        html += `<div class="comment-replies">`;
-        comment.replies.forEach(reply => {
-            html += renderComment(reply, depth + 1, platform);
+    // Collapsible replies block (hidden by default)
+    if (replies.length > 0 && depth < 3) {
+        html += `<div class="comment-replies" data-parent-id="${escapeHtml(String(commentId))}" hidden>`;
+        replies.forEach(reply => {
+            html += renderComment(reply, depth + 1, platform, childrenMap);
         });
         html += `</div>`;
     }
@@ -218,11 +298,39 @@ function renderComment(comment, depth, platform) {
 }
 
 /**
+ * Attach click handlers for reply toggle buttons
+ */
+function attachReplyToggleHandlers(container) {
+    container.querySelectorAll('.comment-replies-toggle').forEach(btn => {
+        // Remove any prior listener by cloning
+        const fresh = btn.cloneNode(true);
+        btn.parentNode.replaceChild(fresh, btn);
+
+        fresh.addEventListener('click', function() {
+            const commentId = this.dataset.commentId;
+            // Use dataset comparison to avoid CSS selector escaping issues with arbitrary comment IDs
+            const repliesDiv = Array.from(
+                this.closest('.platform-comment').querySelectorAll('.comment-replies')
+            ).find(div => div.dataset.parentId === commentId);
+            if (!repliesDiv) return;
+
+            const isOpen = !repliesDiv.hidden;
+            repliesDiv.hidden = isOpen;
+            this.setAttribute('aria-expanded', String(!isOpen));
+            this.classList.toggle('replies-open', !isOpen);
+        });
+    });
+}
+
+/**
  * Format timestamp
  */
 function renderTimestamp(timestamp) {
     if (!timestamp) return '';
-    const date = new Date(timestamp * 1000);
+    // Handle both Unix seconds (< 1e10) and milliseconds (>= 1e10)
+    const ms = timestamp > 1e10 ? timestamp : timestamp * 1000;
+    const date = new Date(ms);
+    if (isNaN(date.getTime())) return '';
     const relative = getRelativeTime(date);
     return `<span class="comment-timestamp" title="${date.toLocaleString()}">${relative}</span>`;
 }
@@ -263,10 +371,11 @@ function escapeHtml(text) {
  * Virtual scroll manager for large comment lists
  */
 class VirtualCommentScroll {
-    constructor(container, comments, platform, renderHeight = 150) {
+    constructor(container, comments, platform, childrenMap, renderHeight = 150) {
         this.container = container;
         this.comments = comments;
         this.platform = platform;
+        this.childrenMap = childrenMap;
         this.renderHeight = renderHeight;  // Estimated comment height
         this.visibleCount = 50;  // Render 50 at a time
         this.bufferCount = 10;   // Pre-render buffer
@@ -318,7 +427,7 @@ class VirtualCommentScroll {
 
             // Use cached HTML if available
             if (!this.renderedComments.has(i)) {
-                this.renderedComments.set(i, renderComment(comment, 0, this.platform));
+                this.renderedComments.set(i, renderComment(comment, 0, this.platform, this.childrenMap));
             }
 
             html += this.renderedComments.get(i);
@@ -327,6 +436,9 @@ class VirtualCommentScroll {
         // Update viewport position and content
         this.viewport.style.transform = `translateY(${startIndex * this.renderHeight}px)`;
         this.viewport.innerHTML = html;
+
+        // Re-attach toggle handlers for newly rendered comments
+        attachReplyToggleHandlers(this.viewport);
     }
 }
 
@@ -334,7 +446,14 @@ class VirtualCommentScroll {
  * Apply search, filter, and sort to comments
  */
 function applyFilters(container) {
-    const originalComments = JSON.parse(container.dataset.originalComments);
+    let originalComments, allComments;
+    try {
+        originalComments = JSON.parse(container.dataset.originalComments);
+        allComments = JSON.parse(container.dataset.allComments || '[]');
+    } catch (e) {
+        console.error('applyFilters: failed to parse comment data', e);
+        return;
+    }
     const platform = container.dataset.platform;
 
     const searchQuery = document.getElementById('comment-search-input').value.toLowerCase();
@@ -343,15 +462,44 @@ function applyFilters(container) {
 
     let filtered = [...originalComments];
 
-    // Apply search
+    // When searching, also include replies that match (promote them to top level)
     if (searchQuery) {
-        filtered = filtered.filter(comment =>
-            comment.text.toLowerCase().includes(searchQuery) ||
-            comment.author.toLowerCase().includes(searchQuery)
-        );
+        const matchesSearch = c =>
+            (c.text || '').toLowerCase().includes(searchQuery) ||
+            (c.author || '').toLowerCase().includes(searchQuery);
+
+        // Include top-level comments that match, plus any replies that match
+        const matchedIds = new Set();
+        filtered = [];
+        allComments.forEach(comment => {
+            if (matchesSearch(comment)) {
+                // Show as top-level even if it's a reply
+                if (!matchedIds.has(comment.id)) {
+                    filtered.push(comment);
+                    matchedIds.add(comment.id);
+                }
+            }
+        });
+
+        // Rebuild childrenMap for filtered set - don't show reply threads for search results
+        container.dataset.childrenMap = JSON.stringify({});
+    } else {
+        // Restore full childrenMap
+        const { childrenMap } = buildCommentTree(allComments);
+        allComments.forEach(comment => {
+            if (comment.replies && comment.replies.length > 0) {
+                const existing = childrenMap.get(comment.id) || [];
+                const existingIds = new Set(existing.map(r => r.id));
+                comment.replies.forEach(reply => {
+                    if (!existingIds.has(reply.id)) existing.push(reply);
+                });
+                if (existing.length > 0) childrenMap.set(comment.id, existing);
+            }
+        });
+        container.dataset.childrenMap = JSON.stringify(Object.fromEntries(childrenMap));
     }
 
-    // Apply filter
+    // Apply filter (on top-level / search results)
     switch (filterBy) {
         case 'pinned':
             filtered = filtered.filter(c => c.is_pinned);
@@ -384,6 +532,8 @@ function applyFilters(container) {
     const headerHtml = container.querySelector('.comments-stats').outerHTML +
                        container.querySelector('.comments-controls').outerHTML;
     const tempContainer = container.cloneNode(false);
+    // Copy dataset to temp container for childrenMap access
+    tempContainer.dataset.childrenMap = container.dataset.childrenMap;
     renderCommentList(tempContainer, filtered, platform, headerHtml);
 
     // Replace only the comments list
@@ -393,10 +543,14 @@ function applyFilters(container) {
         oldList.replaceWith(newList);
     }
 
+    // Re-attach toggle handlers
+    attachReplyToggleHandlers(container);
+
     // Update count
     const summary = container.querySelector('.comments-summary');
     if (summary) {
-        summary.innerHTML = `Showing <strong>${filtered.length}</strong> of <strong>${originalComments.length}</strong> comments`;
+        const total = JSON.parse(container.dataset.originalComments).length;
+        summary.innerHTML = `Showing <strong>${filtered.length}</strong> of <strong>${total}</strong> top-level comments`;
     }
 }
 
