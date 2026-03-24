@@ -71,6 +71,19 @@ async fn skip_backfill_job(db: &Database, job_id: Option<i64>, reason: &str) {
 /// You can also pass a domain filter to `run_metrics_backfill` to re-scan a specific source.
 pub const METRICS_BACKFILL_VERSION: i64 = 1;
 
+/// Bump this version to force re-scanning TikTok subtitle backfill for all archives.
+///
+/// The version is stored in the `s3_key` field of the `subtitle_backfill_attempted` marker
+/// artifact. Old markers (pre-versioning) have `s3_key = "none"` which casts to 0, so
+/// setting this to 2 causes all previously-attempted archives to be retried.
+///
+/// History:
+/// - v1 (implicit, "none"): Initial backfill; bugs caused all downloads to fail (no Referer
+///   header → 403, language code mismatch `en` vs `eng-US`).
+/// - v2: Referer/Origin headers added, language wildcard `en.*` to match `eng-US`. Reset
+///   all prior markers so affected archives are retried.
+pub const SUBTITLE_BACKFILL_VERSION: i64 = 2;
+
 /// Configuration for the backfill worker.
 pub struct BackfillConfig {
     /// Number of archives to process per batch.
@@ -259,6 +272,7 @@ pub async fn run_tiktok_subtitle_backfill_worker(
         let batch = match get_tiktok_archives_needing_subtitle_backfill(
             db.pool(),
             config.batch_size,
+            SUBTITLE_BACKFILL_VERSION,
         )
         .await
         {
@@ -307,13 +321,34 @@ pub async fn run_tiktok_subtitle_backfill_worker(
                     }
                 };
 
-            // Insert marker artifact to prevent re-processing this archive
+            // Insert marker artifact to prevent re-processing this archive.
+            // The version is stored in s3_key so the query can filter by it;
+            // bumping SUBTITLE_BACKFILL_VERSION forces a re-scan of old markers.
+            //
+            // Delete any pre-existing markers first to avoid accumulating duplicate
+            // rows across version bumps (old markers have s3_key='none', new ones
+            // have the version number).
             if should_mark && count == 0 {
+                if let Err(e) = sqlx::query(
+                    "DELETE FROM archive_artifacts WHERE archive_id = ? AND kind = 'subtitle_backfill_attempted'",
+                )
+                .bind(archive_id)
+                .execute(db.pool())
+                .await
+                {
+                    warn!(
+                        archive_id,
+                        error = %e,
+                        "Failed to delete old subtitle backfill markers"
+                    );
+                }
+
+                let version_key = SUBTITLE_BACKFILL_VERSION.to_string();
                 if let Err(e) = insert_artifact(
                     db.pool(),
                     archive_id,
                     "subtitle_backfill_attempted",
-                    "none", // No actual S3 key
+                    &version_key, // Version stored here for filtering
                     None,
                     None,
                     None,
