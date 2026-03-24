@@ -8,10 +8,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     cargo install cargo-chef --locked
 
-# Planner stage: generate a dependency recipe from Cargo manifests only
-# Invalidated only when Cargo.toml or Cargo.lock changes
+# Planner stage: generate a dependency recipe from Cargo manifests
+# cargo metadata needs src/ to exist to parse the manifest targets
 FROM chef AS planner
 COPY Cargo.toml Cargo.lock ./
+COPY src ./src
 RUN cargo chef prepare --recipe-path recipe.json
 
 # Builder stage
