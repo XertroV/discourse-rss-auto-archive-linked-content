@@ -2447,10 +2447,9 @@ async fn feed_rss(State(state): State<AppState>, Query(params): Query<FeedParams
         }
     };
 
-    // Determine base URL from config or default
-    let base_url = format!("http://{}:{}", state.config.web_host, state.config.web_port);
+    let base_url = &state.config.public_base_url;
 
-    let rss = feeds::generate_rss(&archives, &base_url);
+    let rss = feeds::generate_rss(&archives, base_url);
 
     (
         StatusCode::OK,
@@ -2478,10 +2477,9 @@ async fn feed_atom(State(state): State<AppState>, Query(params): Query<FeedParam
         }
     };
 
-    // Determine base URL from config or default
-    let base_url = format!("http://{}:{}", state.config.web_host, state.config.web_port);
+    let base_url = &state.config.public_base_url;
 
-    let atom = feeds::generate_atom(&archives, &base_url);
+    let atom = feeds::generate_atom(&archives, base_url);
 
     (
         StatusCode::OK,

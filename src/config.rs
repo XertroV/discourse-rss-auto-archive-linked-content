@@ -71,6 +71,7 @@ pub struct Config {
     // Web Server
     pub web_host: String,
     pub web_port: u16,
+    pub public_base_url: String,
 
     // TLS / Let's Encrypt
     pub tls_enabled: bool,
@@ -244,6 +245,7 @@ pub struct ArchiveConfig {
 pub struct WebConfig {
     pub host: Option<String>,
     pub port: Option<u16>,
+    pub public_base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -541,6 +543,11 @@ impl Config {
             // Web Server
             web_host: get_string("WEB_HOST", fc.web.host, "0.0.0.0"),
             web_port: parse_env_u16("WEB_PORT", fc.web.port.unwrap_or(8080))?,
+            public_base_url: get_string(
+                "PUBLIC_BASE_URL",
+                fc.web.public_base_url,
+                "https://cf-archiver.xk.io",
+            ),
 
             // TLS / Let's Encrypt
             tls_enabled: parse_env_bool("TLS_ENABLED", fc.tls.enabled.unwrap_or(false))?,
@@ -1005,6 +1012,7 @@ impl Config {
             archive_quote_only_links: false,
             web_host: "0.0.0.0".to_string(),
             web_port: 8080,
+            public_base_url: "https://cf-archiver.xk.io".to_string(),
             tls_enabled: false,
             tls_domains: vec![],
             tls_contact_email: None,
