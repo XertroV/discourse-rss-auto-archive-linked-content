@@ -308,8 +308,10 @@ function attachReplyToggleHandlers(container) {
 
         fresh.addEventListener('click', function() {
             const commentId = this.dataset.commentId;
-            const repliesDiv = this.closest('.platform-comment')
-                                   .querySelector(`.comment-replies[data-parent-id="${CSS.escape(commentId)}"]`);
+            // Use dataset comparison to avoid CSS selector escaping issues with arbitrary comment IDs
+            const repliesDiv = Array.from(
+                this.closest('.platform-comment').querySelectorAll('.comment-replies')
+            ).find(div => div.dataset.parentId === commentId);
             if (!repliesDiv) return;
 
             const isOpen = !repliesDiv.hidden;
@@ -325,7 +327,10 @@ function attachReplyToggleHandlers(container) {
  */
 function renderTimestamp(timestamp) {
     if (!timestamp) return '';
-    const date = new Date(timestamp * 1000);
+    // Handle both Unix seconds (< 1e10) and milliseconds (>= 1e10)
+    const ms = timestamp > 1e10 ? timestamp : timestamp * 1000;
+    const date = new Date(ms);
+    if (isNaN(date.getTime())) return '';
     const relative = getRelativeTime(date);
     return `<span class="comment-timestamp" title="${date.toLocaleString()}">${relative}</span>`;
 }
@@ -441,8 +446,14 @@ class VirtualCommentScroll {
  * Apply search, filter, and sort to comments
  */
 function applyFilters(container) {
-    const originalComments = JSON.parse(container.dataset.originalComments);
-    const allComments = JSON.parse(container.dataset.allComments || '[]');
+    let originalComments, allComments;
+    try {
+        originalComments = JSON.parse(container.dataset.originalComments);
+        allComments = JSON.parse(container.dataset.allComments || '[]');
+    } catch (e) {
+        console.error('applyFilters: failed to parse comment data', e);
+        return;
+    }
     const platform = container.dataset.platform;
 
     const searchQuery = document.getElementById('comment-search-input').value.toLowerCase();
