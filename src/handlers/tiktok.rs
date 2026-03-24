@@ -530,6 +530,17 @@ pub async fn download_tiktok_subtitles(
             continue;
         }
 
+        // Skip sentinel/invalid URLs (TikTok API sometimes returns "none" when subtitles
+        // are unavailable, e.g. after a 403 rate-limit or when captions don't exist)
+        if sub.url.is_empty() || sub.url == "none" {
+            tracing::warn!(
+                language = %sub.language_code,
+                url = %sub.url,
+                "Skipping subtitle with invalid URL sentinel"
+            );
+            continue;
+        }
+
         // Use yt-dlp compatible format: tiktok.{lang}.{ext}
         let filename = format!("tiktok.{}.{}", sub.language_code, sub.ext);
         let file_path = work_dir.join(&filename);
@@ -568,12 +579,17 @@ async fn download_single_subtitle(
     let response = client
         .get(url)
         .header("User-Agent", ARCHIVAL_USER_AGENT)
+        // TikTok CDN requires a Referer header from the TikTok domain,
+        // otherwise it returns 403 Forbidden.
+        .header("Referer", "https://www.tiktok.com/")
+        .header("Origin", "https://www.tiktok.com")
         .send()
         .await
         .context("Failed to fetch subtitle")?;
 
-    if !response.status().is_success() {
-        anyhow::bail!("Subtitle download failed with status {}", response.status());
+    let status = response.status();
+    if !status.is_success() {
+        anyhow::bail!("Subtitle download failed with HTTP {status}");
     }
 
     let bytes = response
@@ -805,6 +821,27 @@ mod tests {
             subs.len(),
             subs[0].language_code
         );
+    }
+
+    #[test]
+    fn test_extract_subtitle_info_real_file_543() {
+        // Archive 543: subtitles object format with eng-US (both json and vtt entries)
+        // Verifies VTT is preferred over JSON when both are present
+        let json_content = std::fs::read_to_string("api-examples/tiktok_meta_video-543.json")
+            .expect("Failed to read test file");
+
+        let subs = extract_subtitle_info(&json_content);
+
+        assert!(!subs.is_empty(), "Expected subtitles, got none");
+
+        let has_eng_us = subs.iter().any(|s| s.language_code == "eng-US");
+        assert!(has_eng_us, "Expected eng-US subtitle");
+
+        // First should be eng-US (priority order)
+        assert_eq!(subs[0].language_code, "eng-US");
+
+        // Should prefer VTT over JSON
+        assert_eq!(subs[0].ext, "vtt", "Expected VTT format to be preferred");
     }
 
     #[test]

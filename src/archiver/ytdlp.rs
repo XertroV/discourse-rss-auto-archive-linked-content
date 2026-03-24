@@ -525,7 +525,9 @@ pub async fn download(
     ];
 
     // Subtitle downloads are best-effort and non-critical:
-    // - Request only English ('en') to minimize API calls and reduce 429 rate limits
+    // - Request only English subtitles to minimize API calls and reduce 429 rate limits
+    // - Use "en.*" wildcard to match both 2-letter (en, en-US) and 3-letter (eng-US)
+    //   language codes since TikTok uses ISO 639-2 codes (eng-US) not ISO 639-1 (en)
     // - Use VTT format (preferred, has better metadata)
     // - Failures are detected via stderr parsing and treated as warnings
     // - Archives succeed even when subtitles unavailable (see classify_ytdlp_errors)
@@ -535,7 +537,7 @@ pub async fn download(
             "--write-subs".to_string(),
             "--write-auto-subs".to_string(),
             "--sub-langs".to_string(),
-            "en".to_string(),
+            "en.*".to_string(),
             "--sub-format".to_string(),
             "vtt".to_string(),
         ]);
@@ -781,7 +783,8 @@ pub async fn download_supplementary_artifacts(
         args.push("--write-subs".to_string());
         args.push("--write-auto-subs".to_string());
         args.push("--sub-langs".to_string());
-        args.push("en".to_string());
+        // Use "en.*" to match both ISO 639-1 (en, en-US) and ISO 639-2 (eng-US) codes
+        args.push("en.*".to_string());
         args.push("--sub-format".to_string());
         args.push("vtt".to_string());
         debug!("Subtitle download enabled for supplementary artifacts");

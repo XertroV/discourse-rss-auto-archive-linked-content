@@ -239,6 +239,11 @@ async fn generate_export_zip(
 
             // Process artifacts
             for artifact in artifacts {
+                // Skip internal marker artifacts (no real S3 file)
+                if artifact.is_internal_marker() {
+                    continue;
+                }
+
                 let size = artifact.size_bytes.unwrap_or(0);
 
                 // Skip large video files

@@ -253,6 +253,24 @@ pub struct ArchiveArtifact {
     pub metadata: Option<String>,
 }
 
+/// Artifact kinds used as internal backfill markers with no real S3 file.
+///
+/// These are inserted by backfill workers to track processing state.
+/// They should be excluded from file listings, exports, and any UI that shows files.
+pub const INTERNAL_MARKER_KINDS: &[&str] = &["subtitle_backfill_attempted", "vtt_dedup_done"];
+
+impl ArchiveArtifact {
+    /// Returns true if this artifact is an internal backfill marker with no real S3 file.
+    ///
+    /// Internal markers use `s3_key = "none"` and specific kind values to track
+    /// backfill processing state. They are never valid files and must be excluded
+    /// from file listings, exports, and any consumer that expects real S3 paths.
+    #[must_use]
+    pub fn is_internal_marker(&self) -> bool {
+        self.s3_key == "none" || INTERNAL_MARKER_KINDS.contains(&self.kind.as_str())
+    }
+}
+
 /// Detected language information for a subtitle artifact.
 ///
 /// Tracks the language of subtitle files, how it was detected, and whether it's auto-generated.
