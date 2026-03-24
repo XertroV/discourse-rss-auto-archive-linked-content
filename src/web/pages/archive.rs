@@ -1642,22 +1642,30 @@ fn render_captures_section(
 }
 
 /// Render artifacts table section.
+/// Artifact kinds that are internal markers and should not be shown in the UI.
+const INTERNAL_ARTIFACT_KINDS: &[&str] = &["subtitle_backfill_attempted", "vtt_dedup_done"];
+
 fn render_artifacts_section(
     archive: &Archive,
     link: &Link,
     artifacts: &[ArchiveArtifact],
     subtitle_languages: &std::collections::HashMap<i64, SubtitleLanguage>,
 ) -> Markup {
-    if artifacts.is_empty() {
+    let visible: Vec<&ArchiveArtifact> = artifacts
+        .iter()
+        .filter(|a| !INTERNAL_ARTIFACT_KINDS.contains(&a.kind.as_str()))
+        .collect();
+
+    if visible.is_empty() {
         return html! {};
     }
 
-    let rows: Vec<Markup> = artifacts
+    let rows: Vec<Markup> = visible
         .iter()
         .map(|artifact| render_artifact_row(artifact, link, archive.id, subtitle_languages))
         .collect();
 
-    let total_size: i64 = artifacts.iter().filter_map(|a| a.size_bytes).sum();
+    let total_size: i64 = visible.iter().filter_map(|a| a.size_bytes).sum();
 
     html! {
         section {
