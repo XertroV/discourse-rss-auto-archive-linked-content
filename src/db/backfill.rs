@@ -324,7 +324,25 @@ pub async fn run_tiktok_subtitle_backfill_worker(
             // Insert marker artifact to prevent re-processing this archive.
             // The version is stored in s3_key so the query can filter by it;
             // bumping SUBTITLE_BACKFILL_VERSION forces a re-scan of old markers.
+            //
+            // Delete any pre-existing markers first to avoid accumulating duplicate
+            // rows across version bumps (old markers have s3_key='none', new ones
+            // have the version number).
             if should_mark && count == 0 {
+                if let Err(e) = sqlx::query(
+                    "DELETE FROM archive_artifacts WHERE archive_id = ? AND kind = 'subtitle_backfill_attempted'",
+                )
+                .bind(archive_id)
+                .execute(db.pool())
+                .await
+                {
+                    warn!(
+                        archive_id,
+                        error = %e,
+                        "Failed to delete old subtitle backfill markers"
+                    );
+                }
+
                 let version_key = SUBTITLE_BACKFILL_VERSION.to_string();
                 if let Err(e) = insert_artifact(
                     db.pool(),
