@@ -82,6 +82,8 @@ pub const METRICS_BACKFILL_VERSION: i64 = 1;
 ///   header → 403, language code mismatch `en` vs `eng-US`).
 /// - v2: Referer/Origin headers added, language wildcard `en.*` to match `eng-US`. Reset
 ///   all prior markers so affected archives are retried.
+/// - v3: Re-fetch fresh metadata via yt-dlp when saved CDN URLs have expired (common for
+///   TikTok time-limited subtitle URLs). Reset all prior markers so affected archives retry.
 pub const SUBTITLE_BACKFILL_VERSION: i64 = 3;
 
 /// Configuration for the backfill worker.
@@ -386,8 +388,8 @@ pub async fn run_tiktok_subtitle_backfill_worker(
 
 /// Backfill subtitles for a single TikTok archive.
 ///
-/// Returns the number of subtitle files downloaded, or 0 if none found/available.
-/// Returns -1 (cast to usize wraps) when we've attempted but found nothing (for marking).
+/// Returns `(count, should_mark_attempted)` where count is files downloaded and
+/// should_mark_attempted indicates whether to record this as a completed attempt.
 async fn backfill_tiktok_subtitles(
     db: &Database,
     s3: &S3Client,
@@ -450,6 +452,7 @@ async fn backfill_tiktok_subtitles(
         let work_dir =
             std::env::temp_dir().join(format!("tiktok-subtitle-backfill-{}", archive_id));
         std::fs::create_dir_all(&work_dir)?;
+        let s3_prefix = meta_s3_key.trim_end_matches("meta.json").to_string();
 
         // Download subtitles (English only for now)
         let filenames = match download_tiktok_subtitles(&subtitles, &work_dir, true).await {
@@ -486,8 +489,6 @@ async fn backfill_tiktok_subtitles(
                         match download_tiktok_subtitles(&fresh_subtitles, &work_dir, true).await {
                             Ok(fresh_files) if !fresh_files.is_empty() => {
                                 let count = fresh_files.len();
-                                let s3_prefix =
-                                    meta_s3_key.trim_end_matches("meta.json").to_string();
                                 process_subtitle_files(
                                     db,
                                     s3,
@@ -538,8 +539,6 @@ async fn backfill_tiktok_subtitles(
         let count = filenames.len();
 
         // Process and upload subtitle files
-        // Derive s3_prefix from meta_s3_key (strip "meta.json" suffix)
-        let s3_prefix = meta_s3_key.trim_end_matches("meta.json").to_string();
         process_subtitle_files(db, s3, archive_id, &filenames, &work_dir, &s3_prefix).await;
 
         // Clean up
