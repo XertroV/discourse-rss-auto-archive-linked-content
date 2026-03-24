@@ -11,12 +11,61 @@ use anyhow::Result;
 use tracing::{debug, info, warn};
 
 use crate::db::{
-    get_archives_needing_metrics_backfill, get_archives_needing_transcript_backfill,
-    get_tiktok_archives_needing_subtitle_backfill, get_youtube_archives_with_vtt_subtitles,
-    insert_artifact, set_archive_engagement_metrics, set_archive_transcript_text, Database,
-    EngagementMetrics,
+    create_archive_job, get_archives_needing_metrics_backfill,
+    get_archives_needing_transcript_backfill, get_tiktok_archives_needing_subtitle_backfill,
+    get_youtube_archives_with_vtt_subtitles, insert_artifact, set_archive_engagement_metrics,
+    set_archive_transcript_text, set_job_completed, set_job_failed, set_job_running,
+    set_job_skipped, ArchiveJobType, Database, EngagementMetrics,
 };
 use crate::s3::S3Client;
+
+/// Create a `SupplementaryArtifacts` job and mark it running. Returns the job ID.
+async fn start_backfill_job(db: &Database, archive_id: i64) -> Option<i64> {
+    match create_archive_job(
+        db.pool(),
+        archive_id,
+        ArchiveJobType::SupplementaryArtifacts,
+    )
+    .await
+    {
+        Ok(id) => {
+            if let Err(e) = set_job_running(db.pool(), id).await {
+                warn!(archive_id, error = %e, "Failed to set backfill job running");
+                None
+            } else {
+                Some(id)
+            }
+        }
+        Err(e) => {
+            warn!(archive_id, error = %e, "Failed to create backfill job");
+            None
+        }
+    }
+}
+
+async fn complete_backfill_job(db: &Database, job_id: Option<i64>, metadata: Option<&str>) {
+    if let Some(id) = job_id {
+        if let Err(e) = set_job_completed(db.pool(), id, metadata).await {
+            warn!(job_id = id, error = %e, "Failed to mark backfill job completed");
+        }
+    }
+}
+
+async fn fail_backfill_job(db: &Database, job_id: Option<i64>, error: &str) {
+    if let Some(id) = job_id {
+        if let Err(e) = set_job_failed(db.pool(), id, error).await {
+            warn!(job_id = id, error = %e, "Failed to mark backfill job failed");
+        }
+    }
+}
+
+async fn skip_backfill_job(db: &Database, job_id: Option<i64>, reason: &str) {
+    if let Some(id) = job_id {
+        if let Err(e) = set_job_skipped(db.pool(), id, Some(reason)).await {
+            warn!(job_id = id, error = %e, "Failed to mark backfill job skipped");
+        }
+    }
+}
 
 /// Bump this version to force re-scanning metrics for all archives.
 /// You can also pass a domain filter to `run_metrics_backfill` to re-scan a specific source.
@@ -122,36 +171,49 @@ async fn backfill_archive_transcript(
     archive_id: i64,
     s3_key: &str,
 ) -> Result<bool> {
-    // Fetch transcript from S3
-    let response = s3.get_object(s3_key).await?;
+    let job_id = start_backfill_job(db, archive_id).await;
 
-    let Some((bytes, _content_type)) = response else {
-        return Ok(false);
-    };
+    let result: Result<bool> = async {
+        // Fetch transcript from S3
+        let response = s3.get_object(s3_key).await?;
 
-    // Convert to UTF-8 text
-    let text = match String::from_utf8(bytes) {
-        Ok(text) => text,
-        Err(e) => {
-            warn!(
-                archive_id,
-                s3_key,
-                error = %e,
-                "Transcript is not valid UTF-8"
-            );
+        let Some((bytes, _content_type)) = response else {
+            return Ok(false);
+        };
+
+        // Convert to UTF-8 text
+        let text = match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(e) => {
+                warn!(
+                    archive_id,
+                    s3_key,
+                    error = %e,
+                    "Transcript is not valid UTF-8"
+                );
+                return Ok(false);
+            }
+        };
+
+        // Skip empty transcripts
+        if text.trim().is_empty() {
             return Ok(false);
         }
-    };
 
-    // Skip empty transcripts
-    if text.trim().is_empty() {
-        return Ok(false);
+        // Store in database
+        set_archive_transcript_text(db.pool(), archive_id, &text).await?;
+
+        Ok(true)
+    }
+    .await;
+
+    match &result {
+        Ok(true) => complete_backfill_job(db, job_id, None).await,
+        Ok(false) => skip_backfill_job(db, job_id, "Transcript not found or empty on S3").await,
+        Err(e) => fail_backfill_job(db, job_id, &e.to_string()).await,
     }
 
-    // Store in database
-    set_archive_transcript_text(db.pool(), archive_id, &text).await?;
-
-    Ok(true)
+    result
 }
 
 // ========== TikTok Subtitle Backfill ==========
@@ -299,83 +361,102 @@ async fn backfill_tiktok_subtitles(
     use crate::archiver::process_subtitle_files;
     use crate::handlers::tiktok::{download_tiktok_subtitles, extract_subtitle_info};
 
-    // Fetch meta.json from S3
-    let response = s3.get_object(meta_s3_key).await?;
+    let job_id = start_backfill_job(db, archive_id).await;
 
-    let Some((bytes, _content_type)) = response else {
-        debug!(archive_id, meta_s3_key, "meta.json not found in S3");
-        return Ok((0, true)); // Mark as attempted - no meta.json
-    };
+    let result = async {
+        // Fetch meta.json from S3
+        let response = s3.get_object(meta_s3_key).await?;
 
-    // Parse JSON
-    let meta_json = match String::from_utf8(bytes) {
-        Ok(json) => json,
-        Err(e) => {
-            warn!(
+        let Some((bytes, _content_type)) = response else {
+            debug!(archive_id, meta_s3_key, "meta.json not found in S3");
+            return Ok((0usize, true, "meta.json not found in S3")); // Mark as attempted - no meta.json
+        };
+
+        // Parse JSON
+        let meta_json = match String::from_utf8(bytes) {
+            Ok(json) => json,
+            Err(e) => {
+                warn!(
+                    archive_id,
+                    meta_s3_key,
+                    error = %e,
+                    "TikTok meta.json is not valid UTF-8"
+                );
+                return Ok((0, true, "meta.json is not valid UTF-8")); // Mark as attempted - invalid JSON
+            }
+        };
+
+        // Extract subtitle info
+        let subtitles = extract_subtitle_info(&meta_json);
+        if subtitles.is_empty() {
+            debug!(
                 archive_id,
-                meta_s3_key,
-                error = %e,
-                "TikTok meta.json is not valid UTF-8"
+                "No subtitles field in meta.json or subtitles object is empty"
             );
-            return Ok((0, true)); // Mark as attempted - invalid JSON
+            return Ok((0, true, "no subtitles in meta.json")); // Mark as attempted - no subtitles in JSON
         }
-    };
 
-    // Extract subtitle info
-    let subtitles = extract_subtitle_info(&meta_json);
-    if subtitles.is_empty() {
+        // Log what languages we found
+        let languages: Vec<&str> = subtitles.iter().map(|s| s.language_code.as_str()).collect();
+        let has_english = subtitles
+            .iter()
+            .any(|s| s.language_code.starts_with("eng-"));
         debug!(
             archive_id,
-            "No subtitles field in meta.json or subtitles object is empty"
+            languages = ?languages,
+            has_english,
+            "Found subtitles in TikTok meta.json"
         );
-        return Ok((0, true)); // Mark as attempted - no subtitles in JSON
-    }
 
-    // Log what languages we found
-    let languages: Vec<&str> = subtitles.iter().map(|s| s.language_code.as_str()).collect();
-    let has_english = subtitles
-        .iter()
-        .any(|s| s.language_code.starts_with("eng-"));
-    debug!(
-        archive_id,
-        languages = ?languages,
-        has_english,
-        "Found subtitles in TikTok meta.json"
-    );
+        // Create a temporary work directory
+        let work_dir =
+            std::env::temp_dir().join(format!("tiktok-subtitle-backfill-{}", archive_id));
+        std::fs::create_dir_all(&work_dir)?;
 
-    // Create a temporary work directory
-    let work_dir = std::env::temp_dir().join(format!("tiktok-subtitle-backfill-{}", archive_id));
-    std::fs::create_dir_all(&work_dir)?;
+        // Download subtitles (English only for now)
+        let filenames = match download_tiktok_subtitles(&subtitles, &work_dir, true).await {
+            Ok(files) => files,
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&work_dir);
+                return Err(e);
+            }
+        };
 
-    // Download subtitles (English only for now)
-    let filenames = match download_tiktok_subtitles(&subtitles, &work_dir, true).await {
-        Ok(files) => files,
-        Err(e) => {
+        if filenames.is_empty() {
+            debug!(
+                archive_id,
+                has_english, "No English subtitles downloaded (subtitles exist in other languages)"
+            );
             let _ = std::fs::remove_dir_all(&work_dir);
-            return Err(e);
+            return Ok((0, true, "no English subtitles available")); // Mark as attempted - no English subtitles
         }
-    };
 
-    if filenames.is_empty() {
-        debug!(
-            archive_id,
-            has_english, "No English subtitles downloaded (subtitles exist in other languages)"
-        );
+        let count = filenames.len();
+
+        // Process and upload subtitle files
+        // Derive s3_prefix from meta_s3_key (strip "meta.json" suffix)
+        let s3_prefix = meta_s3_key.trim_end_matches("meta.json").to_string();
+        process_subtitle_files(db, s3, archive_id, &filenames, &work_dir, &s3_prefix).await;
+
+        // Clean up
         let _ = std::fs::remove_dir_all(&work_dir);
-        return Ok((0, true)); // Mark as attempted - no English subtitles
+
+        Ok((count, true, "")) // Mark as attempted and we got subtitles!
+    }
+    .await;
+
+    match &result {
+        Ok((count, _, _)) if *count > 0 => {
+            let meta = format!("{{\"subtitle_count\":{}}}", count);
+            complete_backfill_job(db, job_id, Some(&meta)).await;
+        }
+        Ok((_, _, reason)) => {
+            skip_backfill_job(db, job_id, reason).await;
+        }
+        Err(e) => fail_backfill_job(db, job_id, &e.to_string()).await,
     }
 
-    let count = filenames.len();
-
-    // Process and upload subtitle files
-    // Derive s3_prefix from meta_s3_key (strip "meta.json" suffix)
-    let s3_prefix = meta_s3_key.trim_end_matches("meta.json").to_string();
-    process_subtitle_files(db, s3, archive_id, &filenames, &work_dir, &s3_prefix).await;
-
-    // Clean up
-    let _ = std::fs::remove_dir_all(&work_dir);
-
-    Ok((count, true)) // Mark as attempted and we got subtitles!
+    result.map(|(count, should_mark, _)| (count, should_mark))
 }
 
 // ========== YouTube VTT Dedup Backfill ==========
@@ -617,56 +698,70 @@ async fn backfill_youtube_vtt_dedup(
 ) -> Result<bool> {
     use crate::archiver::transcript::{generate_transcript, parse_vtt_content};
 
-    // Fetch VTT from S3
-    let response = s3.get_object(vtt_s3_key).await?;
-    let Some((bytes, _)) = response else {
-        debug!(archive_id, vtt_s3_key, "VTT file not found in S3");
-        return Ok(false);
-    };
+    let job_id = start_backfill_job(db, archive_id).await;
 
-    let vtt_content = match String::from_utf8(bytes) {
-        Ok(text) => text,
-        Err(e) => {
-            warn!(archive_id, vtt_s3_key, error = %e, "VTT is not valid UTF-8");
+    let result: Result<bool> = async {
+        // Fetch VTT from S3
+        let response = s3.get_object(vtt_s3_key).await?;
+        let Some((bytes, _)) = response else {
+            debug!(archive_id, vtt_s3_key, "VTT file not found in S3");
+            return Ok(false);
+        };
+
+        let vtt_content = match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(e) => {
+                warn!(archive_id, vtt_s3_key, error = %e, "VTT is not valid UTF-8");
+                return Ok(false);
+            }
+        };
+
+        // Parse with dedup logic
+        let cues = parse_vtt_content(&vtt_content);
+        let new_transcript = generate_transcript(&cues);
+
+        if new_transcript.trim().is_empty() {
             return Ok(false);
         }
-    };
 
-    // Parse with dedup logic
-    let cues = parse_vtt_content(&vtt_content);
-    let new_transcript = generate_transcript(&cues);
+        // Get existing transcript length from DB for comparison
+        let existing_len = sqlx::query_scalar::<_, i64>(
+            "SELECT LENGTH(transcript_text) FROM archives WHERE id = ?",
+        )
+        .bind(archive_id)
+        .fetch_optional(db.pool())
+        .await?
+        .unwrap_or(0);
 
-    if new_transcript.trim().is_empty() {
-        return Ok(false);
+        let new_len = new_transcript.len() as i64;
+
+        // Only update if new transcript is significantly shorter (< 60% of old = was triplicated)
+        if existing_len > 0 && new_len < (existing_len * 60 / 100) {
+            // Upload new transcript to S3
+            s3.upload_bytes(new_transcript.as_bytes(), transcript_s3_key, "text/plain")
+                .await?;
+
+            // Update DB
+            set_archive_transcript_text(db.pool(), archive_id, &new_transcript).await?;
+
+            info!(
+                archive_id,
+                old_len = existing_len,
+                new_len,
+                "Deduped YouTube transcript"
+            );
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+    .await;
+
+    match &result {
+        Ok(true) => complete_backfill_job(db, job_id, None).await,
+        Ok(false) => skip_backfill_job(db, job_id, "No significant change after dedup").await,
+        Err(e) => fail_backfill_job(db, job_id, &e.to_string()).await,
     }
 
-    // Get existing transcript length from DB for comparison
-    let existing_len =
-        sqlx::query_scalar::<_, i64>("SELECT LENGTH(transcript_text) FROM archives WHERE id = ?")
-            .bind(archive_id)
-            .fetch_optional(db.pool())
-            .await?
-            .unwrap_or(0);
-
-    let new_len = new_transcript.len() as i64;
-
-    // Only update if new transcript is significantly shorter (< 60% of old = was triplicated)
-    if existing_len > 0 && new_len < (existing_len * 60 / 100) {
-        // Upload new transcript to S3
-        s3.upload_bytes(new_transcript.as_bytes(), transcript_s3_key, "text/plain")
-            .await?;
-
-        // Update DB
-        set_archive_transcript_text(db.pool(), archive_id, &new_transcript).await?;
-
-        info!(
-            archive_id,
-            old_len = existing_len,
-            new_len,
-            "Deduped YouTube transcript"
-        );
-        return Ok(true);
-    }
-
-    Ok(false)
+    result
 }
